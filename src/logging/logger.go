@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ogen-app/harbor/src/config"
 )
@@ -66,6 +67,25 @@ func ParseLevel(s string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// Preview caps s to at most maxBytes bytes for safe logging of user- or
+// model-supplied free text, appending an ellipsis when truncated. It trims to a
+// valid UTF-8 boundary so the JSON handler never emits a split rune. Prefer this
+// (or a plain length attribute) over logging unbounded content — user input can
+// contain arbitrary, sensitive data.
+func Preview(s string, maxBytes int) string {
+	if maxBytes < 0 {
+		maxBytes = 0
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	b := s[:maxBytes]
+	for len(b) > 0 && !utf8.ValidString(b) {
+		b = b[:len(b)-1]
+	}
+	return b + "…"
 }
 
 // bridgeWriter adapts an io.Writer to slog for the stdlib log bridge. Each
