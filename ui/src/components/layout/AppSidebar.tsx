@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -23,6 +23,8 @@ import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
 import LogoSvg from "@/assets/logo.svg";
 import { SidebarSimpleIcon } from "@phosphor-icons/react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { logout } from "@/lib/auth";
 
 type NavItem = {
     icon:
@@ -47,6 +49,14 @@ const navItems: NavItem[] = [
 
 const STORAGE_KEY = "sidebar-collapsed";
 
+// initials derives up-to-two uppercase letters from a name, falling back to email.
+function initials(name: string, email: string): string {
+    const source = name.trim() || email;
+    const parts = source.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return source.slice(0, 2).toUpperCase();
+}
+
 interface AppSidebarProps {
     defaultCollapsed?: boolean;
     className?: string;
@@ -59,6 +69,19 @@ export function AppSidebar({
     const [collapsed, setCollapsed] = useState(defaultCollapsed);
     const activeHref = usePathname();
     const router = useRouter();
+    const { user } = useAuth();
+
+    const displayName = user?.name?.trim() || user?.email || "";
+    const displayEmail = user?.email ?? "";
+    const avatarInitials = initials(user?.name ?? "", user?.email ?? "");
+
+    const handleLogout = async () => {
+        try {
+            await logout();
+        } finally {
+            router.replace("/login");
+        }
+    };
 
     // Harbor serves the UI as a static export (no SSR), so restore the persisted
     // collapsed state on the client after mount instead of from a server cookie.
@@ -200,15 +223,18 @@ export function AppSidebar({
                             className="flex items-center gap-3 cursor-pointer overflow-hidden"
                         >
                             <Avatar className="size-9 shrink-0">
-                                <AvatarFallback>SH</AvatarFallback>
+                                {user?.picture ? (
+                                    <AvatarImage src={user.picture} alt={displayName} />
+                                ) : null}
+                                <AvatarFallback>{avatarInitials}</AvatarFallback>
                             </Avatar>
                             {!collapsed && (
                                 <div className="flex flex-col min-w-0">
                                     <p className="text-sm font-medium truncate">
-                                        Serhii H.
+                                        {displayName}
                                     </p>
                                     <p className="text-xs text-tertiary-foreground truncate">
-                                        serhii@daat.ua
+                                        {displayEmail}
                                     </p>
                                 </div>
                             )}
@@ -220,17 +246,17 @@ export function AppSidebar({
                         align="end"
                         sideOffset={8}
                     >
-                        <DropdownMenuLabel className="font-normal p-0" asChild>
+                        <DropdownMenuLabel className="harbor-current-user-info font-normal p-0" asChild>
                             <div className="flex flex-col space-y-1 mb-4">
                                 <div className="h-8 text-xl font-display font-medium truncate">
-                                    Serhii H.
+                                    {displayName}
                                 </div>
                                 <div className="text-sm leading-none text-tertiary-foreground">
-                                    serhii@daat.ua
+                                    {displayEmail}
                                 </div>
                             </div>
                         </DropdownMenuLabel>
-                        <DropdownMenuItem size="lg">
+                        <DropdownMenuItem size="lg" onClick={handleLogout}>
                             <LogOut className="size-4" />
                             <span>Log out</span>
                         </DropdownMenuItem>

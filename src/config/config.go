@@ -30,6 +30,23 @@ type Config struct {
 	// browser's view and no CORS is needed. Set this only if the UI is ever
 	// hosted on a separate origin. Must never be "*" while credentials are sent.
 	CORSAllowedOrigins string `envconfig:"CORS_ALLOWED_ORIGINS" default:""`
+
+	// ── Google OAuth login ──────────────────────────────────────────────────
+	// GoogleClientID / GoogleClientSecret come from the "Web application" OAuth
+	// client in Google Cloud Console. The client id is also surfaced to the UI
+	// (public) via GET /api/auth/config; the secret stays server-side and is
+	// used to exchange the popup authorization code for tokens. When either is
+	// empty, Google login is disabled and POST /api/auth/google returns 503.
+	GoogleClientID     string `envconfig:"GOOGLE_CLIENT_ID"     default:""`
+	GoogleClientSecret string `envconfig:"GOOGLE_CLIENT_SECRET" default:""`
+
+	// AuthAllowedEmails is the login allowlist: only these Google accounts may
+	// sign in (matched case-insensitively). Comma-separated; overridable via
+	// env. The default seeds the first operator.
+	AuthAllowedEmails string `envconfig:"AUTH_ALLOWED_EMAILS" default:""`
+
+	// SessionCookieName is the name of the HttpOnly session cookie.
+	SessionCookieName string `envconfig:"SESSION_COOKIE_NAME" default:"harbor_session"`
 }
 
 // Load reads the configuration from the process environment.

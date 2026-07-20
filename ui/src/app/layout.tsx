@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
-  title: "DA'AT Atlas Platform",
-  description: 'AI-powered delivery audit and management platform',
+  title: "Ogen' Harbor",
+  description: 'Control center for Ogen',
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: '32x32' },

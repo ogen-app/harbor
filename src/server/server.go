@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"io/fs"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -12,9 +13,11 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/uptrace/bun"
 
+	"github.com/ogen-app/harbor/src/auth"
 	"github.com/ogen-app/harbor/src/config"
 	"github.com/ogen-app/harbor/src/handlers"
 	"github.com/ogen-app/harbor/src/logging"
+	"github.com/ogen-app/harbor/src/repository"
 )
 
 // New builds the Fiber application. uiFS is the embedded Next.js static export
@@ -44,8 +47,25 @@ func New(_ context.Context, db *bun.DB, cfg *config.Config, uiFS fs.FS) (*fiber.
 		}))
 	}
 
+	// ── Repositories & auth ───────────────────────────────────────────────
+	userRepo := repository.NewUserRepository(db)
+	sessionRepo := repository.NewSessionRepository(db)
+	requireAuth := handlers.RequireAuth(sessionRepo, cfg.SessionCookieName)
+
+	// A genuinely nil interface when credentials are absent (see GoogleVerifier)
+	// so the login endpoint reports "not configured" rather than panicking.
+	var verifier handlers.GoogleVerifier
+	if v := auth.NewVerifier(cfg.GoogleClientID, cfg.GoogleClientSecret); v != nil {
+		verifier = v
+	}
+
 	// ── API routes ────────────────────────────────────────────────────────
 	handlers.NewHealthHandler(db).Register(app)
+	handlers.NewAuthHandler(
+		userRepo, sessionRepo, verifier,
+		strings.Split(cfg.AuthAllowedEmails, ","),
+		cfg.GoogleClientID, cfg.SessionCookieName,
+	).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route
