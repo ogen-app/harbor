@@ -1,0 +1,19 @@
+# Go build output
+/server
+/tmp/
+*.out
+
+# Local env
+.env
+
+# Embedded UI: ignore the built export but keep the placeholder so the module
+# always compiles. `make ui` regenerates the real assets here.
+/src/ui/dist/*
+!/src/ui/dist/index.html
+
+# Next.js build artifacts (the app lives in ui/ with its own .gitignore too)
+/ui/out/
+/ui/.next/
+/ui/next-env.d.ts
+
+.DS_Store

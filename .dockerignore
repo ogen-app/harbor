@@ -1,0 +1,15 @@
+.git
+tmp
+server
+*.out
+.env
+
+# Node / Next intermediates — the image rebuilds the export from source.
+ui/node_modules
+ui/.next
+ui/out
+
+# Placeholder embed artifact — the image stages the freshly built export.
+src/ui/dist
+
+.DS_Store

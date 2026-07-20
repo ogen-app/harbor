@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: harbor
+      POSTGRES_PASSWORD: harbor
+      POSTGRES_DB: harbor
+    ports:
+      - "5432:5432"
+    volumes:
+      - harbor-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harbor -d harbor"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  harbor:
+    build: .
+    environment:
+      ADDR: ":9002"
+      DATABASE_DSN: "postgres://harbor:harbor@postgres:5432/harbor?sslmode=disable"
+      DEBUG: "false"
+    ports:
+      - "9002:9002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  harbor-pg:

@@ -1,0 +1,12 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .bg { fill: #0a0a0a; }
+    .text { fill: #ffffff; font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace; font-size: 64px; font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #ffffff; }
+      .text { fill: #0a0a0a; }
+    }
+  </style>
+  <rect class="bg" width="128" height="128" rx="16" ry="16"/>
+  <text class="text" x="64" y="64" text-anchor="middle" dominant-baseline="central">AP</text>
+</svg>
