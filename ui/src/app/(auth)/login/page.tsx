@@ -34,7 +34,7 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="relative min-h-screen flex items-center justify-end overflow-hidden">
+        <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
             {/* Full-page background image */}
             <Image
                 src={loginBg}
@@ -44,11 +44,14 @@ export default function LoginPage() {
                 placeholder="blur"
                 quality={100}
                 sizes="100vw"
-                className="object-cover object-left"
+                className="object-cover object-center"
             />
 
+            {/* Dark vertical gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/30 to-black/80 pointer-events-none" />
+
             {/* Login card */}
-            <div className="relative z-10 w-full max-w-md mr-[8%] px-10 py-12 bg-primary rounded-sm shadow-lg space-y-10">
+            <div className="relative z-10 w-full max-w-md px-10 py-12 bg-primary rounded-sm shadow-lg space-y-10">
                 {/* Logo & title */}
                 <div className="space-y-4">
                     <div className="flex items-center gap-3">
