@@ -567,7 +567,7 @@ export function DatabaseStatus() {
 
     if (!data) {
         return (
-            <div className="rounded-lg border border-border bg-primary shadow-sm">
+            <div className="rounded-lg bg-primary">
                 {error ? (
                     <p className="p-6 text-sm text-destructive">
                         Failed to load database status: {error}
@@ -587,11 +587,11 @@ export function DatabaseStatus() {
     );
 
     return (
-        <div className="overflow-hidden rounded-lg border border-border bg-primary shadow-sm">
+        <div className="overflow-hidden rounded-lg bg-primary">
             {/* Header + auto-refresh control */}
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
-                <h2 className="flex items-center gap-2 text-lg font-medium text-foreground">
-                    <DatabaseIcon className="size-5" />
+                <h2 className="flex items-center gap-2 text-xl font-medium text-foreground">
+                    <DatabaseIcon className="size-6" />
                     Databases
                 </h2>
                 <div className="flex items-center gap-3">
@@ -629,7 +629,7 @@ export function DatabaseStatus() {
                         <p className="text-sm text-secondary-foreground">
                             Total database storage
                         </p>
-                        <p className="mt-1 font-display text-3xl font-semibold tabular-nums">
+                        <p className="mt-1 font-display text-2xl font-semibold tabular-nums">
                             {formatBytes(totalBytes)}
                         </p>
                     </div>

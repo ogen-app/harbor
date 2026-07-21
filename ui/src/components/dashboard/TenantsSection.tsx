@@ -277,7 +277,7 @@ function SpendTile({ s }: { s: Spend }) {
             ) : (
                 <>
                     <p className="font-display text-2xl font-semibold ">
-                        <div className="inline tabular-nums">{formatUSD(s.totalMicros)}</div>
+                        <span className="inline tabular-nums">{formatUSD(s.totalMicros)}</span>
                         <span className="text-sm font-normal text-tertiary-foreground pl-1">
                             {" "}
                             this month
@@ -382,10 +382,10 @@ export function TenantsSection() {
     const o = data?.overview;
 
     return (
-        <div className="overflow-hidden rounded-lg border border-border bg-primary shadow-sm">
+        <div className="overflow-hidden rounded-lg bg-primary ">
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
                 <h2 className="flex items-center gap-2 text-xl font-medium text-foreground">
-                    <CallBellIcon className="size-5" />
+                    <CallBellIcon className="size-6" />
                     Tenants
                 </h2>
                 {o && (
