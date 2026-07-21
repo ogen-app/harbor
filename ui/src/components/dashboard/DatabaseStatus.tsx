@@ -230,7 +230,7 @@ function LegendRow({
     return (
         <div className="flex items-center justify-between gap-3">
             <Dot color={color} label={label} />
-            <span className="font-medium tabular-nums text-foreground">{value}</span>
+            <span className="font-medium  text-foreground">{value}</span>
         </div>
     );
 }
@@ -261,7 +261,7 @@ function ConnectionsTile({ c }: { c: Connections }) {
             title="Connections"
             info="Backends in pg_stat_activity by state, against the server's max_connections. Many idle-in-transaction sessions hold locks and block vacuum."
         >
-            <p className="font-display text-2xl font-semibold tabular-nums">
+            <p className="font-display text-2xl font-semibold ">
                 {c.total}
                 <span className="text-base font-normal text-tertiary-foreground">
                     {" "}
@@ -302,11 +302,11 @@ function CacheTile({ c }: { c: Cache }) {
             title="Cache hit ratio"
             info="Share of block reads served from shared buffers — blks_hit / (blks_hit + blks_read) from pg_stat_database. Sustained low values mean disk I/O pressure."
         >
-            <p className="font-display text-2xl font-semibold tabular-nums">
+            <p className="font-display text-2xl font-semibold ">
                 {pct.toFixed(2)}%
             </p>
             <Bar className="mt-3" segments={[{ pct, className: tone }]} />
-            <p className="mt-2 text-xs tabular-nums text-secondary-foreground">
+            <p className="mt-2 text-xs  text-secondary-foreground">
                 {formatCompact(c.blksHit)} hit · {formatCompact(c.blksRead)} read
             </p>
         </Tile>
@@ -322,14 +322,14 @@ function TxidTile({ t }: { t: TxID }) {
             title="Txn ID age"
             info="Age of the oldest unfrozen transaction id — age(datfrozenxid). It approaches wraparound near ~2.1B; autovacuum should keep it low."
         >
-            <p className="font-display text-2xl font-semibold tabular-nums">
+            <p className="font-display text-2xl font-semibold ">
                 {formatCompact(t.age)}
             </p>
             <Bar
                 className="mt-3"
                 segments={[{ pct: Math.max(pct, 0.5), className: tone }]}
             />
-            <p className="mt-2 text-xs tabular-nums text-secondary-foreground">
+            <p className="mt-2 text-xs  text-secondary-foreground">
                 {pct < 0.01 ? "<0.01" : pct.toFixed(2)}% to wraparound
             </p>
         </Tile>
@@ -348,7 +348,7 @@ function WalTile({ w }: { w: WAL }) {
                     <span className="font-mono text-xs">{w.lsn || "—"}</span>
                 </Row>
                 <Row label="Replicas">
-                    <span className="tabular-nums">{w.replicas}</span>
+                    <span className="">{w.replicas}</span>
                 </Row>
             </div>
         </Tile>
@@ -378,7 +378,7 @@ function TablesPanel({ tables }: { tables: TableSize[] }) {
                             <span className="truncate font-medium text-foreground">
                                 {t.name}
                             </span>
-                            <span className="shrink-0 tabular-nums text-secondary-foreground">
+                            <span className="shrink-0  text-secondary-foreground">
                                 {formatBytes(t.totalBytes)}
                             </span>
                         </div>
@@ -425,7 +425,7 @@ function VacuumPanel({ vacuum }: { vacuum: VacuumStat[] }) {
                             <span className="truncate font-medium text-foreground">
                                 {v.name}
                             </span>
-                            <span className="flex shrink-0 items-center gap-3 tabular-nums">
+                            <span className="flex shrink-0 items-center gap-3 ">
                                 <span className={tone}>
                                     {formatCompact(v.deadTup)} dead ({deadPct.toFixed(0)}%)
                                 </span>
@@ -464,7 +464,7 @@ function RiverPanel({ river }: { river: River }) {
                         className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs"
                     >
                         <span className="text-secondary-foreground">{label}</span>
-                        <span className="font-semibold tabular-nums text-foreground">
+                        <span className="font-semibold  text-foreground">
                             {n}
                         </span>
                     </span>
@@ -499,7 +499,7 @@ function DbBlock({ d }: { d: DbStatus }) {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                 <StatusBadge connected={d.connected} />
                 <span className="text-secondary-foreground">{d.kind}</span>
-                <span className="tabular-nums text-secondary-foreground">
+                <span className=" text-secondary-foreground">
                     {formatBytes(d.sizeBytes)}
                 </span>
             </div>
@@ -590,8 +590,8 @@ export function DatabaseStatus() {
         <div className="overflow-hidden rounded-lg bg-primary">
             {/* Header + auto-refresh control */}
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
-                <h2 className="flex items-center gap-2 text-xl font-medium text-foreground">
-                    <DatabaseIcon className="size-6" />
+                <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
+                    <DatabaseIcon className="size-6" weight="bold" />
                     Databases
                 </h2>
                 <div className="flex items-center gap-3">
@@ -629,11 +629,11 @@ export function DatabaseStatus() {
                         <p className="text-sm text-secondary-foreground">
                             Total database storage
                         </p>
-                        <p className="mt-1 font-display text-2xl font-semibold tabular-nums">
+                        <p className="mt-1 font-display text-2xl font-semibold ">
                             {formatBytes(totalBytes)}
                         </p>
                     </div>
-                    <div className="flex flex-col gap-2 rounded-md border border-dashed border-border px-4 py-3">
+                    <div className="flex flex-col gap-2 rounded-lg bg-background px-4 py-3">
                         {data.map((d, i) => (
                             <div
                                 key={d.key}
@@ -643,7 +643,7 @@ export function DatabaseStatus() {
                                     color={d.connected ? SEGMENT[i] : "bg-tertiary"}
                                     label={d.label}
                                 />
-                                <span className="font-medium tabular-nums">
+                                <span className="font-medium ">
                                     {d.connected ? formatBytes(d.sizeBytes) : "—"}
                                 </span>
                             </div>

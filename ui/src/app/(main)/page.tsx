@@ -6,7 +6,7 @@ export default function DashboardPage() {
     return (
         <main className="flex-1 overflow-auto flex flex-col">
             <header className="h-20 border-b border-border flex items-center justify-between px-6 shrink-0">
-                <h1 className="greeting-message text-2xl font-display font-medium">
+                <h1 className="text-2xl font-display">
                     <GreetingMessage />
                 </h1>
             </header>
