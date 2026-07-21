@@ -27,6 +27,9 @@ interface SpendTenant {
     tenantId: string;
     name: string;
     costMicros: number;
+    anthropicMicros: number;
+    googleMicros: number;
+    otherMicros: number;
 }
 interface Spend {
     available: boolean;
@@ -268,6 +271,7 @@ function QuotaTile() {
 
 function SpendTile({ s }: { s: Spend }) {
     const maxCost = Math.max(1, ...s.top.map((t) => t.costMicros));
+    const hasOther = s.top.some((t) => t.otherMicros > 0);
     return (
         <Tile
             title="AI spend concentration"
@@ -286,6 +290,11 @@ function SpendTile({ s }: { s: Spend }) {
                             this month
                         </span>
                     </p>
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary-foreground">
+                        <Dot color="bg-orange-500" label="Anthropic" />
+                        <Dot color="bg-blue-500" label="Google" />
+                        {hasOther && <Dot color="bg-neutral-400" label="Other" />}
+                    </div>
                     <div className="mt-3 space-y-2">
                         {s.top.length === 0 && (
                             <p className="text-xs text-tertiary-foreground">
@@ -306,8 +315,16 @@ function SpendTile({ s }: { s: Spend }) {
                                     className="mt-1"
                                     segments={[
                                         {
-                                            pct: (t.costMicros / maxCost) * 100,
-                                            className: "bg-chart-1",
+                                            pct: (t.anthropicMicros / maxCost) * 100,
+                                            className: "bg-orange-500",
+                                        },
+                                        {
+                                            pct: (t.googleMicros / maxCost) * 100,
+                                            className: "bg-blue-500",
+                                        },
+                                        {
+                                            pct: (t.otherMicros / maxCost) * 100,
+                                            className: "bg-neutral-400",
                                         },
                                     ]}
                                 />

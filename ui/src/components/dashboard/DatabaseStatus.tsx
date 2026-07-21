@@ -192,7 +192,7 @@ function Bar({ segments, className }: { segments: Seg[]; className?: string }) {
     return (
         <div
             className={cn(
-                "flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-secondary",
+                "flex h-2 w-full gap-0.5 overflow-hidden bg-secondary",
                 className,
             )}
         >
@@ -650,7 +650,7 @@ export function DatabaseStatus() {
                         ))}
                     </div>
                 </div>
-                <div className="mt-5 flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-secondary">
+                <div className="mt-5 flex h-2 w-full gap-0.5 overflow-hidden bg-secondary">
                     {data.map((d, i) => {
                         const pct =
                             totalBytes > 0 && d.connected

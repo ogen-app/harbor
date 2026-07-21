@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 
 import AiStudioIcon from '@/assets/icons/ai_studio.svg'
 import ClaudeIcon from '@/assets/icons/claude.svg'
+import CloudflareIcon from '@/assets/icons/cloudflare.svg'
 import GithubIcon from '@/assets/icons/github.svg'
 import ArrowDownPointedIcon from '@/assets/icons/arrow_down_pointed.svg'
 import ArrowLeftIcon from '@/assets/icons/arrow_left.svg'
@@ -53,6 +54,7 @@ import XMarkIcon from '@/assets/icons/x_mark.svg'
 export type IconName =
   | 'ai_studio'
   | 'claude'
+  | 'cloudflare'
   | 'github'
   | 'arrow_down_pointed'
   | 'arrow_left'
@@ -110,6 +112,7 @@ type SvgComponent = ComponentType<SVGProps<SVGSVGElement>>
 const icons: Record<IconName, SvgComponent> = {
   ai_studio: AiStudioIcon,
   claude: ClaudeIcon,
+  cloudflare: CloudflareIcon,
   github: GithubIcon,
   arrow_down_pointed: ArrowDownPointedIcon,
   arrow_left: ArrowLeftIcon,

@@ -68,7 +68,7 @@ export function Bar({
     return (
         <div
             className={cn(
-                "flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-secondary",
+                "flex h-2 w-full gap-0.5 overflow-hidden bg-secondary",
                 className,
             )}
         >

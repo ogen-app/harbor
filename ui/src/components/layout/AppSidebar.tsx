@@ -332,6 +332,30 @@ export function AppSidebar({
                         GitHub
                     </span>
                 </a>
+
+                <a
+                    href="https://dash.cloudflare.com/17efea3963b045025b9ecbdcad609273/r2/overview"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                    )}
+                >
+                    <Icon
+                        name="cloudflare"
+                        className="size-5 shrink-0 stroke-[1.5]"
+                    />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Cloudflare R2
+                    </span>
+                </a>
             </nav>
 
             {/* Footer / User */}

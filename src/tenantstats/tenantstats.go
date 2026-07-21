@@ -8,6 +8,8 @@ package tenantstats
 import (
 	"context"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -49,9 +51,12 @@ type Activity struct {
 }
 
 type SpendTenant struct {
-	TenantID   string `bun:"tenant_id"  json:"tenantId"`
-	Name       string `bun:"-"          json:"name"`
-	CostMicros int64  `bun:"cost_micros" json:"costMicros"`
+	TenantID        string `json:"tenantId"`
+	Name            string `json:"name"`
+	CostMicros      int64  `json:"costMicros"`
+	AnthropicMicros int64  `json:"anthropicMicros"`
+	GoogleMicros    int64  `json:"googleMicros"`
+	OtherMicros     int64  `json:"otherMicros"`
 }
 
 // Spend is the current billing period's AI cost concentration, from the
@@ -140,19 +145,53 @@ func collectSpend(ctx context.Context, ogenDB, analyticsDB *bun.DB, out *Spend) 
 		SELECT COALESCE(sum(cost_micros), 0) FROM usage_events
 		WHERE occurred_at >= date_trunc('month', now())`).Scan(ctx, &out.TotalMicros))
 
-	var top []SpendTenant
+	// Per-tenant, per-vendor spend for the period, aggregated in Go so each
+	// tenant's bar can be split by model vendor (Anthropic / Google / other)
+	// while tenants are still ranked by total.
+	var rows []struct {
+		TenantID   string `bun:"tenant_id"`
+		Vendor     string `bun:"vendor"`
+		CostMicros int64  `bun:"cost_micros"`
+	}
 	err := analyticsDB.NewRaw(`
-		SELECT tenant_id, sum(cost_micros) AS cost_micros
+		SELECT tenant_id, vendor, sum(cost_micros) AS cost_micros
 		FROM usage_events
 		WHERE occurred_at >= date_trunc('month', now())
-		GROUP BY tenant_id
-		ORDER BY cost_micros DESC
-		LIMIT 5`).Scan(ctx, &top)
+		GROUP BY tenant_id, vendor`).Scan(ctx, &rows)
 	if err != nil {
-		logFail("spend.top", err)
+		logFail("spend.byvendor", err)
 		return
 	}
 	out.Available = true
+
+	byTenant := map[string]*SpendTenant{}
+	var order []string
+	for _, r := range rows {
+		t := byTenant[r.TenantID]
+		if t == nil {
+			t = &SpendTenant{TenantID: r.TenantID}
+			byTenant[r.TenantID] = t
+			order = append(order, r.TenantID)
+		}
+		t.CostMicros += r.CostMicros
+		switch classifyVendor(r.Vendor) {
+		case "anthropic":
+			t.AnthropicMicros += r.CostMicros
+		case "google":
+			t.GoogleMicros += r.CostMicros
+		default:
+			t.OtherMicros += r.CostMicros
+		}
+	}
+
+	top := make([]SpendTenant, 0, len(order))
+	for _, id := range order {
+		top = append(top, *byTenant[id])
+	}
+	sort.SliceStable(top, func(i, j int) bool { return top[i].CostMicros > top[j].CostMicros })
+	if len(top) > 5 {
+		top = top[:5]
+	}
 
 	// Map tenant ids → names from the Ogen DB (cross-database, so joined here).
 	names := tenantNames(ctx, ogenDB)
@@ -164,6 +203,19 @@ func collectSpend(ctx context.Context, ogenDB, analyticsDB *bun.DB, out *Spend) 
 		}
 	}
 	out.Top = top
+}
+
+// classifyVendor maps a usage_events vendor string to a model-family bucket.
+func classifyVendor(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch {
+	case strings.Contains(v, "anthropic") || strings.Contains(v, "claude"):
+		return "anthropic"
+	case strings.Contains(v, "gemini") || strings.Contains(v, "google") || strings.Contains(v, "vertex"):
+		return "google"
+	default:
+		return "other"
+	}
 }
 
 func tenantNames(ctx context.Context, ogenDB *bun.DB) map[string]string {
