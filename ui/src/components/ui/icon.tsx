@@ -1,6 +1,9 @@
 import { type SVGProps, type ComponentType } from 'react'
 import { cn } from '@/lib/utils'
 
+import AiStudioIcon from '@/assets/icons/ai_studio.svg'
+import ClaudeIcon from '@/assets/icons/claude.svg'
+import GithubIcon from '@/assets/icons/github.svg'
 import ArrowDownPointedIcon from '@/assets/icons/arrow_down_pointed.svg'
 import ArrowLeftIcon from '@/assets/icons/arrow_left.svg'
 import ArrowRightIcon from '@/assets/icons/arrow_right.svg'
@@ -34,6 +37,7 @@ import NavStrategyIcon from '@/assets/icons/nav_strategy.svg'
 import NavSettingsIcon from '@/assets/icons/nav_settings.svg'
 import NavWatchlistIcon from '@/assets/icons/nav_watchlist.svg'
 import PlusIcon from '@/assets/icons/plus.svg'
+import RailwayIcon from '@/assets/icons/railway.svg'
 import SearchIcon from '@/assets/icons/search.svg'
 import SearchAnimateIcon from '@/assets/icons/search_animate.svg'
 import SettingsIcon from '@/assets/icons/settings.svg'
@@ -47,6 +51,9 @@ import WidgetMinimizeIcon from '@/assets/icons/widget_minimize.svg'
 import XMarkIcon from '@/assets/icons/x_mark.svg'
 
 export type IconName =
+  | 'ai_studio'
+  | 'claude'
+  | 'github'
   | 'arrow_down_pointed'
   | 'arrow_left'
   | 'arrow_right'
@@ -80,6 +87,7 @@ export type IconName =
   | 'nav_strategy'
   | 'nav_watchlist'
   | 'plus'
+  | 'railway'
   | 'search'
   | 'search_animate'
   | 'settings'
@@ -100,6 +108,9 @@ export type IconProps = {
 type SvgComponent = ComponentType<SVGProps<SVGSVGElement>>
 
 const icons: Record<IconName, SvgComponent> = {
+  ai_studio: AiStudioIcon,
+  claude: ClaudeIcon,
+  github: GithubIcon,
   arrow_down_pointed: ArrowDownPointedIcon,
   arrow_left: ArrowLeftIcon,
   arrow_right: ArrowRightIcon,
@@ -133,6 +144,7 @@ const icons: Record<IconName, SvgComponent> = {
   nav_strategy: NavStrategyIcon,
   nav_watchlist: NavWatchlistIcon,
   plus: PlusIcon,
+  railway: RailwayIcon,
   search: SearchIcon,
   search_animate: SearchAnimateIcon,
   settings: SettingsIcon,

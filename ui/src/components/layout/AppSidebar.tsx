@@ -147,7 +147,12 @@ export function AppSidebar({
             </div>
 
             {/* Navigation */}
-            <nav className="flex flex-col gap-1 flex-1 p-3 lg:p-6 -ml-2">
+            <nav
+                className={cn(
+                    "flex flex-col gap-1 flex-1 p-3 lg:p-6",
+                    !collapsed && "-ml-2",
+                )}
+            >
                 {navItems.map((item) => {
                     const isActive = activeHref.startsWith(item.href);
                     return (
@@ -155,7 +160,8 @@ export function AppSidebar({
                             key={item.href}
                             href={item.href}
                             className={cn(
-                                "flex items-center gap-2.5 rounded-xs px-2.5 py-2 text-sm transition-colors",
+                                "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                                collapsed ? "justify-center gap-0" : "gap-2.5",
                                 "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
                                 isActive &&
                                     "bg-sidebar-secondary text-secondary-foreground icon-sidebar-active",
@@ -177,6 +183,7 @@ export function AppSidebar({
                     );
                 })}
 
+                {/* System group */}
                 <div
                     className={cn(
                         "relative h-10 flex items-center overflow-hidden transition-all duration-200",
@@ -194,7 +201,8 @@ export function AppSidebar({
                 <a
                     href="/settings"
                     className={cn(
-                        "flex items-center gap-2.5 rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
                         "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
                         activeHref.startsWith("/settings") &&
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
@@ -211,6 +219,117 @@ export function AppSidebar({
                         )}
                     >
                         Settings
+                    </span>
+                </a>
+
+                {/* Links group */}
+                <div
+                    className={cn(
+                        "relative h-10 flex items-center overflow-hidden transition-all duration-200",
+                        collapsed
+                            ? "opacity-0 pointer-events-none"
+                            : "opacity-100",
+                    )}
+                >
+                    <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
+                    <span className="absolute px-3 text-[11px] font-medium tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
+                        LINKS
+                    </span>
+                </div>
+
+                <a
+                    href="https://railway.com/project/e475ca33-45d9-4dd1-b996-b4292ff20378"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                    )}
+                >
+                    <Icon
+                        name="railway"
+                        className="size-5 shrink-0 stroke-[1.5]"
+                    />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Railway
+                    </span>
+                </a>
+
+                <a
+                    href="https://aistudio.google.com/usage?timeRange=last-7-days&project=gen-lang-client-0756755976"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                    )}
+                >
+                    <Icon
+                        name="ai_studio"
+                        className="size-5 shrink-0 stroke-[1.5]"
+                    />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Google AI Studio
+                    </span>
+                </a>
+
+                <a
+                    href="https://platform.claude.com/usage"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                    )}
+                >
+                    <Icon
+                        name="claude"
+                        className="size-5 shrink-0 stroke-[1.5]"
+                    />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Claude Console
+                    </span>
+                </a>
+
+                <a
+                    href="https://github.com/ogen-app"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                    )}
+                >
+                    <Icon
+                        name="github"
+                        className="size-5 shrink-0 stroke-[1.5]"
+                    />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        GitHub
                     </span>
                 </a>
             </nav>
