@@ -75,7 +75,7 @@ interface DbStatus {
 }
 
 // How often the status auto-refreshes.
-const REFRESH_SECONDS = 30;
+const REFRESH_SECONDS = 120;
 
 // Per-database colour for the storage bar segment and its legend dot.
 const SEGMENT = ["bg-chart-1", "bg-chart-2"] as const;

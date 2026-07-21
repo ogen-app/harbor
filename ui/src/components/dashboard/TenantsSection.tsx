@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { CallBellIcon } from "@phosphor-icons/react";
 import { Loader } from "@/components/ui/loader";
@@ -53,6 +53,9 @@ interface OverviewResponse {
     overview?: Overview;
 }
 
+// How often the overview auto-refreshes.
+const REFRESH_SECONDS = 120;
+
 // ── formatters ──────────────────────────────────────────────────────────────
 
 function formatUSD(micros: number): string {
@@ -88,7 +91,7 @@ function LegendRow({
 function Donut({
     segments,
     size = 88,
-    thickness = 13,
+    thickness = 8,
 }: {
     segments: { value: number; className: string }[];
     size?: number;
@@ -360,24 +363,42 @@ function ExceptionStrip({ e }: { e: Exceptions }) {
 export function TenantsSection() {
     const [data, setData] = useState<OverviewResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [refreshing, setRefreshing] = useState(false);
+    const [countdown, setCountdown] = useState(REFRESH_SECONDS);
 
-    useEffect(() => {
-        let active = true;
-        fetch("/api/tenants/overview")
-            .then((r) => {
-                if (!r.ok) throw new Error(`request failed (${r.status})`);
-                return r.json();
-            })
-            .then((j: OverviewResponse) => {
-                if (active) setData(j);
-            })
-            .catch((e: unknown) => {
-                if (active) setError(e instanceof Error ? e.message : "Failed to load");
-            });
-        return () => {
-            active = false;
-        };
+    const load = useCallback(async () => {
+        setRefreshing(true);
+        setCountdown(REFRESH_SECONDS); // reset immediately so the timer doesn't re-fire
+        try {
+            const r = await fetch("/api/tenants/overview");
+            if (!r.ok) throw new Error(`request failed (${r.status})`);
+            setData((await r.json()) as OverviewResponse);
+            setError(null);
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : "Failed to load");
+        } finally {
+            setRefreshing(false);
+        }
     }, []);
+
+    // Initial load.
+    useEffect(() => {
+        void load();
+    }, [load]);
+
+    // 1s ticker for the countdown.
+    useEffect(() => {
+        const id = setInterval(
+            () => setCountdown((c) => (c > 0 ? c - 1 : 0)),
+            1000,
+        );
+        return () => clearInterval(id);
+    }, []);
+
+    // Auto-refresh when the countdown elapses (load() resets it).
+    useEffect(() => {
+        if (countdown === 0) void load();
+    }, [countdown, load]);
 
     const o = data?.overview;
 
@@ -388,21 +409,48 @@ export function TenantsSection() {
                     <CallBellIcon className="size-6" weight="bold" />
                     Tenants
                 </h2>
-                {o && (
-                    <span className="text-xs text-tertiary-foreground">
-                        {o.headline.total} total
-                    </span>
-                )}
+                <div className="flex items-center gap-4">
+                    {o && (
+                        <span className="text-xs text-tertiary-foreground">
+                            {o.headline.total} total
+                        </span>
+                    )}
+                    {error && o && (
+                        <span className="text-xs text-destructive">Refresh failed</span>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => void load()}
+                        disabled={refreshing}
+                        aria-label="Refresh now"
+                        className="inline-flex items-center gap-1.5 text-xs text-tertiary-foreground transition-colors hover:text-foreground"
+                    >
+                        {refreshing ? (
+                            <>
+                                <Loader className="size-3.5 border-[1.5px]" />
+                                <span className="leading-none">Refreshing…</span>
+                            </>
+                        ) : (
+                            <span className="leading-none">Refreshes in {countdown}s</span>
+                        )}
+                    </button>
+                </div>
             </div>
 
-            {error || (data && !data.available) ? (
-                <p className="p-6 text-sm text-tertiary-foreground">
-                    Tenants unavailable — {error || data?.error || "Ogen database not reachable"}
-                </p>
-            ) : !o ? (
-                <div className="flex items-center justify-center py-12 text-secondary-foreground">
-                    <Loader className="size-6" />
-                </div>
+            {!o ? (
+                data && !data.available ? (
+                    <p className="p-6 text-sm text-tertiary-foreground">
+                        Tenants unavailable — {data.error || "Ogen database not reachable"}
+                    </p>
+                ) : error ? (
+                    <p className="p-6 text-sm text-tertiary-foreground">
+                        Tenants unavailable — {error}
+                    </p>
+                ) : (
+                    <div className="flex items-center justify-center py-12 text-secondary-foreground">
+                        <Loader className="size-6" />
+                    </div>
+                )
             ) : (
                 <div className="space-y-4 p-6">
                     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
