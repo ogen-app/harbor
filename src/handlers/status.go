@@ -5,6 +5,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/uptrace/bun"
+
+	"github.com/ogen-app/harbor/src/dbstats"
 )
 
 // StatusHandler reports live connectivity + size of the external databases
@@ -25,12 +27,13 @@ func (h *StatusHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 }
 
 type dbStatus struct {
-	Key       string `json:"key"`
-	Label     string `json:"label"`
-	Kind      string `json:"kind"`
-	Connected bool   `json:"connected"`
-	SizeBytes int64  `json:"sizeBytes"`
-	Error     string `json:"error,omitempty"`
+	Key       string         `json:"key"`
+	Label     string         `json:"label"`
+	Kind      string         `json:"kind"`
+	Connected bool           `json:"connected"`
+	SizeBytes int64          `json:"sizeBytes"`
+	Error     string         `json:"error,omitempty"`
+	Stats     *dbstats.Stats `json:"stats,omitempty"`
 }
 
 // Databases godoc
@@ -44,8 +47,9 @@ type dbStatus struct {
 func (h *StatusHandler) Databases(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"databases": []dbStatus{
-			probeDB(c.Context(), "ogen", "Ogen database", "PostgreSQL", h.ogenDB),
-			probeDB(c.Context(), "analytics", "Analytics database", "TimescaleDB", h.analyticsDB),
+			// River queue depth is only collected for the Ogen database.
+			probeDB(c.Context(), "ogen", "Ogen database", "PostgreSQL", h.ogenDB, true),
+			probeDB(c.Context(), "analytics", "Analytics database", "TimescaleDB", h.analyticsDB, false),
 		},
 	})
 }
@@ -53,7 +57,7 @@ func (h *StatusHandler) Databases(c *fiber.Ctx) error {
 // probeDB pings the pool and, when reachable, reads the database's on-disk size.
 // A nil pool or any error is reported (never fatal) so the UI can render a
 // disconnected state.
-func probeDB(ctx context.Context, key, label, kind string, db *bun.DB) dbStatus {
+func probeDB(ctx context.Context, key, label, kind string, db *bun.DB, includeRiver bool) dbStatus {
 	s := dbStatus{Key: key, Label: label, Kind: kind}
 	if db == nil {
 		s.Error = "not configured"
@@ -71,5 +75,6 @@ func probeDB(ctx context.Context, key, label, kind string, db *bun.DB) dbStatus 
 		return s
 	}
 	s.SizeBytes = size
+	s.Stats = dbstats.Collect(ctx, db, includeRiver)
 	return s
 }

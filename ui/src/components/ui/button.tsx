@@ -55,7 +55,7 @@ const buttonVariants = cva(
                 defaultIcon: "h-10 p-0 w-10 justify-center",
                 xsIcon: "h-4 p-0 justify-center",
                 sm: "h-8 pt-[11px] pb-2 px-3",
-                smIcon: "h-8 p-0 pb-1.5 pr-1 w-8 justify-center",
+                smIcon: "h-8 p-0 w-8 justify-center",
                 lg: "h-10 pt-[13px] pb-3 px-4",
                 lgIcon: "h-10 p-0 w-10 justify-center",
                 xl: "h-11 pt-[17px] pb-4 px-6",
