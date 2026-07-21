@@ -22,8 +22,10 @@ import (
 
 // New builds the Fiber application. uiFS is the embedded Next.js static export
 // (see src/ui); it is served for every route not claimed by an API handler, so
-// Harbor runs as a single binary.
-func New(_ context.Context, db *bun.DB, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
+// Harbor runs as a single binary. ogenDB and analyticsDB are pools to Ogen's
+// (external) control-plane and analytics databases — either may be nil when
+// Ogen is unreachable; they are held for forthcoming Ogen-backed handlers.
+func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: defaultErrorHandler,
 	})
@@ -66,6 +68,7 @@ func New(_ context.Context, db *bun.DB, cfg *config.Config, uiFS fs.FS) (*fiber.
 		strings.Split(cfg.AuthAllowedEmails, ","),
 		cfg.GoogleClientID, cfg.SessionCookieName,
 	).Register(app, requireAuth)
+	handlers.NewStatusHandler(ogenDB, analyticsDB).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route

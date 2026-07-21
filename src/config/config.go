@@ -23,6 +23,17 @@ type Config struct {
 	DBMaxOpenConns int `envconfig:"DB_MAX_OPEN_CONNS" default:"25"`
 	DBMaxIdleConns int `envconfig:"DB_MAX_IDLE_CONNS" default:"5"`
 
+	// ── External databases (owned by ../ogen; Harbor connects but NEVER
+	// migrates them) ─────────────────────────────────────────────────────────
+	// OgenDSN is Ogen's control-plane Postgres — Harbor reads/writes it to
+	// operate on Ogen's data. AnalyticsDSN is Ogen's isolated analytics
+	// database (TimescaleDB). Both defaults are the exact DSNs from ../ogen and
+	// use its docker-compose service hostnames; running on the host, override to
+	// localhost:5432 (ogen) and localhost:5433 (timescale). Empty disables the
+	// connection.
+	OgenDSN      string `envconfig:"OGEN_DATABASE_DSN" default:"postgres://ogen:ogen@postgres:5432/ogen?sslmode=disable"`
+	AnalyticsDSN string `envconfig:"ANALYTICS_DSN"     default:"postgres://ogen:ogen@timescaledb:5432/ogen_analytics?sslmode=disable"`
+
 	// CORS allowlist for a decoupled UI origin. Empty (the default) disables
 	// the CORS middleware entirely — the production build serves the UI from
 	// the same origin as the API (single binary, embedded export), and

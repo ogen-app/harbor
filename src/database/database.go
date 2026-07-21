@@ -20,9 +20,11 @@ const (
 	defaultMaxIdleConns = 5
 )
 
-// New opens a Postgres connection pool via the pgx stdlib driver and wraps it
-// with bun using the Postgres dialect.
-func New(dsn string, debug bool) (*bun.DB, error) {
+// Open builds a bun Postgres pool via the pgx stdlib driver WITHOUT verifying
+// connectivity — sql.Open is lazy, so the pool is usable even while the server
+// is unreachable and it reconnects on first use. Use this for externally-owned
+// databases whose availability should not block boot.
+func Open(dsn string, debug bool) (*bun.DB, error) {
 	sqldb, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
@@ -37,9 +39,18 @@ func New(dsn string, debug bool) (*bun.DB, error) {
 		db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithVerbose(true)))
 	}
 
+	return db, nil
+}
+
+// New opens the pool (see Open) and pings it, so a connection failure surfaces
+// at boot. Used for Harbor's own database.
+func New(dsn string, debug bool) (*bun.DB, error) {
+	db, err := Open(dsn, debug)
+	if err != nil {
+		return nil, err
+	}
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
-
 	return db, nil
 }

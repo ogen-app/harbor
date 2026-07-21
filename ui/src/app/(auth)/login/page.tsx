@@ -48,7 +48,7 @@ export default function LoginPage() {
             />
 
             {/* Dark vertical gradient overlay */}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/30 to-black/80 pointer-events-none" />
+            <div className="absolute inset-0 bg-linear-to-b from-black/70 via-black/30 to-black/80 pointer-events-none" />
 
             {/* Login card */}
             <div className="relative z-10 w-full max-w-md px-10 py-12 bg-primary rounded-sm shadow-lg space-y-10">
@@ -58,9 +58,6 @@ export default function LoginPage() {
                         <div className="h-12 w-12 bg-black font-mono font-semibold text-white text-base flex items-center justify-center leading-tight">
                             HRB
                         </div>
-                        {/*<span className="font-display text-2xl font-semibold tracking-tight uppercase">
-
-                        </span>*/}
                     </div>
                     <p className="font-display text-2xl font-semibold tracking-tight">
                         Ogen' Harbor

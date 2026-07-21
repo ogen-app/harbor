@@ -35,7 +35,8 @@ type NavItem = {
         | "nav_journal"
         | "nav_screening"
         | "nav_strategy"
-        | "nav_watchlist";
+        | "nav_watchlist"
+        | "layout";
     label: string;
     href: string;
     active?: boolean;
@@ -44,6 +45,7 @@ type NavItem = {
 const navItems: NavItem[] = [
     { icon: "nav_portfolios", label: "Audits", href: "/audits" },
     { icon: "nav_watchlist", label: "Documents", href: "/documents" },
+    { icon: "layout", label: "Design system", href: "/design-system" },
     // { icon: "nav_ideas", label: "Content Bank", href: "/content-bank" },
 ];
 

@@ -15,6 +15,8 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/uptrace/bun"
+
 	"github.com/ogen-app/harbor/src/config"
 	"github.com/ogen-app/harbor/src/database"
 	"github.com/ogen-app/harbor/src/logging"
@@ -46,12 +48,25 @@ func main() {
 		fatal("run migrations", err)
 	}
 
+	// External databases owned by ../ogen: the control-plane DB (read/write) and
+	// the analytics TimescaleDB. Harbor connects but never migrates them. A
+	// connect failure is non-fatal (fail-open) so Harbor still serves its own
+	// UI/auth when Ogen is unreachable; the pool is nil until reachable.
+	ogenDB := connectExternal("ogen", cfg.OgenDSN, cfg.Debug)
+	if ogenDB != nil {
+		defer ogenDB.Close()
+	}
+	analyticsDB := connectExternal("ogen-analytics", cfg.AnalyticsDSN, cfg.Debug)
+	if analyticsDB != nil {
+		defer analyticsDB.Close()
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}
@@ -60,6 +75,32 @@ func main() {
 	if err := app.Listen(cfg.Addr); err != nil {
 		fatal("server exited", err)
 	}
+}
+
+// connectExternal opens a read/write pool to an externally-owned Postgres
+// (Ogen's control-plane or analytics DB). It never runs migrations. The pool is
+// opened lazily so it persists and reconnects even if the database is down at
+// boot — the status endpoint reports live reachability. An empty DSN returns
+// nil; a probe failure is logged but non-fatal.
+func connectExternal(name, dsn string, debug bool) *bun.DB {
+	if dsn == "" {
+		slog.Info("external database disabled (empty DSN)", logging.AttrComponent, "boot", "db", name)
+		return nil
+	}
+	db, err := database.Open(dsn, debug)
+	if err != nil {
+		slog.Warn("external database open failed (continuing)",
+			logging.AttrComponent, "boot", "db", name, logging.AttrError, err)
+		return nil
+	}
+	// Probe once for a boot-time signal; the pool persists and reconnects on use.
+	if err := db.PingContext(context.Background()); err != nil {
+		slog.Warn("external database unreachable at boot (will retry on use)",
+			logging.AttrComponent, "boot", "db", name, logging.AttrError, err)
+	} else {
+		slog.Info("connected to external database", logging.AttrComponent, "boot", "db", name)
+	}
+	return db
 }
 
 // fatal logs an unrecoverable boot error at ERROR level and exits non-zero.
