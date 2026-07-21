@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { DatabaseIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/ui/icon";
 import {
     Tooltip,
@@ -589,7 +590,10 @@ export function DatabaseStatus() {
         <div className="overflow-hidden rounded-lg border border-border bg-primary shadow-sm">
             {/* Header + auto-refresh control */}
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
-                <h2 className="text-lg font-medium text-foreground">Databases</h2>
+                <h2 className="flex items-center gap-2 text-lg font-medium text-foreground">
+                    <DatabaseIcon className="size-5" />
+                    Databases
+                </h2>
                 <div className="flex items-center gap-3">
                     {error && (
                         <span className="text-xs text-destructive">Refresh failed</span>

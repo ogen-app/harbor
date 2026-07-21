@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { CallBellIcon } from "@phosphor-icons/react";
 import { Loader } from "@/components/ui/loader";
 import { Tile, Bar, Dot, SectionTitle } from "@/components/dashboard/primitives";
 
@@ -83,33 +84,99 @@ function LegendRow({
     );
 }
 
+// Donut renders a multi-segment ring from stroke-dashed circles (no chart lib).
+function Donut({
+    segments,
+    size = 88,
+    thickness = 13,
+}: {
+    segments: { value: number; className: string }[];
+    size?: number;
+    thickness?: number;
+}) {
+    const total = segments.reduce((sum, s) => sum + s.value, 0);
+    const r = (size - thickness) / 2;
+    const c = 2 * Math.PI * r;
+    let offset = 0;
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox={`0 0 ${size} ${size}`}
+            className="-rotate-90"
+        >
+            <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                strokeWidth={thickness}
+                className="stroke-secondary"
+            />
+            {total > 0 &&
+                segments.map((s, i) => {
+                    if (s.value <= 0) return null;
+                    const dash = (s.value / total) * c;
+                    const arc = (
+                        <circle
+                            key={i}
+                            cx={size / 2}
+                            cy={size / 2}
+                            r={r}
+                            fill="none"
+                            strokeWidth={thickness}
+                            strokeDasharray={`${dash} ${c - dash}`}
+                            strokeDashoffset={-offset}
+                            className={s.className}
+                        />
+                    );
+                    offset += dash;
+                    return arc;
+                })}
+        </svg>
+    );
+}
+
+const LIFECYCLE = [
+    { key: "active" as const, label: "Active", dot: "bg-emerald-500", stroke: "stroke-emerald-500" },
+    { key: "trialing" as const, label: "Trialing", dot: "bg-blue-400", stroke: "stroke-blue-400" },
+    { key: "suspended" as const, label: "Suspended", dot: "bg-amber-500", stroke: "stroke-amber-500" },
+    { key: "churned" as const, label: "Churned", dot: "bg-red-500", stroke: "stroke-red-500" },
+];
+
 function LifecycleTile({ h }: { h: Headline }) {
     return (
         <Tile
             title="Lifecycle"
             info="Total tenants split by lifecycle state. Ogen has no lifecycle states yet, so every tenant counts as active."
         >
-            <p className="font-display text-2xl font-semibold tabular-nums">
-                {h.total}
-                <span className="text-base font-normal text-tertiary-foreground">
-                    {" "}
-                    tenants
-                </span>
-            </p>
-            <Bar
-                className="mt-3"
-                segments={[
-                    { pct: pct(h.active, h.total), className: "bg-emerald-500" },
-                    { pct: pct(h.trialing, h.total), className: "bg-blue-400" },
-                    { pct: pct(h.suspended, h.total), className: "bg-amber-500" },
-                    { pct: pct(h.churned, h.total), className: "bg-red-500" },
-                ]}
-            />
-            <div className="mt-2 space-y-1 text-xs text-secondary-foreground">
-                <LegendRow color="bg-emerald-500" label="Active" value={h.active} />
-                <LegendRow color="bg-blue-400" label="Trialing" value={h.trialing} />
-                <LegendRow color="bg-amber-500" label="Suspended" value={h.suspended} />
-                <LegendRow color="bg-red-500" label="Churned" value={h.churned} />
+            <div className="flex items-center gap-4">
+                <div className="relative shrink-0">
+                    <Donut
+                        segments={LIFECYCLE.map((s) => ({
+                            value: h[s.key],
+                            className: s.stroke,
+                        }))}
+                    />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="font-display text-xl font-semibold leading-none tabular-nums">
+                            {h.total}
+                        </span>
+                        <span className="mt-0.5 text-[10px] text-tertiary-foreground">
+                            tenants
+                        </span>
+                    </div>
+                </div>
+                <div className="flex-1 space-y-1 text-xs text-secondary-foreground">
+                    {LIFECYCLE.map((s) => (
+                        <LegendRow
+                            key={s.key}
+                            color={s.dot}
+                            label={s.label}
+                            value={h[s.key]}
+                        />
+                    ))}
+                </div>
             </div>
         </Tile>
     );
@@ -209,9 +276,9 @@ function SpendTile({ s }: { s: Spend }) {
                 </p>
             ) : (
                 <>
-                    <p className="font-display text-2xl font-semibold tabular-nums">
-                        {formatUSD(s.totalMicros)}
-                        <span className="text-base font-normal text-tertiary-foreground">
+                    <p className="font-display text-2xl font-semibold ">
+                        <div className="inline tabular-nums">{formatUSD(s.totalMicros)}</div>
+                        <span className="text-sm font-normal text-tertiary-foreground pl-1">
                             {" "}
                             this month
                         </span>
@@ -317,7 +384,10 @@ export function TenantsSection() {
     return (
         <div className="overflow-hidden rounded-lg border border-border bg-primary shadow-sm">
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
-                <h2 className="text-xl font-medium text-foreground">Tenants</h2>
+                <h2 className="flex items-center gap-2 text-xl font-medium text-foreground">
+                    <CallBellIcon className="size-5" />
+                    Tenants
+                </h2>
                 {o && (
                     <span className="text-xs text-tertiary-foreground">
                         {o.headline.total} total
