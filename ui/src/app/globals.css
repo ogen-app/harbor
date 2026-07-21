@@ -393,3 +393,11 @@
         transition: opacity 0.15s ease-in-out;
     }
 }
+
+/* Numeric values on the / dashboards render in IBM Plex Mono (semibold). Every
+   figure is tagged `.tabular-nums`; this compound selector outranks Tailwind's
+   single-class utilities, so it reliably overrides both font-family and weight. */
+.dashboard-numeric .tabular-nums {
+    font-family: var(--font-plex-mono), ui-monospace, "SF Mono", monospace;
+    font-weight: 600;
+}

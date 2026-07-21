@@ -244,7 +244,7 @@ function Tile({
     children: React.ReactNode;
 }) {
     return (
-        <div className="rounded-md border border-border p-4">
+        <div className="rounded-md border-t-2 border-border p-4">
             <SectionTitle title={title} info={info} />
             <div className="mt-3">{children}</div>
         </div>
@@ -357,7 +357,7 @@ function WalTile({ w }: { w: WAL }) {
 function TablesPanel({ tables }: { tables: TableSize[] }) {
     const max = Math.max(1, ...tables.map((t) => t.totalBytes));
     return (
-        <div className="rounded-md border border-border p-4">
+        <div className="rounded-md border-t-2 border-border p-4">
             <SectionTitle
                 title="Largest tables"
                 info="Top relations by pg_total_relation_size, split into heap, indexes and TOAST (out-of-line storage for large column values)."
@@ -398,7 +398,7 @@ function TablesPanel({ tables }: { tables: TableSize[] }) {
 
 function VacuumPanel({ vacuum }: { vacuum: VacuumStat[] }) {
     return (
-        <div className="rounded-md border border-border p-4">
+        <div className="rounded-md border-t-2 border-border p-4">
             <SectionTitle
                 title="Bloat & vacuum"
                 info="Dead vs live tuples per table (pg_stat_user_tables) and the last autovacuum. High dead ratios mean bloat that needs vacuuming."
@@ -451,7 +451,7 @@ function RiverPanel({ river }: { river: River }) {
         ["Cancelled", river.cancelled],
     ];
     return (
-        <div className="rounded-md border border-border p-4">
+        <div className="rounded-md border-t-2 border-border p-4">
             <SectionTitle
                 title="River queue"
                 info="Background-job counts from the river_job table by state, plus how long the oldest available job has been waiting to run."
@@ -460,7 +460,7 @@ function RiverPanel({ river }: { river: River }) {
                 {states.map(([label, n]) => (
                     <span
                         key={label}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs"
+                        className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs"
                     >
                         <span className="text-secondary-foreground">{label}</span>
                         <span className="font-semibold tabular-nums text-foreground">
