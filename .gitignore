@@ -15,5 +15,6 @@
 /ui/out/
 /ui/.next/
 /ui/next-env.d.ts
+/ui/*.tsbuildinfo
 
 .DS_Store

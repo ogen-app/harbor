@@ -205,6 +205,55 @@ func collectSpend(ctx context.Context, ogenDB, analyticsDB *bun.DB, out *Spend) 
 	out.Top = top
 }
 
+// VendorSpend is one tenant's AI cost for the current billing period, split by
+// model-family vendor. Used by the Tenants table (per-tenant, all tenants),
+// where Collect's top-5 ranking isn't enough.
+type VendorSpend struct {
+	AnthropicMicros int64 `json:"anthropicMicros"`
+	GoogleMicros    int64 `json:"googleMicros"`
+	OtherMicros     int64 `json:"otherMicros"`
+	TotalMicros     int64 `json:"totalMicros"`
+}
+
+// SpendByTenant returns current-period AI spend for every tenant that has usage,
+// keyed by tenant id and split by vendor. The bool is false when analytics is
+// absent or the query fails, so callers render a soft "unavailable" state rather
+// than an error.
+func SpendByTenant(ctx context.Context, analyticsDB *bun.DB) (map[string]VendorSpend, bool) {
+	if analyticsDB == nil {
+		return nil, false
+	}
+	var rows []struct {
+		TenantID   string `bun:"tenant_id"`
+		Vendor     string `bun:"vendor"`
+		CostMicros int64  `bun:"cost_micros"`
+	}
+	err := analyticsDB.NewRaw(`
+		SELECT tenant_id, vendor, sum(cost_micros) AS cost_micros
+		FROM usage_events
+		WHERE occurred_at >= date_trunc('month', now())
+		GROUP BY tenant_id, vendor`).Scan(ctx, &rows)
+	if err != nil {
+		logFail("spend.bytenant", err)
+		return nil, false
+	}
+	out := make(map[string]VendorSpend, len(rows))
+	for _, r := range rows {
+		s := out[r.TenantID]
+		s.TotalMicros += r.CostMicros
+		switch classifyVendor(r.Vendor) {
+		case "anthropic":
+			s.AnthropicMicros += r.CostMicros
+		case "google":
+			s.GoogleMicros += r.CostMicros
+		default:
+			s.OtherMicros += r.CostMicros
+		}
+		out[r.TenantID] = s
+	}
+	return out, true
+}
+
 // classifyVendor maps a usage_events vendor string to a model-family bucket.
 func classifyVendor(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))

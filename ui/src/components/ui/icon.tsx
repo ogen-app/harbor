@@ -43,6 +43,7 @@ import RailwayIcon from '@/assets/icons/railway.svg'
 import SearchIcon from '@/assets/icons/search.svg'
 import SearchAnimateIcon from '@/assets/icons/search_animate.svg'
 import SettingsIcon from '@/assets/icons/settings.svg'
+import TenantsIcon from '@/assets/icons/tenants.svg'
 import TrashBinIcon from '@/assets/icons/trash_bin.svg'
 import TrendDownIcon from '@/assets/icons/trend_down.svg'
 import TrendStableIcon from '@/assets/icons/trend_stable.svg'
@@ -95,6 +96,7 @@ export type IconName =
   | 'search'
   | 'search_animate'
   | 'settings'
+  | 'tenants'
   | 'trash_bin'
   | 'trend_down'
   | 'trend_stable'
@@ -154,6 +156,7 @@ const icons: Record<IconName, SvgComponent> = {
   search: SearchIcon,
   search_animate: SearchAnimateIcon,
   settings: SettingsIcon,
+  tenants: TenantsIcon,
   trash_bin: TrashBinIcon,
   trend_down: TrendDownIcon,
   trend_stable: TrendStableIcon,

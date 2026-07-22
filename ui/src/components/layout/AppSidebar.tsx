@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
-import LogoSvg from "@/assets/logo.svg";
 import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
@@ -37,17 +36,16 @@ type NavItem = {
         | "nav_screening"
         | "nav_strategy"
         | "nav_watchlist"
-        | "layout";
+        | "layout"
+        | "tenants";
     label: string;
     href: string;
     active?: boolean;
 };
 
 const navItems: NavItem[] = [
-    { icon: "nav_portfolios", label: "Audits", href: "/audits" },
-    { icon: "nav_watchlist", label: "Documents", href: "/documents" },
+    { icon: "tenants", label: "Tenants", href: "/tenants" },
     { icon: "layout", label: "Design system", href: "/design-system" },
-    // { icon: "nav_ideas", label: "Content Bank", href: "/content-bank" },
 ];
 
 const STORAGE_KEY = "sidebar-collapsed";
@@ -104,10 +102,10 @@ export function AppSidebar({
         });
 
     useHotkeys("bracketleft", toggle, { preventDefault: true });
-    useHotkeys("g>a", () => router.push("/audits"), { preventDefault: true });
-    useHotkeys("g>d", () => router.push("/documents"), {
-        preventDefault: true,
-    });
+    useHotkeys("g>t", () => router.push("/tenants"), { preventDefault: true });
+    // useHotkeys("g>d", () => router.push("/documents"), {
+    //     preventDefault: true,
+    // });
     useHotkeys("g>s", () => router.push("/settings"), { preventDefault: true });
 
     return (
