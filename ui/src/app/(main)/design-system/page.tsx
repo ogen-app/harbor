@@ -234,22 +234,22 @@ export default function DesignSystemPage() {
                             </p>
                             <div className="flex items-center gap-3 flex-wrap">
                                 <Button>
-                                    <Icon name="plus" className="size-4" />
+                                    <Icon name="plus" className="size-5" />
                                     Add Content
                                 </Button>
                                 <Button variant="outline">
-                                    <Icon name="edit" className="size-4" />
+                                    <Icon name="edit" className="size-5" />
                                     Edit
                                 </Button>
                                 <Button variant="ghost">
                                     <Icon
                                         name="filter_empty"
-                                        className="size-4"
+                                        className="size-5"
                                     />
                                     Filter
                                 </Button>
                                 <Button variant="destructive">
-                                    <Icon name="trash_bin" className="size-4" />
+                                    <Icon name="trash_bin" className="size-5" />
                                     Delete
                                 </Button>
                             </div>
