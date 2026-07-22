@@ -7,7 +7,7 @@ import {
   CaretDownIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { Bar, Dot } from "@/components/dashboard/primitives";
+import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
 import {
   TenantsFilterBar,
@@ -177,6 +177,7 @@ function SortHeader({
   align = "left",
   className,
   accent,
+  info,
 }: {
   label: string;
   col: SortKey;
@@ -185,31 +186,38 @@ function SortHeader({
   align?: "left" | "right";
   className?: string;
   accent?: boolean;
+  info?: string;
 }) {
   const active = sort.key === col;
   return (
-    <button
-      type="button"
-      onClick={() => onSort(col)}
+    <div
       className={cn(
-        "flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors",
-        align === "right" && "justify-end",
-        accent ? "text-foreground" : "text-tertiary-foreground",
-        "hover:text-foreground",
+        "flex items-center gap-1.5",
+        align === "right" ? "justify-end" : "justify-start",
         className,
       )}
     >
-      <span>{label}</span>
-      {active ? (
-        sort.dir === "asc" ? (
-          <CaretUpIcon className="size-3" weight="bold" />
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        className={cn(
+          "flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground",
+          accent ? "text-foreground" : "text-tertiary-foreground",
+        )}
+      >
+        <span>{label}</span>
+        {active ? (
+          sort.dir === "asc" ? (
+            <CaretUpIcon className="size-3" weight="bold" />
+          ) : (
+            <CaretDownIcon className="size-3" weight="bold" />
+          )
         ) : (
-          <CaretDownIcon className="size-3" weight="bold" />
-        )
-      ) : (
-        <CaretUpIcon className="size-3 opacity-0" weight="bold" />
-      )}
-    </button>
+          <CaretUpIcon className="size-3 opacity-0" weight="bold" />
+        )}
+      </button>
+      {info && <InfoIcon text={info} />}
+    </div>
   );
 }
 
@@ -586,6 +594,7 @@ export function TenantsTable() {
                 align="right"
                 accent
                 className={METRIC_START}
+                info="People with a user account in this tenant, from the Ogen control-plane database."
               />
               <SortHeader
                 label="AI spend"
@@ -593,6 +602,7 @@ export function TenantsTable() {
                 sort={sort}
                 onSort={onSort}
                 accent
+                info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other."
               />
               <SortHeader
                 label="Zernio"
@@ -601,6 +611,7 @@ export function TenantsTable() {
                 onSort={onSort}
                 align="right"
                 accent
+                info="Active social profiles this tenant has connected through Zernio."
               />
               <SortHeader
                 label="R2"
@@ -609,6 +620,7 @@ export function TenantsTable() {
                 onSort={onSort}
                 align="right"
                 accent
+                info="Total size of this tenant's files stored in Cloudflare R2 object storage."
               />
             </div>
 
