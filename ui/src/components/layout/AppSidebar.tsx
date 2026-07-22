@@ -238,30 +238,6 @@ export function AppSidebar({
                 </div>
 
                 <a
-                    href="https://railway.com/project/e475ca33-45d9-4dd1-b996-b4292ff20378"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="railway"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Railway
-                    </span>
-                </a>
-
-                <a
                     href="https://aistudio.google.com/usage?timeRange=last-7-days&project=gen-lang-client-0756755976"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -310,30 +286,6 @@ export function AppSidebar({
                 </a>
 
                 <a
-                    href="https://github.com/ogen-app"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="github"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        GitHub
-                    </span>
-                </a>
-
-                <a
                     href="https://dash.cloudflare.com/17efea3963b045025b9ecbdcad609273/r2/overview"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -378,6 +330,54 @@ export function AppSidebar({
                         )}
                     >
                         Zernio
+                    </span>
+                </a>
+
+                <a
+                    href="https://railway.com/project/e475ca33-45d9-4dd1-b996-b4292ff20378"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                    )}
+                >
+                    <Icon
+                        name="railway"
+                        className="size-5 shrink-0 stroke-[1.5]"
+                    />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Railway
+                    </span>
+                </a>
+
+                <a
+                    href="https://github.com/ogen-app"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                    )}
+                >
+                    <Icon
+                        name="github"
+                        className="size-5 shrink-0 stroke-[1.5]"
+                    />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        GitHub
                     </span>
                 </a>
             </nav>
