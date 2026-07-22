@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Button } from "@/components/ui/button";
@@ -121,11 +122,11 @@ export function AppSidebar({
         >
             {/* Header */}
             <div className="flex items-center justify-between p-4 h-16 shrink-0">
-                <a href="/" className="flex items-center gap-2">
+                <Link href="/" className="flex items-center gap-2">
                     <div className="h-10 w-10 bg-black font-mono font-semibold text-white text-sm flex items-center justify-center leading-tight">
                         HRB
                     </div>
-                </a>
+                </Link>
                 {!collapsed && (
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -156,7 +157,7 @@ export function AppSidebar({
                 {navItems.map((item) => {
                     const isActive = activeHref.startsWith(item.href);
                     return (
-                        <a
+                        <Link
                             key={item.href}
                             href={item.href}
                             className={cn(
@@ -179,7 +180,7 @@ export function AppSidebar({
                             >
                                 {item.label}
                             </span>
-                        </a>
+                        </Link>
                     );
                 })}
 
@@ -198,7 +199,7 @@ export function AppSidebar({
                     </span>
                 </div>
 
-                <a
+                <Link
                     href="/settings"
                     className={cn(
                         "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
@@ -220,9 +221,9 @@ export function AppSidebar({
                     >
                         Settings
                     </span>
-                </a>
+                </Link>
 
-                {/* Links group */}
+                {/* Services group */}
                 <div
                     className={cn(
                         "relative h-10 flex items-center overflow-hidden transition-all duration-200",
@@ -233,7 +234,7 @@ export function AppSidebar({
                 >
                     <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
                     <span className="absolute px-3 text-[11px] font-medium tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
-                        LINKS
+                        SERVICES
                     </span>
                 </div>
 

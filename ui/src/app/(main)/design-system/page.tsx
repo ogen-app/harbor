@@ -10,22 +10,8 @@ export default function DesignSystemPage() {
     return (
         <main className="flex-1 overflow-auto">
             {/* Page Header */}
-            <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-primary">
-                <div className="flex items-center gap-3">
-                    <h1 className="text-sm font-medium">
-                        Design System Showcase
-                    </h1>
-                </div>
-                <div className="flex items-center gap-2">
-                    {/*<Button variant="outline" size="sm">
-                        <Icon name="filter_empty" className="size-4" />
-                        Filter
-                    </Button>*/}
-                    <Button size="lg">
-                        <Icon name="plus" className="size-4" />
-                        New Item
-                    </Button>
-                </div>
+            <header className="h-20 border-b border-border flex items-center justify-between px-6 shrink-0">
+                <h1 className="text-2xl font-display font-medium">Design system</h1>
             </header>
 
             <div className="p-8 space-y-12">
