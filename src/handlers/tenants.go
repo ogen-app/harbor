@@ -25,6 +25,7 @@ func NewTenantsHandler(ogenDB, analyticsDB *bun.DB) *TenantsHandler {
 func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants", requireAuth, h.List)
 	app.Get("/api/tenants/overview", requireAuth, h.Overview)
+	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
 	app.Get("/api/tenants/:id/activity", requireAuth, h.Activity)
 }
 
@@ -103,6 +104,63 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"tenants": rows, "available": true, "spendAvailable": spendAvailable})
+}
+
+// regDay is one day in the registrations chart: an ISO date, the number of
+// tenants created that day, and their names (for the hover tooltip).
+type regDay struct {
+	Date  string   `json:"date"`
+	Count int      `json:"count"`
+	Names []string `json:"names"`
+}
+
+const regWindowDays = 60
+
+// Registrations godoc
+// @Summary      Tenant registrations (60 days)
+// @Description  Daily count and names of tenants created over the last 60 days,
+// @Description  as a dense zero-filled series for the registrations bar chart.
+// @Tags         tenants
+// @Produce      json
+// @Success      200  {object}  map[string]any
+// @Router       /api/tenants/registrations [get]
+func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
+	if h.ogenDB == nil {
+		return c.JSON(fiber.Map{"days": []regDay{}, "available": false, "error": "ogen database not configured"})
+	}
+
+	// Pull the raw registrations in-window and build the dense series in Go, so
+	// each day can carry the list of tenant names. Bucketed by UTC calendar day.
+	var rows []struct {
+		Date string `bun:"date"`
+		Name string `bun:"name"`
+	}
+	err := h.ogenDB.NewRaw(`
+		SELECT to_char((created_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date, name
+		FROM tenants
+		WHERE (created_at AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?
+		ORDER BY created_at`, regWindowDays-1).Scan(c.Context(), &rows)
+	if err != nil {
+		return c.JSON(fiber.Map{"days": []regDay{}, "available": false, "error": err.Error()})
+	}
+
+	byDay := make(map[string][]string, len(rows))
+	for _, r := range rows {
+		byDay[r.Date] = append(byDay[r.Date], r.Name)
+	}
+
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	days := make([]regDay, 0, regWindowDays)
+	for i := regWindowDays - 1; i >= 0; i-- {
+		date := today.AddDate(0, 0, -i).Format("2006-01-02")
+		names := byDay[date]
+		if names == nil {
+			names = []string{}
+		}
+		days = append(days, regDay{Date: date, Count: len(names), Names: names})
+	}
+	return c.JSON(fiber.Map{"days": days, "available": true})
 }
 
 // activityEvent is one entry in a tenant's recent-activity feed, sourced from the

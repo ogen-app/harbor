@@ -545,7 +545,7 @@ export function TenantsTable() {
       {/* Power search / filter bar — kept outside the overflow-hidden
                 results wrapper below so its dropdown can never be clipped. */}
       {data?.available && data.tenants.length > 0 && (
-        <div className="border-b border-border px-6 py-3">
+        <div className="border-b border-border px-3 py-3">
           <TenantsFilterBar
             tokens={filters}
             onTokensChange={setFilters}
