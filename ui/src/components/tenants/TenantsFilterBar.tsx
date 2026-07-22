@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FunnelSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
@@ -136,6 +136,24 @@ export function TenantsFilterBar({
   const [activeIdx, setActiveIdx] = useState(0);
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the filter on "/" (unless the user is already typing somewhere).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      const typing =
+        el?.tagName === "INPUT" ||
+        el?.tagName === "TEXTAREA" ||
+        el?.tagName === "SELECT" ||
+        el?.isContentEditable;
+      if (typing) return;
+      e.preventDefault();
+      inputRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // Inject live status options into the Status field.
   const fields = useMemo(
@@ -320,7 +338,7 @@ export function TenantsFilterBar({
         aria-expanded={open}
       />
 
-      {tokens.length > 0 && (
+      {tokens.length > 0 ? (
         <button
           type="button"
           aria-label="Clear all filters"
@@ -330,6 +348,13 @@ export function TenantsFilterBar({
           <XIcon className="size-3.5" weight="bold" />
           Clear
         </button>
+      ) : (
+        !focused &&
+        !draft && (
+          <kbd className="pointer-events-none ml-auto mr-1 select-none rounded border border-border px-1.5 py-0.5 text-[11px] leading-none text-tertiary-foreground">
+            /
+          </kbd>
+        )
       )}
 
       {open && suggestions.length > 0 && (
