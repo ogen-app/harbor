@@ -5,10 +5,22 @@ import {
   CaretRightIcon,
   CaretUpIcon,
   CaretDownIcon,
+  DotsThreeOutlineVerticalIcon,
+  NotePencilIcon,
+  ArrowClockwiseIcon,
+  TrashIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import {
   TenantsFilterBar,
   matchesFilters,
@@ -160,10 +172,10 @@ function loadSort(): Sort {
 // ── layout ────────────────────────────────────────────────────────────────────
 
 // Shared grid template so the header and every row align. Columns:
-// chevron · name · registered · status ‖ users · AI spend · Zernio · R2.
-// The last four (metrics) are the visually distinctive set.
+// chevron · name · registered · status ‖ users · AI spend · Zernio · R2 · actions.
+// The middle four (metrics) are the visually distinctive set.
 const GRID =
-  "grid grid-cols-[2rem_minmax(140px,1.6fr)_1fr_0.9fr_0.7fr_minmax(120px,1.4fr)_0.8fr_0.9fr] items-center gap-4";
+  "grid grid-cols-[2rem_minmax(140px,1.6fr)_1fr_0.9fr_0.7fr_minmax(120px,1.4fr)_0.8fr_0.9fr_2.5rem] items-center gap-4";
 
 const METRIC_START = "border-l border-border pl-4"; // divider before the metric group
 
@@ -241,6 +253,61 @@ function StatusLabel({ status }: { status: string }) {
       />
       <span className="capitalize text-secondary-foreground">{status}</span>
     </span>
+  );
+}
+
+// ── per-row actions menu ──────────────────────────────────────────────────────
+
+// stopPropagation keeps the trigger / menu from toggling row expansion (the row
+// is a role="button", and portaled menu clicks still bubble through the React
+// tree). Actions are placeholders — disabled until wired up.
+function ActionsMenu() {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="smIcon"
+          aria-label="Tenant actions"
+          onClick={(e) => e.stopPropagation()}
+          className="justify-self-end text-tertiary-foreground data-[state=open]:border-quaternary data-[state=open]:bg-quaternary data-[state=open]:text-primary-foreground"
+        >
+          <DotsThreeOutlineVerticalIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="bottom"
+        align="end"
+        sideOffset={6}
+        onClick={(e) => e.stopPropagation()}
+        className="min-w-48 rounded-none border border-border py-1 shadow-xl"
+      >
+        <DropdownMenuItem
+          disabled
+          className="gap-3 px-4 py-2.5 data-[disabled]:opacity-100"
+        >
+          <NotePencilIcon className="size-4" />
+          Edit cluster
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled
+          className="gap-3 px-4 py-2.5 data-[disabled]:opacity-100"
+        >
+          <ArrowClockwiseIcon className="size-4" />
+          Update version
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="my-1 h-px bg-border" />
+        <DropdownMenuItem
+          disabled
+          variant="destructive"
+          className="gap-3 px-4 py-2.5 data-[disabled]:opacity-100"
+        >
+          <TrashIcon className="size-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -404,6 +471,7 @@ function SkeletonRows() {
           <div className="h-3 w-full animate-pulse rounded bg-secondary" />
           <div className="h-3 w-10 animate-pulse rounded bg-secondary justify-self-end" />
           <div className="h-3 w-12 animate-pulse rounded bg-secondary justify-self-end" />
+          <div className="size-7 animate-pulse rounded bg-secondary justify-self-end" />
         </div>
       ))}
     </div>
@@ -622,6 +690,7 @@ export function TenantsTable() {
                 accent
                 info="Total size of this tenant's files stored in Cloudflare R2 object storage."
               />
+              <span className="sr-only">Actions</span>
             </div>
 
             {/* rows */}
@@ -629,12 +698,22 @@ export function TenantsTable() {
               const open = expanded.has(t.id);
               return (
                 <div key={t.id}>
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggle(t)}
+                    onKeyDown={(e) => {
+                      if (
+                        e.target === e.currentTarget &&
+                        (e.key === "Enter" || e.key === " ")
+                      ) {
+                        e.preventDefault();
+                        toggle(t);
+                      }
+                    }}
                     aria-expanded={open}
                     className={cn(
-                      `${GRID} w-full px-6 py-3.5 text-left text-sm transition-colors hover:bg-secondary/40`,
+                      `${GRID} w-full cursor-pointer px-6 py-3.5 text-left text-sm transition-colors hover:bg-secondary/40 focus-visible:bg-secondary/40 focus-visible:outline-none`,
                       open && "bg-secondary/40",
                     )}
                   >
@@ -671,7 +750,8 @@ export function TenantsTable() {
                     <span className="text-right font-display text-foreground">
                       {formatBytes(t.r2Bytes)}
                     </span>
-                  </button>
+                    <ActionsMenu />
+                  </div>
                   {open && <ExpandedPanel t={t} activity={activity[t.id]} />}
                 </div>
               );
