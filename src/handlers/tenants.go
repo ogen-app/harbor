@@ -1,6 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -42,6 +46,70 @@ type tenantRow struct {
 	ZernioProfiles int                     `json:"zernioProfiles"`
 	R2Bytes        int64                   `json:"r2Bytes"`
 	Spend          tenantstats.VendorSpend `json:"spend"`
+}
+
+// tenantFilter is one structured token from the Tenants table's power search: a
+// field, an operator, and a value. Matching mirrors the client so UI and API
+// agree. Filtering runs in Go (not SQL) because AI spend is merged from the
+// separate analytics DB and can't be joined against the Ogen tenants table;
+// unknown fields/operators are treated as no-ops.
+type tenantFilter struct {
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+	Value    string `json:"value"`
+}
+
+func (f tenantFilter) match(t tenantRow) bool {
+	switch f.Field {
+	case "name":
+		has := strings.Contains(strings.ToLower(t.Name), strings.ToLower(f.Value))
+		if f.Operator == "does not contain" {
+			return !has
+		}
+		return has
+	case "status":
+		if f.Operator == "is not" {
+			return t.Status != f.Value
+		}
+		return t.Status == f.Value
+	case "spend":
+		n, err := strconv.ParseFloat(strings.TrimSpace(f.Value), 64)
+		if err != nil {
+			return true
+		}
+		usd := float64(t.Spend.TotalMicros) / 1e6
+		if f.Operator == "less than" {
+			return usd < n
+		}
+		return usd > n
+	case "zernio":
+		n, err := strconv.Atoi(strings.TrimSpace(f.Value))
+		if err != nil {
+			return true
+		}
+		switch f.Operator {
+		case "less than":
+			return t.ZernioProfiles < n
+		case "equals":
+			return t.ZernioProfiles == n
+		default:
+			return t.ZernioProfiles > n
+		}
+	}
+	return true
+}
+
+// parseFilters decodes the JSON `filters` query param. A missing or malformed
+// value yields no filters (the full list), never an error.
+func parseFilters(raw string) []tenantFilter {
+	if raw == "" {
+		return nil
+	}
+	var filters []tenantFilter
+	if err := json.Unmarshal([]byte(raw), &filters); err != nil {
+		return nil
+	}
+	return filters
 }
 
 // List godoc
@@ -103,7 +171,45 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
-	return c.JSON(fiber.Map{"tenants": rows, "available": true, "spendAvailable": spendAvailable})
+	// Distinct statuses across all tenants, for the filter dropdown — computed
+	// before filtering so the option list never shrinks with the results.
+	statusSet := map[string]struct{}{}
+	for _, r := range rows {
+		statusSet[r.Status] = struct{}{}
+	}
+	statuses := make([]string, 0, len(statusSet))
+	for s := range statusSet {
+		statuses = append(statuses, s)
+	}
+	sort.Strings(statuses)
+
+	total := len(rows)
+
+	// Server-side power search: keep tenants matching every filter (AND).
+	if filters := parseFilters(c.Query("filters")); len(filters) > 0 {
+		filtered := make([]tenantRow, 0, len(rows))
+		for _, r := range rows {
+			match := true
+			for _, f := range filters {
+				if !f.match(r) {
+					match = false
+					break
+				}
+			}
+			if match {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
+	}
+
+	return c.JSON(fiber.Map{
+		"tenants":        rows,
+		"total":          total,
+		"statuses":       statuses,
+		"available":      true,
+		"spendAvailable": spendAvailable,
+	})
 }
 
 // regDay is one day in the registrations chart: an ISO date, the number of

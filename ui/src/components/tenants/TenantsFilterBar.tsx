@@ -73,48 +73,8 @@ function displayValue(field: FieldKey, value: string): string {
   return value;
 }
 
-// ── matching (exported for the table) ─────────────────────────────────────────
-
-export interface FilterableTenant {
-  name: string;
-  status: string;
-  spend: { totalMicros: number };
-  zernioProfiles: number;
-}
-
-function matchOne(t: FilterableTenant, token: FilterToken): boolean {
-  switch (token.field) {
-    case "name": {
-      const has = t.name.toLowerCase().includes(token.value.toLowerCase());
-      return token.operator === "does not contain" ? !has : has;
-    }
-    case "status":
-      return token.operator === "is not"
-        ? t.status !== token.value
-        : t.status === token.value;
-    case "spend": {
-      const n = parseFloat(token.value);
-      if (Number.isNaN(n)) return true;
-      const usd = t.spend.totalMicros / 1e6;
-      return token.operator === "less than" ? usd < n : usd > n;
-    }
-    case "zernio": {
-      const n = parseInt(token.value, 10);
-      if (Number.isNaN(n)) return true;
-      if (token.operator === "less than") return t.zernioProfiles < n;
-      if (token.operator === "equals") return t.zernioProfiles === n;
-      return t.zernioProfiles > n;
-    }
-  }
-}
-
-// A tenant passes when it matches every active filter token (AND).
-export function matchesFilters(
-  t: FilterableTenant,
-  tokens: FilterToken[],
-): boolean {
-  return tokens.every((tok) => matchOne(t, tok));
-}
+// Matching runs server-side (GET /api/tenants?filters=…); this component only
+// builds the tokens and hands them up via onTokensChange.
 
 // ── component ─────────────────────────────────────────────────────────────────
 

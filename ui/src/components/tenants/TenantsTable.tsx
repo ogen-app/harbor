@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   TenantsFilterBar,
-  matchesFilters,
   type FilterToken,
 } from "@/components/tenants/TenantsFilterBar";
 
@@ -50,6 +49,8 @@ interface TenantsResponse {
   tenants: Tenant[];
   available: boolean;
   spendAvailable?: boolean;
+  total?: number;
+  statuses?: string[];
   error?: string;
 }
 
@@ -483,28 +484,39 @@ function SkeletonRows() {
 export function TenantsTable() {
   const [data, setData] = useState<TenantsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [sort, setSort] = useState<Sort>(loadSort);
   const [filters, setFilters] = useState<FilterToken[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [activity, setActivity] = useState<Record<string, ActivityState>>({});
 
+  // Filtering runs server-side: re-fetch whenever the filter tokens change,
+  // passing them as a JSON query param. Previous results stay visible during a
+  // refetch (no skeleton flash); an in-flight request is aborted on change.
   useEffect(() => {
-    let active = true;
-    fetch("/api/tenants")
+    const controller = new AbortController();
+    setRefreshing(true);
+    const qs = filters.length
+      ? `?filters=${encodeURIComponent(JSON.stringify(filters))}`
+      : "";
+    fetch(`/api/tenants${qs}`, { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`request failed (${r.status})`);
         return r.json();
       })
       .then((j: TenantsResponse) => {
-        if (active) setData(j);
+        setData(j);
+        setError(null);
       })
       .catch((e: unknown) => {
-        if (active) setError(e instanceof Error ? e.message : "Failed to load");
+        if (controller.signal.aborted) return;
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRefreshing(false);
       });
-    return () => {
-      active = false;
-    };
-  }, []);
+    return () => controller.abort();
+  }, [filters]);
 
   // Persist the sort preference so it survives reloads / route changes.
   useEffect(() => {
@@ -522,24 +534,20 @@ export function TenantsTable() {
         : { key, dir: key === "name" || key === "status" ? "asc" : "desc" },
     );
 
-  // Distinct statuses present in the data, feeding the Status filter's options.
-  const statusOptions = useMemo(
-    () =>
-      Array.from(new Set((data?.tenants ?? []).map((t) => t.status))).sort(),
-    [data],
-  );
+  // Status options for the filter come from the server (all statuses, not just
+  // the current result set). Sorting stays client-side.
+  const statusOptions = data?.statuses ?? [];
 
   const rows = useMemo(() => {
     if (!data?.tenants) return [];
-    const filtered = data.tenants.filter((t) => matchesFilters(t, filters));
-    return filtered.sort((a, b) => {
+    return [...data.tenants].sort((a, b) => {
       const av = sortValue(a, sort.key);
       const bv = sortValue(b, sort.key);
       if (av < bv) return sort.dir === "asc" ? -1 : 1;
       if (av > bv) return sort.dir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [data, sort, filters]);
+  }, [data, sort]);
 
   const spendAvailable = data?.spendAvailable ?? false;
 
@@ -601,10 +609,11 @@ export function TenantsTable() {
             </div>
           )}
           {data?.available && (
-            <span className="text-xs text-tertiary-foreground">
+            <span className="flex items-center gap-2 text-xs text-tertiary-foreground">
+              {refreshing && <Loader className="size-3.5 border-[1.5px]" />}
               {filters.length > 0
-                ? `${rows.length} of ${data.tenants.length}`
-                : `${data.tenants.length} total`}
+                ? `${data.tenants.length} of ${data.total ?? data.tenants.length}`
+                : `${data.total ?? data.tenants.length} total`}
             </span>
           )}
         </div>
@@ -612,7 +621,7 @@ export function TenantsTable() {
 
       {/* Power search / filter bar — kept outside the overflow-hidden
                 results wrapper below so its dropdown can never be clipped. */}
-      {data?.available && data.tenants.length > 0 && (
+      {data?.available && (data.total ?? 0) > 0 && (
         <div className="border-b border-border px-3 py-3">
           <TenantsFilterBar
             tokens={filters}
@@ -630,9 +639,9 @@ export function TenantsTable() {
           </p>
         ) : !data ? (
           <SkeletonRows />
-        ) : data.tenants.length === 0 ? (
+        ) : (data.total ?? data.tenants.length) === 0 ? (
           <p className="p-6 text-sm text-tertiary-foreground">No tenants</p>
-        ) : rows.length === 0 ? (
+        ) : data.tenants.length === 0 ? (
           <p className="p-6 text-sm text-tertiary-foreground">
             No tenants match the current filters.
           </p>
