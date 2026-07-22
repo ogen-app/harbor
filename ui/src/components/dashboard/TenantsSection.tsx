@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { CallBellIcon } from "@phosphor-icons/react";
+import { CallBellIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import { Loader } from "@/components/ui/loader";
+import { Button } from "@/components/ui/button";
 import { Tile, Bar, Dot, SectionTitle } from "@/components/dashboard/primitives";
 
 interface Headline {
@@ -422,10 +424,18 @@ export function TenantsSection() {
     return (
         <div className="overflow-hidden rounded-lg bg-primary ">
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
-                <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
-                    <CallBellIcon className="size-6" weight="bold" />
-                    Tenants
-                </h2>
+                <div className="flex items-center gap-3">
+                    <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
+                        <CallBellIcon className="size-6" weight="bold" />
+                        Tenants
+                    </h2>
+                    <Button asChild variant="default" size="sm" className="gap-1.5">
+                        <Link href="/tenants">
+                            Go to details
+                            <ArrowRightIcon className="size-4" weight="bold" />
+                        </Link>
+                    </Button>
+                </div>
                 <div className="flex items-center gap-4">
                     {o && (
                         <span className="text-xs text-tertiary-foreground">
