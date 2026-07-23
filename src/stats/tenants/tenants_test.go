@@ -38,6 +38,9 @@ func (f *fakeTenantRepo) Users(context.Context, string, int) ([]ogen.User, error
 func (f *fakeTenantRepo) ActivitySeries(context.Context, string, int) ([]ogen.ActivityDay, error) {
 	return nil, nil
 }
+func (f *fakeTenantRepo) ZernioAccounts(context.Context, string) ([]ogen.ZernioAccount, error) {
+	return nil, nil
+}
 func (f *fakeTenantRepo) Headline(context.Context) (ogen.OverviewHeadline, error) {
 	return f.headline, nil
 }

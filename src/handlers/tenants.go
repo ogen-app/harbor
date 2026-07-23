@@ -36,6 +36,7 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
 	app.Get("/api/tenants/:id/activity", requireAuth, h.Activity)
 	app.Get("/api/tenants/:id/users", requireAuth, h.Users)
+	app.Get("/api/tenants/:id/zernio", requireAuth, h.Zernio)
 	// Registered after the static /overview and /registrations paths so those
 	// win over the :id param; Fiber matches routes in registration order.
 	app.Get("/api/tenants/:id", requireAuth, h.Detail)
@@ -368,6 +369,28 @@ func (h *TenantsHandler) Users(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"users": []ogen.User{}, "available": false, "error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"users": users, "available": true})
+}
+
+// Zernio godoc
+// @Summary      Tenant Zernio accounts
+// @Description  A tenant's connected social profiles (platform, username) with
+// @Description  per-account post throughput — scheduled, published, failed, and
+// @Description  total. Powers the /tenants/{id} Zernio accounts block.
+// @Tags         tenants
+// @Produce      json
+// @Param        id   path      string  true  "Tenant ID"
+// @Success      200  {object}  map[string]any
+// @Router       /api/tenants/{id}/zernio [get]
+func (h *TenantsHandler) Zernio(c *fiber.Ctx) error {
+	if !h.tenants.Available() {
+		return c.JSON(fiber.Map{"accounts": []ogen.ZernioAccount{}, "available": false, "error": "ogen database not configured"})
+	}
+
+	accounts, err := h.tenants.ZernioAccounts(c.Context(), c.Params("id"))
+	if err != nil {
+		return c.JSON(fiber.Map{"accounts": []ogen.ZernioAccount{}, "available": false, "error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"accounts": accounts, "available": true})
 }
 
 // Overview godoc

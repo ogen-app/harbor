@@ -65,6 +65,21 @@ type ActivityDay struct {
 	Count int    `bun:"count"`
 }
 
+// ZernioAccount is one connected social profile plus its post throughput,
+// aggregated from the Ogen social_accounts + posts tables. Served directly.
+type ZernioAccount struct {
+	ID             string     `bun:"id"              json:"id"`
+	Platform       string     `bun:"platform"        json:"platform"`
+	Username       string     `bun:"username"        json:"username"`
+	IsActive       bool       `bun:"is_active"       json:"isActive"`
+	CreatedAt      time.Time  `bun:"created_at"      json:"createdAt"`
+	TotalPosts     int        `bun:"total_posts"     json:"totalPosts"`
+	ScheduledPosts int        `bun:"scheduled_posts" json:"scheduledPosts"`
+	PublishedPosts int        `bun:"published_posts" json:"publishedPosts"`
+	FailedPosts    int        `bun:"failed_posts"    json:"failedPosts"`
+	LastPostAt     *time.Time `bun:"last_post_at"    json:"lastPostAt"`
+}
+
 // OverviewHeadline is the tenant total plus new-signup counts over recent
 // windows, gathered in a single pass over the tenants table.
 type OverviewHeadline struct {
@@ -90,6 +105,9 @@ type TenantRepository interface {
 	// ActivitySeries returns per-day activity-event counts within the last
 	// windowDays days (sparse — only days with events).
 	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error)
+	// ZernioAccounts returns a tenant's connected social profiles with per-account
+	// post throughput (scheduled / published / failed / total), newest first.
+	ZernioAccounts(ctx context.Context, tenantID string) ([]ZernioAccount, error)
 
 	// ── overview aggregates ──────────────────────────────────────────────
 	Headline(ctx context.Context) (OverviewHeadline, error)
@@ -213,6 +231,46 @@ func (r *tenantRepository) ActivitySeries(ctx context.Context, tenantID string, 
 		return nil, err
 	}
 	return days, nil
+}
+
+func (r *tenantRepository) ZernioAccounts(ctx context.Context, tenantID string) ([]ZernioAccount, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	// Per-account post throughput is pre-aggregated in a subquery (grouped by
+	// social_account_id) so the join stays one row per account.
+	var accounts []ZernioAccount
+	err := r.db.NewRaw(`
+		SELECT
+			sa.id,
+			COALESCE(sa.platform, '') AS platform,
+			COALESCE(sa.username, '') AS username,
+			sa.is_active,
+			sa.created_at,
+			COALESCE(p.total, 0)     AS total_posts,
+			COALESCE(p.scheduled, 0) AS scheduled_posts,
+			COALESCE(p.published, 0) AS published_posts,
+			COALESCE(p.failed, 0)    AS failed_posts,
+			p.last_post_at
+		FROM social_accounts sa
+		LEFT JOIN (
+			SELECT
+				social_account_id,
+				count(*)                                                                          AS total,
+				count(*) FILTER (WHERE status = 'scheduled')                                      AS scheduled,
+				count(*) FILTER (WHERE published_at IS NOT NULL)                                  AS published,
+				count(*) FILTER (WHERE failure_reason IS NOT NULL AND failure_reason <> '')       AS failed,
+				max(COALESCE(published_at, created_at))                                           AS last_post_at
+			FROM posts
+			WHERE tenant_id = ?
+			GROUP BY social_account_id
+		) p ON p.social_account_id = sa.id
+		WHERE sa.tenant_id = ? AND sa.deleted_at IS NULL
+		ORDER BY sa.created_at DESC`, tenantID, tenantID).Scan(ctx, &accounts)
+	if err != nil {
+		return nil, err
+	}
+	return accounts, nil
 }
 
 func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, error) {

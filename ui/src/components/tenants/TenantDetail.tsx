@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { cn } from "@/lib/utils";
 import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,8 @@ import {
   type ActivityState,
   type TenantUser,
   type UsersState,
+  type ZernioAccount,
+  type ZernioState,
   formatDate,
   formatUSD,
   formatBytes,
@@ -104,8 +107,8 @@ function MetricCell({
   );
 }
 
-// SpendCard is the standalone AI-spend card, with the per-vendor concentration
-// bar.
+// SpendCard is the screen-wide AI-spend card: the period total beside a
+// per-vendor concentration bar with amounts.
 function SpendCard({
   spend,
   available,
@@ -115,7 +118,7 @@ function SpendCard({
 }) {
   const hasOther = spend.otherMicros > 0;
   return (
-    <div className="rounded-lg bg-primary p-5">
+    <div className="rounded-lg bg-primary p-6">
       <CellLabel
         label="AI spend (month)"
         info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other."
@@ -125,21 +128,32 @@ function SpendCard({
           Analytics unavailable
         </p>
       ) : (
-        <>
-          <p className="mt-2 font-display text-2xl font-semibold tabular-nums text-foreground">
+        <div className="mt-3 flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-10">
+          <p className="font-display text-3xl font-semibold tabular-nums text-foreground">
             {formatUSD(spend.totalMicros)}
           </p>
           {spend.totalMicros > 0 && (
-            <>
-              <Bar className="mt-3" segments={spendSegments(spend)} />
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-tertiary-foreground">
-                <Dot color="bg-orange-500" label="Anthropic" />
-                <Dot color="bg-blue-500" label="Google" />
-                {hasOther && <Dot color="bg-neutral-400" label="Other" />}
+            <div className="min-w-0 flex-1">
+              <Bar segments={spendSegments(spend)} />
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-tertiary-foreground">
+                <Dot
+                  color="bg-orange-500"
+                  label={`Anthropic · ${formatUSD(spend.anthropicMicros)}`}
+                />
+                <Dot
+                  color="bg-blue-500"
+                  label={`Google · ${formatUSD(spend.googleMicros)}`}
+                />
+                {hasOther && (
+                  <Dot
+                    color="bg-neutral-400"
+                    label={`Other · ${formatUSD(spend.otherMicros)}`}
+                  />
+                )}
               </div>
-            </>
+            </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -261,6 +275,116 @@ function UsersSection({ state, total }: { state: UsersState; total: number }) {
   );
 }
 
+// ── zernio accounts ────────────────────────────────────────────────────────────
+
+// AccountStat is one labelled throughput number in a Zernio account row.
+function AccountStat({
+  label,
+  value,
+  danger,
+}: {
+  label: string;
+  value: number;
+  danger?: boolean;
+}) {
+  return (
+    <div className="text-right">
+      <p
+        className={cn(
+          "font-display text-base font-semibold leading-none tabular-nums",
+          danger && value > 0 ? "text-red-600" : "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-[10px] uppercase tracking-wide text-tertiary-foreground">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function ZernioRow({ account: a }: { account: ZernioAccount }) {
+  return (
+    <li className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-semibold uppercase text-secondary-foreground">
+          {a.platform.slice(0, 2) || "–"}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">
+            {a.username ? `@${a.username}` : "—"}
+          </p>
+          <p className="truncate text-xs text-tertiary-foreground">
+            <span className="capitalize">{a.platform || "unknown"}</span>
+            {a.lastPostAt
+              ? ` · last post ${formatDate(a.lastPostAt)}`
+              : ` · joined ${formatDate(a.createdAt)}`}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:justify-end">
+        <AccountStat label="Scheduled" value={a.scheduledPosts} />
+        <AccountStat label="Published" value={a.publishedPosts} />
+        <AccountStat label="Failed" value={a.failedPosts} danger />
+        <AccountStat label="Total" value={a.totalPosts} />
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              a.isActive ? "bg-emerald-500" : "bg-amber-500",
+            )}
+          />
+          <span className="text-xs text-secondary-foreground">
+            {a.isActive ? "Active" : "Inactive"}
+          </span>
+        </span>
+      </div>
+    </li>
+  );
+}
+
+// ZernioSection is the screen-wide connected-accounts block: one row per social
+// profile with its post throughput.
+function ZernioSection({ state, total }: { state: ZernioState; total: number }) {
+  const count = state.accounts?.length ?? total;
+  return (
+    <section className="rounded-lg bg-primary">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+            Zernio accounts
+          </h2>
+          <InfoIcon text="Social profiles this tenant has connected through Zernio, each with its post throughput — scheduled, published, failed, and total — from the Ogen posts table." />
+        </div>
+        <span className="text-xs tabular-nums text-tertiary-foreground">
+          {count}
+        </span>
+      </div>
+      {state.loading ? (
+        <div className="flex items-center gap-2 px-6 py-5 text-xs text-tertiary-foreground">
+          <Loader className="size-3.5 border-[1.5px]" />
+          Loading accounts…
+        </div>
+      ) : state.error ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">
+          Accounts unavailable — {state.error}
+        </p>
+      ) : !state.accounts || state.accounts.length === 0 ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">
+          No connected accounts
+        </p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {state.accounts.map((a) => (
+            <ZernioRow key={a.id} account={a} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 // ── recent activity ───────────────────────────────────────────────────────────
 
 // "2026-06-28" → "Jun 28" (parsed as local midnight to avoid TZ drift).
@@ -373,6 +497,7 @@ export function TenantDetail() {
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityState>({ loading: true });
   const [users, setUsers] = useState<UsersState>({ loading: true });
+  const [zernio, setZernio] = useState<ZernioState>({ loading: true });
 
   // Resolve the tenant id from the URL after mount (see tenantIdFromLocation).
   useEffect(() => {
@@ -447,6 +572,31 @@ export function TenantDetail() {
         });
       });
 
+    fetch(`/api/tenants/${enc}/zernio`, { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`request failed (${r.status})`);
+        return r.json();
+      })
+      .then(
+        (j: {
+          accounts: ZernioAccount[];
+          available: boolean;
+          error?: string;
+        }) =>
+          setZernio(
+            j.available
+              ? { loading: false, accounts: j.accounts }
+              : { loading: false, error: j.error ?? "unavailable" },
+          ),
+      )
+      .catch((e: unknown) => {
+        if (controller.signal.aborted) return;
+        setZernio({
+          loading: false,
+          error: e instanceof Error ? e.message : "Failed to load",
+        });
+      });
+
     return () => controller.abort();
   }, [id]);
 
@@ -509,14 +659,13 @@ export function TenantDetail() {
       </header>
 
       <div className="p-6 space-y-6">
-        <div className="grid items-start gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <ProfileCard tenant={t} />
-          </div>
-          <SpendCard spend={t.spend} available={spendAvailable} />
-        </div>
+        <ProfileCard tenant={t} />
 
         <UsersSection state={users} total={t.users} />
+
+        <SpendCard spend={t.spend} available={spendAvailable} />
+
+        <ZernioSection state={zernio} total={t.zernioProfiles} />
 
         <ActivityCard state={activity} />
       </div>

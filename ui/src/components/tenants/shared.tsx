@@ -57,6 +57,25 @@ export interface UsersState {
   users?: TenantUser[];
 }
 
+export interface ZernioAccount {
+  id: string;
+  platform: string;
+  username: string;
+  isActive: boolean;
+  createdAt: string;
+  totalPosts: number;
+  scheduledPosts: number;
+  publishedPosts: number;
+  failedPosts: number;
+  lastPostAt: string | null;
+}
+
+export interface ZernioState {
+  loading: boolean;
+  error?: string;
+  accounts?: ZernioAccount[];
+}
+
 // ── formatters ────────────────────────────────────────────────────────────────
 
 export function formatDate(iso: string): string {
