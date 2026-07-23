@@ -11,6 +11,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: this workflow only reads the repo to build, test, and lint.
+permissions:
+  contents: read
+
 jobs:
   go:
     name: Go build & test
