@@ -83,8 +83,8 @@ function CellLabel({ label, info }: { label: string; info?: string }) {
   );
 }
 
-// MetricCell is one cell of the merged metrics card (dividers/background are
-// owned by the parent MetricsCard).
+// MetricCell is one cell of the metric strip (dividers/background are owned by
+// the parent ProfileCard).
 function MetricCell({
   label,
   value,
@@ -104,8 +104,9 @@ function MetricCell({
   );
 }
 
-// SpendCell is the AI-spend cell, with the per-vendor concentration bar.
-function SpendCell({
+// SpendCard is the standalone AI-spend card, with the per-vendor concentration
+// bar.
+function SpendCard({
   spend,
   available,
 }: {
@@ -114,7 +115,7 @@ function SpendCell({
 }) {
   const hasOther = spend.otherMicros > 0;
   return (
-    <div className="p-5">
+    <div className="rounded-lg bg-primary p-5">
       <CellLabel
         label="AI spend (month)"
         info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other."
@@ -144,33 +145,45 @@ function SpendCell({
   );
 }
 
-// MetricsCard merges the per-tenant metrics into one card, split into cells by
-// vertical dividers on wide screens (stacked on narrow ones).
-function MetricsCard({
-  tenant,
-  spendAvailable,
-}: {
-  tenant: Tenant;
-  spendAvailable: boolean;
-}) {
+// ProfileCard merges the tenant's core metrics (users, Zernio, R2) and its
+// identity details into a single card: a metric strip above, identity below.
+function ProfileCard({ tenant }: { tenant: Tenant }) {
   return (
-    <div className="grid grid-cols-1 divide-y divide-border rounded-lg bg-primary sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
-      <MetricCell
-        label="Users"
-        value={tenant.users}
-        info="People with a user account in this tenant, from the Ogen control-plane database."
-      />
-      <MetricCell
-        label="Zernio profiles"
-        value={tenant.zernioProfiles}
-        info="Active social profiles this tenant has connected through Zernio."
-      />
-      <MetricCell
-        label="R2 storage"
-        value={formatBytes(tenant.r2Bytes)}
-        info="Total size of this tenant's files stored in Cloudflare R2 object storage."
-      />
-      <SpendCell spend={tenant.spend} available={spendAvailable} />
+    <div className="rounded-lg bg-primary">
+      <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <MetricCell
+          label="Users"
+          value={tenant.users}
+          info="People with a user account in this tenant, from the Ogen control-plane database."
+        />
+        <MetricCell
+          label="Zernio profiles"
+          value={tenant.zernioProfiles}
+          info="Active social profiles this tenant has connected through Zernio."
+        />
+        <MetricCell
+          label="R2 storage"
+          value={formatBytes(tenant.r2Bytes)}
+          info="Total size of this tenant's files stored in Cloudflare R2 object storage."
+        />
+      </div>
+      <div className="border-t border-border p-6">
+        <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+          Identity
+        </h2>
+        <div className="grid gap-x-10 gap-y-2.5 sm:grid-cols-2">
+          <DetailRow
+            label="Tenant ID"
+            value={<span className="font-mono">{tenant.id}</span>}
+          />
+          <DetailRow
+            label="Slug"
+            value={<span className="font-mono">{tenant.slug}</span>}
+          />
+          <DetailRow label="Registered" value={formatDate(tenant.createdAt)} />
+          <DetailRow label="Status" value={<StatusLabel status={tenant.status} />} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -341,7 +354,7 @@ function ActivityCard({ state }: { state: ActivityState }) {
           {/* Scrollable event list, capped at 200px, fading out at the bottom
               so the cut-off reads as "there's more, scroll". */}
           <div className="relative mt-5">
-            <div className="max-h-[200px] overflow-y-auto pr-1">
+            <div className="max-h-[250px] overflow-y-auto pr-1">
               <RecentActivity state={state} />
             </div>
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-primary to-transparent" />
@@ -496,28 +509,12 @@ export function TenantDetail() {
       </header>
 
       <div className="p-6 space-y-6">
-        <MetricsCard tenant={t} spendAvailable={spendAvailable} />
-
-        <section className="rounded-lg bg-primary p-6">
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-            Identity
-          </h2>
-          <div className="grid gap-x-10 gap-y-2.5 sm:grid-cols-2">
-            <DetailRow
-              label="Tenant ID"
-              value={<span className="font-mono">{t.id}</span>}
-            />
-            <DetailRow
-              label="Slug"
-              value={<span className="font-mono">{t.slug}</span>}
-            />
-            <DetailRow label="Registered" value={formatDate(t.createdAt)} />
-            <DetailRow
-              label="Status"
-              value={<span className="capitalize">{t.status}</span>}
-            />
+        <div className="grid items-start gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <ProfileCard tenant={t} />
           </div>
-        </section>
+          <SpendCard spend={t.spend} available={spendAvailable} />
+        </div>
 
         <UsersSection state={users} total={t.users} />
 
