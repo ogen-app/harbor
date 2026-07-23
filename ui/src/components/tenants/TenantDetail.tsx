@@ -319,7 +319,9 @@ function ZernioRow({ account: a }: { account: ZernioAccount }) {
             <span className="capitalize">{a.platform || "unknown"}</span>
             {a.lastPostAt
               ? ` · last post ${formatDate(a.lastPostAt)}`
-              : ` · joined ${formatDate(a.createdAt)}`}
+              : a.createdAt
+                ? ` · joined ${formatDate(a.createdAt)}`
+                : ""}
           </p>
         </div>
       </div>
@@ -478,10 +480,10 @@ function ActivityCard({ state }: { state: ActivityState }) {
           {/* Scrollable event list, capped at 200px, fading out at the bottom
               so the cut-off reads as "there's more, scroll". */}
           <div className="relative mt-5">
-            <div className="max-h-[250px] overflow-y-auto pr-1">
+            <div className="max-h-62.5 overflow-y-auto pr-1 pb-6">
               <RecentActivity state={state} />
             </div>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-primary to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-primary to-transparent" />
           </div>
         </>
       )}

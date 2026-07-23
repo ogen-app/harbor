@@ -62,7 +62,7 @@ export interface ZernioAccount {
   platform: string;
   username: string;
   isActive: boolean;
-  createdAt: string;
+  createdAt: string | null;
   totalPosts: number;
   scheduledPosts: number;
   publishedPosts: number;

@@ -74,7 +74,7 @@ type ZernioAccount struct {
 	Platform       string     `bun:"platform"        json:"platform"`
 	Username       string     `bun:"username"        json:"username"`
 	IsActive       bool       `bun:"is_active"       json:"isActive"`
-	CreatedAt      time.Time  `bun:"created_at"      json:"createdAt"`
+	CreatedAt      *time.Time `bun:"created_at"      json:"createdAt"`
 	TotalPosts     int        `bun:"total_posts"     json:"totalPosts"`
 	ScheduledPosts int        `bun:"scheduled_posts" json:"scheduledPosts"`
 	PublishedPosts int        `bun:"published_posts" json:"publishedPosts"`
@@ -262,18 +262,27 @@ func (r *tenantRepository) ZernioAccounts(ctx context.Context, tenantID string) 
 		return nil, ErrUnavailable
 	}
 
-	// Accounts first, from confirmed columns.
-	var accounts []ZernioAccount
-	err := r.db.NewRaw(`
+	// Accounts first. platform/username/is_active/deleted_at are confirmed, but
+	// created_at isn't universal on social_accounts, so it's adapted (selected
+	// and ordered on only when present).
+	saCols := r.tableColumns(ctx, "social_accounts")
+	createdSel, orderBy := "NULL::timestamptz AS created_at", "id"
+	if saCols["created_at"] {
+		createdSel, orderBy = "created_at", "created_at DESC"
+	}
+	accountsQuery := fmt.Sprintf(`
 		SELECT
 			id,
 			COALESCE(platform, '') AS platform,
 			COALESCE(username, '') AS username,
 			is_active,
-			created_at
+			%s
 		FROM social_accounts
 		WHERE tenant_id = ? AND deleted_at IS NULL
-		ORDER BY created_at DESC`, tenantID).Scan(ctx, &accounts)
+		ORDER BY %s`, createdSel, orderBy)
+
+	var accounts []ZernioAccount
+	err := r.db.NewRaw(accountsQuery, tenantID).Scan(ctx, &accounts)
 	if err != nil {
 		return nil, err
 	}
