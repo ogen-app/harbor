@@ -665,9 +665,9 @@ export function TenantDetail() {
 
         <UsersSection state={users} total={t.users} />
 
-        <SpendCard spend={t.spend} available={spendAvailable} />
-
         <ZernioSection state={zernio} total={t.zernioProfiles} />
+
+        <SpendCard spend={t.spend} available={spendAvailable} />
 
         <ActivityCard state={activity} />
       </div>
