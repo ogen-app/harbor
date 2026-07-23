@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +33,9 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants/overview", requireAuth, h.Overview)
 	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
 	app.Get("/api/tenants/:id/activity", requireAuth, h.Activity)
+	// Registered after the static /overview and /registrations paths so those
+	// win over the :id param; Fiber matches routes in registration order.
+	app.Get("/api/tenants/:id", requireAuth, h.Detail)
 }
 
 // tenantRow is one row of the Tenants table: identity plus the metric columns
@@ -208,6 +213,74 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 		"total":          total,
 		"statuses":       statuses,
 		"available":      true,
+		"spendAvailable": spendAvailable,
+	})
+}
+
+// Detail godoc
+// @Summary      Ogen tenant detail
+// @Description  A single tenant with the same identity and metric columns as the
+// @Description  Tenants list (users, Zernio profiles, R2 storage, current-period
+// @Description  AI spend split by vendor). Powers the /tenants/{id} detail page.
+// @Tags         tenants
+// @Produce      json
+// @Param        id   path      string  true  "Tenant ID"
+// @Success      200  {object}  map[string]any
+// @Router       /api/tenants/{id} [get]
+func (h *TenantsHandler) Detail(c *fiber.Ctx) error {
+	if h.ogenDB == nil {
+		return c.JSON(fiber.Map{"available": false, "error": "ogen database not configured"})
+	}
+	id := c.Params("id")
+
+	// Same identity + Ogen-side metrics as List, scoped to one tenant.
+	var s struct {
+		ID             string    `bun:"id"`
+		Name           string    `bun:"name"`
+		Slug           string    `bun:"slug"`
+		CreatedAt      time.Time `bun:"created_at"`
+		Users          int       `bun:"users"`
+		ZernioProfiles int       `bun:"zernio_profiles"`
+		R2Bytes        int64     `bun:"r2_bytes"`
+	}
+	err := h.ogenDB.NewRaw(`
+		SELECT
+			t.id, t.name, t.slug, t.created_at,
+			(SELECT count(*) FROM users u
+				WHERE u.tenant_id = t.id) AS users,
+			(SELECT count(*) FROM social_accounts sa
+				WHERE sa.tenant_id = t.id AND sa.is_active = true AND sa.deleted_at IS NULL) AS zernio_profiles,
+			(SELECT COALESCE(sum(af.size_bytes), 0) FROM asset_files af
+				WHERE af.tenant_id = t.id) AS r2_bytes
+		FROM tenants t
+		WHERE t.id = ?`, id).Scan(c.Context(), &s)
+	if err != nil {
+		// No row for this id is a not-found (soft), not a hard error.
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.JSON(fiber.Map{"available": true, "found": false})
+		}
+		return c.JSON(fiber.Map{"available": false, "error": err.Error()})
+	}
+
+	// Cross-database AI spend, indexed to this tenant. Best-effort like List.
+	spend, spendAvailable := tenantstats.SpendByTenant(c.Context(), h.analyticsDB)
+
+	tenant := tenantRow{
+		ID:             s.ID,
+		Name:           s.Name,
+		Slug:           s.Slug,
+		CreatedAt:      s.CreatedAt,
+		Status:         "active", // Ogen has no lifecycle column yet
+		Users:          s.Users,
+		ZernioProfiles: s.ZernioProfiles,
+		R2Bytes:        s.R2Bytes,
+		Spend:          spend[s.ID],
+	}
+
+	return c.JSON(fiber.Map{
+		"available":      true,
+		"found":          true,
+		"tenant":         tenant,
 		"spendAvailable": spendAvailable,
 	})
 }
