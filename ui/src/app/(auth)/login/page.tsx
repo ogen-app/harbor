@@ -60,7 +60,7 @@ export default function LoginPage() {
                         </div>
                     </div>
                     <p className="font-display text-2xl font-semibold tracking-tight">
-                        Ogen' Harbor
+                        Ogen&apos; Harbor
                     </p>
                 </div>
 

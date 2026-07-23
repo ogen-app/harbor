@@ -402,6 +402,8 @@ export function TenantsSection() {
 
     // Initial load.
     useEffect(() => {
+        // load() flips `refreshing` before the async fetch — intentional.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         void load();
     }, [load]);
 
@@ -416,6 +418,7 @@ export function TenantsSection() {
 
     // Auto-refresh when the countdown elapses (load() resets it).
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- load() flips `refreshing`
         if (countdown === 0) void load();
     }, [countdown, load]);
 

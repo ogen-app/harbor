@@ -138,6 +138,8 @@ export function TenantDetail() {
 
   // Resolve the tenant id from the URL after mount (see tenantIdFromLocation).
   useEffect(() => {
+    // Client-only URL read (avoids a hydration mismatch vs. the static shell).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setId(tenantIdFromLocation());
   }, []);
 
