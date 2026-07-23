@@ -135,7 +135,12 @@ func collectSpend(ctx context.Context, tenants ogen.TenantRepository, spend anal
 	out.PeriodStart = &start
 
 	total, err := spend.PeriodTotalMicros(ctx)
-	logFail("spend.total", err)
+	if err != nil {
+		// Bail before marking the section available: a zero total combined with
+		// otherwise-successful rollup data would misrepresent spend.
+		logFail("spend.total", err)
+		return
+	}
 	out.TotalMicros = total
 
 	// Per-tenant, per-vendor spend for the period, aggregated in Go so each

@@ -2,6 +2,7 @@ package tenants
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/ogen-app/harbor/src/repository/analytics"
@@ -55,6 +56,7 @@ func (f *fakeTenantRepo) TenantNames(context.Context) (map[string]string, error)
 type fakeSpendRepo struct {
 	available bool
 	total     int64
+	totalErr  error // when set (and available), PeriodTotalMicros fails
 	rollup    []analytics.VendorCost
 }
 
@@ -71,6 +73,9 @@ func (f *fakeSpendRepo) Rollup(context.Context) ([]analytics.VendorCost, error) 
 func (f *fakeSpendRepo) PeriodTotalMicros(context.Context) (int64, error) {
 	if !f.available {
 		return 0, analytics.ErrUnavailable
+	}
+	if f.totalErr != nil {
+		return 0, f.totalErr
 	}
 	return f.total, nil
 }
@@ -152,5 +157,30 @@ func TestCollectSpendRankingAndVendorSplit(t *testing.T) {
 	c := o.Spend.Top[2]
 	if c.TenantID != "c" || c.OtherMicros != 20 || c.Name != "c" {
 		t.Errorf("top[2] = %+v, want id-fallback name and other=20", c)
+	}
+}
+
+func TestCollectSpendTotalFailureIsUnavailable(t *testing.T) {
+	tenants := &fakeTenantRepo{headline: ogen.OverviewHeadline{Total: 1}}
+	// Period total fails even though the rollup would succeed — the spend
+	// section must stay unavailable rather than combine a zero total with data.
+	spend := &fakeSpendRepo{
+		available: true,
+		totalErr:  errors.New("timeout"),
+		rollup: []analytics.VendorCost{
+			{TenantID: "a", Vendor: "anthropic", CostMicros: 100},
+		},
+	}
+
+	o := Collect(context.Background(), tenants, spend)
+
+	if o.Spend.Available {
+		t.Error("spend should be unavailable when the period total fails")
+	}
+	if o.Spend.TotalMicros != 0 {
+		t.Errorf("total = %d, want 0", o.Spend.TotalMicros)
+	}
+	if o.Spend.Top != nil {
+		t.Errorf("Top should be empty, got %+v", o.Spend.Top)
 	}
 }
