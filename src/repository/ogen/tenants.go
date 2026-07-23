@@ -11,6 +11,8 @@ package ogen
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -233,44 +235,168 @@ func (r *tenantRepository) ActivitySeries(ctx context.Context, tenantID string, 
 	return days, nil
 }
 
+// postLinkColumns are the candidate posts→social_accounts foreign-key columns,
+// most-specific first. Ogen's exact name varies, so we detect which one exists
+// rather than hard-coding it. Values come from a fixed allowlist (never user
+// input), so they are safe to interpolate into SQL.
+var postLinkColumns = []string{
+	"social_account_id",
+	"social_account",
+	"account_id",
+	"social_profile_id",
+	"social_profile",
+	"profile_id",
+	"channel_id",
+	"connection_id",
+	"social_id",
+}
+
+// postStat is one account's post throughput.
+type postStat struct {
+	total, scheduled, published, failed int
+	lastPostAt                          *time.Time
+}
+
 func (r *tenantRepository) ZernioAccounts(ctx context.Context, tenantID string) ([]ZernioAccount, error) {
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
-	// Per-account post throughput is pre-aggregated in a subquery (grouped by
-	// social_account_id) so the join stays one row per account.
+
+	// Accounts first, from confirmed columns.
 	var accounts []ZernioAccount
 	err := r.db.NewRaw(`
 		SELECT
-			sa.id,
-			COALESCE(sa.platform, '') AS platform,
-			COALESCE(sa.username, '') AS username,
-			sa.is_active,
-			sa.created_at,
-			COALESCE(p.total, 0)     AS total_posts,
-			COALESCE(p.scheduled, 0) AS scheduled_posts,
-			COALESCE(p.published, 0) AS published_posts,
-			COALESCE(p.failed, 0)    AS failed_posts,
-			p.last_post_at
-		FROM social_accounts sa
-		LEFT JOIN (
-			SELECT
-				social_account_id,
-				count(*)                                                                          AS total,
-				count(*) FILTER (WHERE status = 'scheduled')                                      AS scheduled,
-				count(*) FILTER (WHERE published_at IS NOT NULL)                                  AS published,
-				count(*) FILTER (WHERE failure_reason IS NOT NULL AND failure_reason <> '')       AS failed,
-				max(COALESCE(published_at, created_at))                                           AS last_post_at
-			FROM posts
-			WHERE tenant_id = ?
-			GROUP BY social_account_id
-		) p ON p.social_account_id = sa.id
-		WHERE sa.tenant_id = ? AND sa.deleted_at IS NULL
-		ORDER BY sa.created_at DESC`, tenantID, tenantID).Scan(ctx, &accounts)
+			id,
+			COALESCE(platform, '') AS platform,
+			COALESCE(username, '') AS username,
+			is_active,
+			created_at
+		FROM social_accounts
+		WHERE tenant_id = ? AND deleted_at IS NULL
+		ORDER BY created_at DESC`, tenantID).Scan(ctx, &accounts)
 	if err != nil {
 		return nil, err
 	}
+	if len(accounts) == 0 {
+		return accounts, nil
+	}
+
+	// Post throughput is best-effort and merged in Go: the posts→account FK name
+	// and the status column vary across Ogen schema versions, so a failure here
+	// leaves the counts at zero rather than failing the whole block.
+	stats := r.postStatsByAccount(ctx, tenantID)
+	for i := range accounts {
+		if s, ok := stats[accounts[i].ID]; ok {
+			accounts[i].TotalPosts = s.total
+			accounts[i].ScheduledPosts = s.scheduled
+			accounts[i].PublishedPosts = s.published
+			accounts[i].FailedPosts = s.failed
+			accounts[i].LastPostAt = s.lastPostAt
+		}
+	}
 	return accounts, nil
+}
+
+// postStatsByAccount aggregates posts per social account, keyed by account id.
+// It adapts to the posts schema (link-column name, presence of a status column)
+// and returns nil on any failure so the caller degrades to zero counts.
+func (r *tenantRepository) postStatsByAccount(ctx context.Context, tenantID string) map[string]postStat {
+	cols := r.tableColumns(ctx, "posts")
+	linkCol := firstPresent(cols, postLinkColumns)
+	if linkCol == "" {
+		slog.Debug("zernio: no posts→account link column found",
+			"component", "ogen", "tried", postLinkColumns)
+		return nil
+	}
+
+	// "Scheduled" prefers a status column, then a future scheduled_at.
+	scheduledExpr := "0"
+	switch {
+	case cols["status"]:
+		scheduledExpr = "count(*) FILTER (WHERE status = 'scheduled')"
+	case cols["scheduled_at"]:
+		scheduledExpr = "count(*) FILTER (WHERE scheduled_at > now())"
+	}
+	publishedExpr := "0"
+	if cols["published_at"] {
+		publishedExpr = "count(*) FILTER (WHERE published_at IS NOT NULL)"
+	}
+	failedExpr := "0"
+	if cols["failure_reason"] {
+		failedExpr = "count(*) FILTER (WHERE failure_reason IS NOT NULL AND failure_reason <> '')"
+	}
+	lastExpr := "NULL::timestamptz"
+	if cols["published_at"] {
+		lastExpr = "max(COALESCE(published_at, created_at))"
+	} else if cols["created_at"] {
+		lastExpr = "max(created_at)"
+	}
+
+	// %s values are catalog-derived column names / allowlisted expressions, not
+	// user input; tenantID stays a bound parameter.
+	query := fmt.Sprintf(`
+		SELECT
+			%s AS account_id,
+			count(*)    AS total,
+			%s          AS scheduled,
+			%s          AS published,
+			%s          AS failed,
+			%s          AS last_post_at
+		FROM posts
+		WHERE tenant_id = ? AND %s IS NOT NULL
+		GROUP BY %s`, linkCol, scheduledExpr, publishedExpr, failedExpr, lastExpr, linkCol, linkCol)
+
+	var rows []struct {
+		AccountID  string     `bun:"account_id"`
+		Total      int        `bun:"total"`
+		Scheduled  int        `bun:"scheduled"`
+		Published  int        `bun:"published"`
+		Failed     int        `bun:"failed"`
+		LastPostAt *time.Time `bun:"last_post_at"`
+	}
+	if err := r.db.NewRaw(query, tenantID).Scan(ctx, &rows); err != nil {
+		slog.Debug("zernio: post stats query failed",
+			"component", "ogen", "linkColumn", linkCol, "err", err)
+		return nil
+	}
+
+	out := make(map[string]postStat, len(rows))
+	for _, row := range rows {
+		out[row.AccountID] = postStat{
+			total:      row.Total,
+			scheduled:  row.Scheduled,
+			published:  row.Published,
+			failed:     row.Failed,
+			lastPostAt: row.LastPostAt,
+		}
+	}
+	return out
+}
+
+// tableColumns returns the set of column names on a table (across schemas), for
+// adapting queries to the live Ogen schema. Returns nil on error.
+func (r *tenantRepository) tableColumns(ctx context.Context, table string) map[string]bool {
+	var names []string
+	if err := r.db.NewRaw(
+		`SELECT column_name FROM information_schema.columns WHERE table_name = ?`,
+		table).Scan(ctx, &names); err != nil {
+		return nil
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
+}
+
+// firstPresent returns the first candidate found in cols, or "".
+func firstPresent(cols map[string]bool, candidates []string) string {
+	for _, c := range candidates {
+		if cols[c] {
+			return c
+		}
+	}
+	return ""
 }
 
 func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, error) {
