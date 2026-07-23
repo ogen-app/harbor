@@ -7,9 +7,15 @@ import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
 import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
+import {
   type Tenant,
   type VendorSpend,
   type ActivityEvent,
+  type ActivityDay,
   type ActivityState,
   type TenantUser,
   type UsersState,
@@ -242,6 +248,110 @@ function UsersSection({ state, total }: { state: UsersState; total: number }) {
   );
 }
 
+// ── recent activity ───────────────────────────────────────────────────────────
+
+// "2026-06-28" → "Jun 28" (parsed as local midnight to avoid TZ drift).
+function fmtDay(date: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+const ACTIVITY_CHART_H = 48; // px
+
+// ActivityChart is a 60-day daily event-volume bar chart (mirrors the Tenants
+// page registrations chart, in the activity accent colour).
+function ActivityChart({ series }: { series: ActivityDay[] }) {
+  const max = Math.max(1, ...series.map((d) => d.count));
+  return (
+    <div>
+      <div className="flex items-end gap-[2px]" style={{ height: ACTIVITY_CHART_H }}>
+        {series.map((d) =>
+          d.count > 0 ? (
+            <Tooltip key={d.date}>
+              <TooltipTrigger asChild>
+                <div
+                  className="flex-1 cursor-default rounded-sm bg-emerald-500 transition-colors hover:bg-emerald-400"
+                  style={{
+                    height: `${Math.max((d.count / max) * ACTIVITY_CHART_H, 3)}px`,
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent className="border-foreground bg-foreground text-left text-background">
+                <p className="font-medium">{fmtDay(d.date)}</p>
+                <p className="text-background/70">
+                  {d.count} {d.count === 1 ? "event" : "events"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div
+              key={d.date}
+              title={`${fmtDay(d.date)} · no activity`}
+              className="flex-1 rounded-sm bg-secondary"
+              style={{ height: "2px" }}
+            />
+          ),
+        )}
+      </div>
+      <div className="mt-2 flex justify-between text-[11px] text-tertiary-foreground">
+        <span>{series.length ? fmtDay(series[0].date) : ""}</span>
+        <span>{series.length ? fmtDay(series[series.length - 1].date) : ""}</span>
+      </div>
+    </div>
+  );
+}
+
+// ActivityCard is the screen-wide recent-activity card: a 60-day volume chart
+// above a scrollable event list that fades out at the bottom.
+function ActivityCard({ state }: { state: ActivityState }) {
+  const series = state.series ?? [];
+  const total = series.reduce((sum, d) => sum + d.count, 0);
+  return (
+    <section className="rounded-lg bg-primary p-6">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+            Recent activity
+          </h2>
+          <InfoIcon text="Publishing and content events for this tenant from the Ogen post_logs audit trail. The chart shows daily event volume over the last 60 days; the list shows the most recent events." />
+        </div>
+        {!state.loading && !state.error && (
+          <span className="text-xs tabular-nums text-tertiary-foreground">
+            {total} in 60 days
+          </span>
+        )}
+      </div>
+
+      {state.loading ? (
+        <div className="mt-4 flex items-center gap-2 text-xs text-tertiary-foreground">
+          <Loader className="size-3.5 border-[1.5px]" />
+          Loading activity…
+        </div>
+      ) : state.error ? (
+        <p className="mt-4 text-xs text-tertiary-foreground">
+          Activity unavailable — {state.error}
+        </p>
+      ) : (
+        <>
+          <div className="mt-4">
+            <ActivityChart series={series} />
+          </div>
+          {/* Scrollable event list, capped at 200px, fading out at the bottom
+              so the cut-off reads as "there's more, scroll". */}
+          <div className="relative mt-5">
+            <div className="max-h-[200px] overflow-y-auto pr-1">
+              <RecentActivity state={state} />
+            </div>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-primary to-transparent" />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 
 export function TenantDetail() {
@@ -284,10 +394,15 @@ export function TenantDetail() {
         return r.json();
       })
       .then(
-        (j: { activity: ActivityEvent[]; available: boolean; error?: string }) =>
+        (j: {
+          activity: ActivityEvent[];
+          series?: ActivityDay[];
+          available: boolean;
+          error?: string;
+        }) =>
           setActivity(
             j.available
-              ? { loading: false, events: j.activity }
+              ? { loading: false, events: j.activity, series: j.series }
               : { loading: false, error: j.error ?? "unavailable" },
           ),
       )
@@ -383,37 +498,30 @@ export function TenantDetail() {
       <div className="p-6 space-y-6">
         <MetricsCard tenant={t} spendAvailable={spendAvailable} />
 
+        <section className="rounded-lg bg-primary p-6">
+          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+            Identity
+          </h2>
+          <div className="grid gap-x-10 gap-y-2.5 sm:grid-cols-2">
+            <DetailRow
+              label="Tenant ID"
+              value={<span className="font-mono">{t.id}</span>}
+            />
+            <DetailRow
+              label="Slug"
+              value={<span className="font-mono">{t.slug}</span>}
+            />
+            <DetailRow label="Registered" value={formatDate(t.createdAt)} />
+            <DetailRow
+              label="Status"
+              value={<span className="capitalize">{t.status}</span>}
+            />
+          </div>
+        </section>
+
         <UsersSection state={users} total={t.users} />
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-          <section className="rounded-lg bg-primary p-6">
-            <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-              Identity
-            </h2>
-            <div className="space-y-2.5">
-              <DetailRow
-                label="Tenant ID"
-                value={<span className="font-mono">{t.id}</span>}
-              />
-              <DetailRow
-                label="Slug"
-                value={<span className="font-mono">{t.slug}</span>}
-              />
-              <DetailRow label="Registered" value={formatDate(t.createdAt)} />
-              <DetailRow
-                label="Status"
-                value={<span className="capitalize">{t.status}</span>}
-              />
-            </div>
-          </section>
-
-          <section className="rounded-lg bg-primary p-6">
-            <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-              Recent activity
-            </h2>
-            <RecentActivity state={activity} />
-          </section>
-        </div>
+        <ActivityCard state={activity} />
       </div>
     </main>
   );

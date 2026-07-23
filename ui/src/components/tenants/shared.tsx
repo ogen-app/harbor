@@ -32,10 +32,16 @@ export interface ActivityEvent {
   summary: string;
 }
 
+export interface ActivityDay {
+  date: string;
+  count: number;
+}
+
 export interface ActivityState {
   loading: boolean;
   error?: string;
   events?: ActivityEvent[];
+  series?: ActivityDay[];
 }
 
 export interface TenantUser {

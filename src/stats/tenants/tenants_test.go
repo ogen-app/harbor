@@ -35,6 +35,9 @@ func (f *fakeTenantRepo) Activity(context.Context, string, int) ([]ogen.Activity
 func (f *fakeTenantRepo) Users(context.Context, string, int) ([]ogen.User, error) {
 	return nil, nil
 }
+func (f *fakeTenantRepo) ActivitySeries(context.Context, string, int) ([]ogen.ActivityDay, error) {
+	return nil, nil
+}
 func (f *fakeTenantRepo) Headline(context.Context) (ogen.OverviewHeadline, error) {
 	return f.headline, nil
 }

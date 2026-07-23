@@ -58,6 +58,13 @@ type User struct {
 	CreatedAt time.Time `bun:"created_at" json:"createdAt"`
 }
 
+// ActivityDay is a single UTC day's activity-event count for a tenant, used to
+// build the detail page's 60-day activity chart.
+type ActivityDay struct {
+	Date  string `bun:"date"`
+	Count int    `bun:"count"`
+}
+
 // OverviewHeadline is the tenant total plus new-signup counts over recent
 // windows, gathered in a single pass over the tenants table.
 type OverviewHeadline struct {
@@ -80,6 +87,9 @@ type TenantRepository interface {
 	Activity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error)
 	// Users returns a tenant's members (newest first), capped at limit.
 	Users(ctx context.Context, tenantID string, limit int) ([]User, error)
+	// ActivitySeries returns per-day activity-event counts within the last
+	// windowDays days (sparse — only days with events).
+	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error)
 
 	// ── overview aggregates ──────────────────────────────────────────────
 	Headline(ctx context.Context) (OverviewHeadline, error)
@@ -185,6 +195,24 @@ func (r *tenantRepository) Users(ctx context.Context, tenantID string, limit int
 		return nil, err
 	}
 	return users, nil
+}
+
+func (r *tenantRepository) ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	var days []ActivityDay
+	err := r.db.NewRaw(`
+		SELECT to_char((event_timestamp AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date, count(*) AS count
+		FROM post_logs
+		WHERE tenant_id = ?
+		  AND (event_timestamp AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?
+		GROUP BY date
+		ORDER BY date`, tenantID, windowDays-1).Scan(ctx, &days)
+	if err != nil {
+		return nil, err
+	}
+	return days, nil
 }
 
 func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, error) {

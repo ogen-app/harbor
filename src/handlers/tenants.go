@@ -293,13 +293,24 @@ func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"days": days, "available": true})
 }
 
-// recentActivityLimit caps a tenant's activity feed.
+// recentActivityLimit caps a tenant's activity feed (the scrollable list on the
+// detail page and the expanded row in the Tenants table).
 const recentActivityLimit = 15
+
+// activityWindowDays is the span of the detail page's activity chart.
+const activityWindowDays = 60
+
+// activityDay is one day of the activity chart: an ISO date and event count.
+type activityDay struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
 
 // Activity godoc
 // @Summary      Tenant recent activity
-// @Description  Most recent post_logs events for a tenant. Loaded lazily when a
-// @Description  tenant row is expanded in the Tenants table.
+// @Description  A tenant's recent post_logs events (newest first) plus a dense
+// @Description  60-day daily event-count series for the detail page's activity
+// @Description  chart. Also loaded when a row is expanded in the Tenants table.
 // @Tags         tenants
 // @Produce      json
 // @Param        id   path      string  true  "Tenant ID"
@@ -307,14 +318,31 @@ const recentActivityLimit = 15
 // @Router       /api/tenants/{id}/activity [get]
 func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 	if !h.tenants.Available() {
-		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "available": false, "error": "ogen database not configured"})
+		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": "ogen database not configured"})
+	}
+	id := c.Params("id")
+
+	events, err := h.tenants.Activity(c.Context(), id, recentActivityLimit)
+	if err != nil {
+		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": err.Error()})
 	}
 
-	events, err := h.tenants.Activity(c.Context(), c.Params("id"), recentActivityLimit)
-	if err != nil {
-		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "available": false, "error": err.Error()})
+	// 60-day daily event counts, zero-filled for the chart. Best-effort: a query
+	// failure yields a flat series while the event list still renders.
+	counts, _ := h.tenants.ActivitySeries(c.Context(), id, activityWindowDays)
+	byDay := make(map[string]int, len(counts))
+	for _, d := range counts {
+		byDay[d.Date] = d.Count
 	}
-	return c.JSON(fiber.Map{"activity": events, "available": true})
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	series := make([]activityDay, 0, activityWindowDays)
+	for i := activityWindowDays - 1; i >= 0; i-- {
+		date := today.AddDate(0, 0, -i).Format("2006-01-02")
+		series = append(series, activityDay{Date: date, Count: byDay[date]})
+	}
+
+	return c.JSON(fiber.Map{"activity": events, "series": series, "available": true})
 }
 
 // tenantUsersLimit caps a tenant's user list (an admin tenant has a bounded
