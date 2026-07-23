@@ -21,6 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No git ops after checkout — don't persist GITHUB_TOKEN in .git/config.
+          persist-credentials: false
 
       - uses: actions/setup-go@v5
         with:
@@ -39,6 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No git ops after checkout — don't persist GITHUB_TOKEN in .git/config.
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
