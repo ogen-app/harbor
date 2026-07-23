@@ -1,18 +1,17 @@
 // Package tenantstats computes the tenant overview shown on Harbor's dashboard.
-// It reads the Ogen control-plane DB (tenants, posts, assets, social accounts,
-// river jobs) and the analytics/TimescaleDB (usage_events) for AI spend. Every
-// query is read-only and best-effort: a failing section is logged at debug and
-// left zero.
+// It is a pure aggregator: all database access goes through the origin-scoped
+// repositories (ogen control-plane + analytics/Timescale). Every section is
+// best-effort — a failing repository call is logged at debug and left zero.
 package tenantstats
 
 import (
 	"context"
 	"log/slog"
 	"sort"
-	"strings"
 	"time"
 
-	"github.com/uptrace/bun"
+	"github.com/ogen-app/harbor/src/repository/analytics"
+	"github.com/ogen-app/harbor/src/repository/ogen"
 )
 
 type Overview struct {
@@ -87,114 +86,99 @@ func logFail(section string, err error) {
 	}
 }
 
-// Collect gathers the overview. ogenDB must be non-nil; analyticsDB may be nil
-// (spend is then marked unavailable).
-func Collect(ctx context.Context, ogenDB, analyticsDB *bun.DB) Overview {
+// topSpendTenants caps the ranked spend list at five entries.
+const topSpendTenants = 5
+
+// Collect gathers the overview from the two repositories. The tenant repository
+// must be available (the caller guards on it); the spend repository may be
+// unavailable, in which case spend is marked unavailable.
+func Collect(ctx context.Context, tenants ogen.TenantRepository, spend analytics.SpendRepository) Overview {
 	var o Overview
 	o.Quota.Placeholder = true
 
 	// Headline total + movement (new signups) in one pass over tenants.
-	logFail("headline", ogenDB.NewRaw(`
-		SELECT
-			count(*),
-			count(*) FILTER (WHERE created_at >= now() - interval '7 days'),
-			count(*) FILTER (WHERE created_at >= now() - interval '30 days')
-		FROM tenants`).Scan(ctx, &o.Headline.Total, &o.Movement.New7d, &o.Movement.New30d))
+	headline, err := tenants.Headline(ctx)
+	logFail("headline", err)
+	o.Headline.Total = headline.Total
+	o.Movement.New7d = headline.New7d
+	o.Movement.New30d = headline.New30d
 	o.Headline.Active = o.Headline.Total // no lifecycle column yet
 	o.Activity.Total = o.Headline.Total
 
 	// Activity pulse: tenants that published/created a post or created an asset
 	// in the last 7 days.
-	logFail("activity", ogenDB.NewRaw(`
-		SELECT count(*) FROM (
-			SELECT tenant_id FROM posts
-			  WHERE published_at >= now() - interval '7 days'
-			     OR created_at   >= now() - interval '7 days'
-			UNION
-			SELECT tenant_id FROM assets
-			  WHERE created_at >= now() - interval '7 days'
-		) active`).Scan(ctx, &o.Activity.Active7d))
+	active7d, err := tenants.ActivePulse7d(ctx)
+	logFail("activity", err)
+	o.Activity.Active7d = active7d
 
 	// Exceptions.
-	logFail("exc.publishes", ogenDB.NewRaw(`
-		SELECT count(DISTINCT tenant_id) FROM posts
-		WHERE failure_reason IS NOT NULL AND failure_reason <> ''
-		  AND updated_at >= now() - interval '24 hours'`).Scan(ctx, &o.Exceptions.FailedPublishes24h))
-	logFail("exc.social", ogenDB.NewRaw(`
-		SELECT count(DISTINCT tenant_id) FROM social_accounts
-		WHERE is_active = false AND deleted_at IS NULL`).Scan(ctx, &o.Exceptions.BrokenSocial))
-	logFail("exc.river", ogenDB.NewRaw(`
-		SELECT count(*) FROM river_job
-		WHERE (state = 'available' AND scheduled_at  < now() - interval '15 minutes')
-		   OR (state = 'running'   AND attempted_at  < now() - interval '15 minutes')
-		   OR (state = 'retryable' AND attempt >= max_attempts)`).Scan(ctx, &o.Exceptions.StuckRiverJobs))
+	failed, err := tenants.FailedPublishes24h(ctx)
+	logFail("exc.publishes", err)
+	o.Exceptions.FailedPublishes24h = failed
+	broken, err := tenants.BrokenSocial(ctx)
+	logFail("exc.social", err)
+	o.Exceptions.BrokenSocial = broken
+	stuck, err := tenants.StuckRiverJobs(ctx)
+	logFail("exc.river", err)
+	o.Exceptions.StuckRiverJobs = stuck
 
-	collectSpend(ctx, ogenDB, analyticsDB, &o.Spend)
+	collectSpend(ctx, tenants, spend, &o.Spend)
 	return o
 }
 
-func collectSpend(ctx context.Context, ogenDB, analyticsDB *bun.DB, out *Spend) {
-	if analyticsDB == nil {
+func collectSpend(ctx context.Context, tenants ogen.TenantRepository, spend analytics.SpendRepository, out *Spend) {
+	if !spend.Available() {
 		return
 	}
 	now := time.Now().UTC()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	out.PeriodStart = &start
 
-	logFail("spend.total", analyticsDB.NewRaw(`
-		SELECT COALESCE(sum(cost_micros), 0) FROM usage_events
-		WHERE occurred_at >= date_trunc('month', now())`).Scan(ctx, &out.TotalMicros))
+	total, err := spend.PeriodTotalMicros(ctx)
+	logFail("spend.total", err)
+	out.TotalMicros = total
 
 	// Per-tenant, per-vendor spend for the period, aggregated in Go so each
 	// tenant's bar can be split by model vendor (Anthropic / Google / other)
 	// while tenants are still ranked by total.
-	var rows []struct {
-		TenantID   string `bun:"tenant_id"`
-		Vendor     string `bun:"vendor"`
-		CostMicros int64  `bun:"cost_micros"`
-	}
-	err := analyticsDB.NewRaw(`
-		SELECT tenant_id, vendor, sum(cost_micros) AS cost_micros
-		FROM usage_events
-		WHERE occurred_at >= date_trunc('month', now())
-		GROUP BY tenant_id, vendor`).Scan(ctx, &rows)
+	rows, err := spend.Rollup(ctx)
 	if err != nil {
 		logFail("spend.byvendor", err)
 		return
 	}
 	out.Available = true
 
-	byTenant := map[string]*SpendTenant{}
+	byTenant := map[string]*analytics.VendorSpend{}
 	var order []string
 	for _, r := range rows {
-		t := byTenant[r.TenantID]
-		if t == nil {
-			t = &SpendTenant{TenantID: r.TenantID}
-			byTenant[r.TenantID] = t
+		vs := byTenant[r.TenantID]
+		if vs == nil {
+			vs = &analytics.VendorSpend{}
+			byTenant[r.TenantID] = vs
 			order = append(order, r.TenantID)
 		}
-		t.CostMicros += r.CostMicros
-		switch classifyVendor(r.Vendor) {
-		case "anthropic":
-			t.AnthropicMicros += r.CostMicros
-		case "google":
-			t.GoogleMicros += r.CostMicros
-		default:
-			t.OtherMicros += r.CostMicros
-		}
+		analytics.AddVendorCost(vs, r.Vendor, r.CostMicros)
 	}
 
 	top := make([]SpendTenant, 0, len(order))
 	for _, id := range order {
-		top = append(top, *byTenant[id])
+		vs := byTenant[id]
+		top = append(top, SpendTenant{
+			TenantID:        id,
+			CostMicros:      vs.TotalMicros,
+			AnthropicMicros: vs.AnthropicMicros,
+			GoogleMicros:    vs.GoogleMicros,
+			OtherMicros:     vs.OtherMicros,
+		})
 	}
 	sort.SliceStable(top, func(i, j int) bool { return top[i].CostMicros > top[j].CostMicros })
-	if len(top) > 5 {
-		top = top[:5]
+	if len(top) > topSpendTenants {
+		top = top[:topSpendTenants]
 	}
 
 	// Map tenant ids → names from the Ogen DB (cross-database, so joined here).
-	names := tenantNames(ctx, ogenDB)
+	names, err := tenants.TenantNames(ctx)
+	logFail("spend.names", err)
 	for i := range top {
 		if n := names[top[i].TenantID]; n != "" {
 			top[i].Name = n
@@ -203,79 +187,4 @@ func collectSpend(ctx context.Context, ogenDB, analyticsDB *bun.DB, out *Spend) 
 		}
 	}
 	out.Top = top
-}
-
-// VendorSpend is one tenant's AI cost for the current billing period, split by
-// model-family vendor. Used by the Tenants table (per-tenant, all tenants),
-// where Collect's top-5 ranking isn't enough.
-type VendorSpend struct {
-	AnthropicMicros int64 `json:"anthropicMicros"`
-	GoogleMicros    int64 `json:"googleMicros"`
-	OtherMicros     int64 `json:"otherMicros"`
-	TotalMicros     int64 `json:"totalMicros"`
-}
-
-// SpendByTenant returns current-period AI spend for every tenant that has usage,
-// keyed by tenant id and split by vendor. The bool is false when analytics is
-// absent or the query fails, so callers render a soft "unavailable" state rather
-// than an error.
-func SpendByTenant(ctx context.Context, analyticsDB *bun.DB) (map[string]VendorSpend, bool) {
-	if analyticsDB == nil {
-		return nil, false
-	}
-	var rows []struct {
-		TenantID   string `bun:"tenant_id"`
-		Vendor     string `bun:"vendor"`
-		CostMicros int64  `bun:"cost_micros"`
-	}
-	err := analyticsDB.NewRaw(`
-		SELECT tenant_id, vendor, sum(cost_micros) AS cost_micros
-		FROM usage_events
-		WHERE occurred_at >= date_trunc('month', now())
-		GROUP BY tenant_id, vendor`).Scan(ctx, &rows)
-	if err != nil {
-		logFail("spend.bytenant", err)
-		return nil, false
-	}
-	out := make(map[string]VendorSpend, len(rows))
-	for _, r := range rows {
-		s := out[r.TenantID]
-		s.TotalMicros += r.CostMicros
-		switch classifyVendor(r.Vendor) {
-		case "anthropic":
-			s.AnthropicMicros += r.CostMicros
-		case "google":
-			s.GoogleMicros += r.CostMicros
-		default:
-			s.OtherMicros += r.CostMicros
-		}
-		out[r.TenantID] = s
-	}
-	return out, true
-}
-
-// classifyVendor maps a usage_events vendor string to a model-family bucket.
-func classifyVendor(v string) string {
-	v = strings.ToLower(strings.TrimSpace(v))
-	switch {
-	case strings.Contains(v, "anthropic") || strings.Contains(v, "claude"):
-		return "anthropic"
-	case strings.Contains(v, "gemini") || strings.Contains(v, "google") || strings.Contains(v, "vertex"):
-		return "google"
-	default:
-		return "other"
-	}
-}
-
-func tenantNames(ctx context.Context, ogenDB *bun.DB) map[string]string {
-	var rows []struct {
-		ID   string `bun:"id"`
-		Name string `bun:"name"`
-	}
-	logFail("spend.names", ogenDB.NewRaw(`SELECT id, name FROM tenants`).Scan(ctx, &rows))
-	m := make(map[string]string, len(rows))
-	for _, r := range rows {
-		m[r.ID] = r.Name
-	}
-	return m
 }

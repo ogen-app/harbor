@@ -85,6 +85,39 @@ type River struct {
 	OldestAvailableSeconds *int64 `json:"oldestAvailableSeconds"`
 }
 
+// Probe is a live snapshot of a database pool: connectivity, on-disk size, and
+// the diagnostic stats. It keeps all pg introspection queries out of the HTTP
+// handlers. A nil pool or any error is reported (never fatal) so the UI can
+// render a disconnected state.
+type Probe struct {
+	Connected bool
+	SizeBytes int64
+	Stats     *Stats
+	Err       string
+}
+
+// ProbePool pings the pool and, when reachable, reads the database's on-disk
+// size and diagnostic stats. includeRiver adds the river_job queue depth (only
+// meaningful for the Ogen database).
+func ProbePool(ctx context.Context, db *bun.DB, includeRiver bool) Probe {
+	if db == nil {
+		return Probe{Err: "not configured"}
+	}
+	if err := db.PingContext(ctx); err != nil {
+		return Probe{Err: err.Error()}
+	}
+	p := Probe{Connected: true}
+
+	var size int64
+	if err := db.NewRaw("SELECT pg_database_size(current_database())").Scan(ctx, &size); err != nil {
+		p.Err = "size unavailable: " + err.Error()
+		return p
+	}
+	p.SizeBytes = size
+	p.Stats = Collect(ctx, db, includeRiver)
+	return p
+}
+
 // Collect gathers all sections. includeRiver adds the river_job queue depth
 // (only meaningful for the Ogen database).
 func Collect(ctx context.Context, db *bun.DB, includeRiver bool) *Stats {

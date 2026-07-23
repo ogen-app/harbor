@@ -1,6 +1,9 @@
-// Package repository holds the bun-backed data-access layer. Interfaces + a
-// private struct implementation per aggregate, mirroring ../ogen.
-package repository
+// Package harbor holds the bun-backed data-access layer for Harbor's OWN
+// Postgres database (users, sessions). Interfaces + a private struct
+// implementation per aggregate, mirroring ../ogen. Repositories are split by
+// origin database: this package (harbor), plus sibling ogen and analytics
+// packages for the external Ogen control-plane and analytics/Timescale pools.
+package harbor
 
 import (
 	"context"

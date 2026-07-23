@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"context"
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/uptrace/bun"
 
@@ -48,33 +46,23 @@ func (h *StatusHandler) Databases(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"databases": []dbStatus{
 			// River queue depth is only collected for the Ogen database.
-			probeDB(c.Context(), "ogen", "Ogen database", "PostgreSQL", h.ogenDB, true),
-			probeDB(c.Context(), "analytics", "Analytics database", "TimescaleDB", h.analyticsDB, false),
+			statusOf("ogen", "Ogen database", "PostgreSQL",
+				dbstats.ProbePool(c.Context(), h.ogenDB, true)),
+			statusOf("analytics", "Analytics database", "TimescaleDB",
+				dbstats.ProbePool(c.Context(), h.analyticsDB, false)),
 		},
 	})
 }
 
-// probeDB pings the pool and, when reachable, reads the database's on-disk size.
-// A nil pool or any error is reported (never fatal) so the UI can render a
-// disconnected state.
-func probeDB(ctx context.Context, key, label, kind string, db *bun.DB, includeRiver bool) dbStatus {
-	s := dbStatus{Key: key, Label: label, Kind: kind}
-	if db == nil {
-		s.Error = "not configured"
-		return s
+// statusOf maps a database probe onto the API's dbStatus shape.
+func statusOf(key, label, kind string, p dbstats.Probe) dbStatus {
+	return dbStatus{
+		Key:       key,
+		Label:     label,
+		Kind:      kind,
+		Connected: p.Connected,
+		SizeBytes: p.SizeBytes,
+		Error:     p.Err,
+		Stats:     p.Stats,
 	}
-	if err := db.PingContext(ctx); err != nil {
-		s.Error = err.Error()
-		return s
-	}
-	s.Connected = true
-
-	var size int64
-	if err := db.NewRaw("SELECT pg_database_size(current_database())").Scan(ctx, &size); err != nil {
-		s.Error = "size unavailable: " + err.Error()
-		return s
-	}
-	s.SizeBytes = size
-	s.Stats = dbstats.Collect(ctx, db, includeRiver)
-	return s
 }
