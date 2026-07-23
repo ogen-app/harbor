@@ -2,7 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  InstagramLogoIcon,
+  FacebookLogoIcon,
+  XLogoIcon,
+  TwitterLogoIcon,
+  LinkedinLogoIcon,
+  TiktokLogoIcon,
+  YoutubeLogoIcon,
+  PinterestLogoIcon,
+  ThreadsLogoIcon,
+  SnapchatLogoIcon,
+  RedditLogoIcon,
+  WhatsappLogoIcon,
+  TelegramLogoIcon,
+  DiscordLogoIcon,
+  MastodonLogoIcon,
+  TwitchLogoIcon,
+  type Icon,
+} from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
@@ -277,6 +296,72 @@ function UsersSection({ state, total }: { state: UsersState; total: number }) {
 
 // ── zernio accounts ────────────────────────────────────────────────────────────
 
+// Each known platform maps to its Phosphor brand logo plus its brand colours
+// (a coloured square with a contrasting glyph). The bg-[#…] literals are static
+// so Tailwind picks them up.
+type PlatformStyle = { Icon: Icon; bg: string; fg: string };
+
+const PLATFORMS: Record<string, PlatformStyle> = {
+  instagram: { Icon: InstagramLogoIcon, bg: "bg-[#E4405F]", fg: "text-white" },
+  facebook: { Icon: FacebookLogoIcon, bg: "bg-[#1877F2]", fg: "text-white" },
+  twitter: { Icon: TwitterLogoIcon, bg: "bg-[#1DA1F2]", fg: "text-white" },
+  x: { Icon: XLogoIcon, bg: "bg-black", fg: "text-white" },
+  linkedin: { Icon: LinkedinLogoIcon, bg: "bg-[#0A66C2]", fg: "text-white" },
+  tiktok: { Icon: TiktokLogoIcon, bg: "bg-black", fg: "text-white" },
+  youtube: { Icon: YoutubeLogoIcon, bg: "bg-[#FF0000]", fg: "text-white" },
+  pinterest: { Icon: PinterestLogoIcon, bg: "bg-[#E60023]", fg: "text-white" },
+  threads: { Icon: ThreadsLogoIcon, bg: "bg-black", fg: "text-white" },
+  snapchat: { Icon: SnapchatLogoIcon, bg: "bg-[#FFFC00]", fg: "text-black" },
+  reddit: { Icon: RedditLogoIcon, bg: "bg-[#FF4500]", fg: "text-white" },
+  whatsapp: { Icon: WhatsappLogoIcon, bg: "bg-[#25D366]", fg: "text-white" },
+  telegram: { Icon: TelegramLogoIcon, bg: "bg-[#229ED9]", fg: "text-white" },
+  discord: { Icon: DiscordLogoIcon, bg: "bg-[#5865F2]", fg: "text-white" },
+  mastodon: { Icon: MastodonLogoIcon, bg: "bg-[#6364FF]", fg: "text-white" },
+  twitch: { Icon: TwitchLogoIcon, bg: "bg-[#9146FF]", fg: "text-white" },
+};
+
+// Common alternative spellings → canonical platform key.
+const PLATFORM_ALIASES: Record<string, string> = {
+  ig: "instagram",
+  fb: "facebook",
+  meta: "facebook",
+  yt: "youtube",
+  snap: "snapchat",
+  xtwitter: "x",
+  twitterx: "x",
+};
+
+function platformStyle(platform: string): PlatformStyle | null {
+  const key = platform.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return PLATFORMS[PLATFORM_ALIASES[key] ?? key] ?? null;
+}
+
+// PlatformBadge shows a connected profile's social-network logo on a brand-
+// coloured square, falling back to the platform's first two letters when the
+// network isn't recognised.
+function PlatformBadge({ platform }: { platform: string }) {
+  const style = platformStyle(platform);
+  if (!style) {
+    return (
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-semibold uppercase text-secondary-foreground">
+        {platform.slice(0, 2) || "–"}
+      </span>
+    );
+  }
+  const { Icon: PlatformIcon, bg, fg } = style;
+  return (
+    <span
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-md",
+        bg,
+        fg,
+      )}
+    >
+      <PlatformIcon className="size-5" weight="fill" />
+    </span>
+  );
+}
+
 // AccountStat is one labelled throughput number in a Zernio account row.
 function AccountStat({
   label,
@@ -308,9 +393,7 @@ function ZernioRow({ account: a }: { account: ZernioAccount }) {
   return (
     <li className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-semibold uppercase text-secondary-foreground">
-          {a.platform.slice(0, 2) || "–"}
-        </span>
+        <PlatformBadge platform={a.platform} />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground">
             {a.username ? `@${a.username}` : "—"}
