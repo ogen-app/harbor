@@ -23,6 +23,8 @@ func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 	uiFS := fstest.MapFS{
 		"index.html":          {Data: []byte("<html>INDEX</html>")},
 		"audits.html":         {Data: []byte("<html>AUDITS</html>")},
+		"tenants.html":        {Data: []byte("<html>TENANTS</html>")},
+		"tenants/_.html":      {Data: []byte("<html>TENANT_SHELL</html>")},
 		"_next/static/app.js": {Data: []byte("console.log('app')")},
 	}
 	sqldb, err := sql.Open("pgx", "postgres://unused")
@@ -51,6 +53,9 @@ func TestServeUI(t *testing.T) {
 	}{
 		{"root serves index", "/", 200, "INDEX", false},
 		{"clean route resolves .html", "/audits", 200, "AUDITS", false},
+		{"tenants list resolves .html", "/tenants", 200, "TENANTS", false},
+		{"tenant detail serves the client shell", "/tenants/abc123", 200, "TENANT_SHELL", false},
+		{"tenant detail shell served directly", "/tenants/_", 200, "TENANT_SHELL", false},
 		{"asset served with immutable cache", "/_next/static/app.js", 200, "console.log", true},
 		{"unknown route falls back to index (SPA)", "/does/not/exist", 200, "INDEX", false},
 		{"unknown api is JSON 404, not the SPA shell", "/api/nope", 404, "error", false},

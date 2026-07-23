@@ -8,8 +8,10 @@ import {
   DotsThreeOutlineVerticalIcon,
   NotePencilIcon,
   ArrowClockwiseIcon,
+  ArrowSquareOutIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
@@ -25,26 +27,22 @@ import {
   TenantsFilterBar,
   type FilterToken,
 } from "@/components/tenants/TenantsFilterBar";
+import {
+  type Tenant,
+  type VendorSpend,
+  type ActivityEvent,
+  type ActivityState,
+  formatDate,
+  formatUSD,
+  formatBytes,
+  spendSegments,
+  StatusLabel,
+  DetailRow,
+  RecentActivity,
+} from "@/components/tenants/shared";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
-interface VendorSpend {
-  anthropicMicros: number;
-  googleMicros: number;
-  otherMicros: number;
-  totalMicros: number;
-}
-interface Tenant {
-  id: string;
-  name: string;
-  slug: string;
-  createdAt: string;
-  status: string;
-  users: number;
-  zernioProfiles: number;
-  r2Bytes: number;
-  spend: VendorSpend;
-}
 interface TenantsResponse {
   tenants: Tenant[];
   available: boolean;
@@ -52,65 +50,6 @@ interface TenantsResponse {
   total?: number;
   statuses?: string[];
   error?: string;
-}
-
-interface ActivityEvent {
-  at: string;
-  type: string;
-  status: string;
-  summary: string;
-}
-interface ActivityState {
-  loading: boolean;
-  error?: string;
-  events?: ActivityEvent[];
-}
-
-// ── formatters ────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatUSD(micros: number): string {
-  const d = micros / 1e6;
-  if (d === 0) return "$0.00";
-  if (d < 1) return `$${d.toFixed(3)}`;
-  if (d < 1000) return `$${d.toFixed(2)}`;
-  return `$${(d / 1000).toFixed(1)}k`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  const v = bytes / Math.pow(1024, i);
-  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
-}
-
-function spendSegments(s: VendorSpend) {
-  const total = s.totalMicros || 1;
-  return [
-    { pct: (s.anthropicMicros / total) * 100, className: "bg-orange-500" },
-    { pct: (s.googleMicros / total) * 100, className: "bg-blue-500" },
-    { pct: (s.otherMicros / total) * 100, className: "bg-neutral-400" },
-  ];
 }
 
 // ── sorting ───────────────────────────────────────────────────────────────────
@@ -234,35 +173,13 @@ function SortHeader({
   );
 }
 
-// ── status ────────────────────────────────────────────────────────────────────
-
-const STATUS_COLOR: Record<string, string> = {
-  active: "bg-emerald-500",
-  trialing: "bg-blue-400",
-  suspended: "bg-amber-500",
-  churned: "bg-red-500",
-};
-
-function StatusLabel({ status }: { status: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <span
-        className={cn(
-          "size-2 rounded-full",
-          STATUS_COLOR[status] ?? "bg-neutral-400",
-        )}
-      />
-      <span className="capitalize text-secondary-foreground">{status}</span>
-    </span>
-  );
-}
-
 // ── per-row actions menu ──────────────────────────────────────────────────────
 
 // stopPropagation keeps the trigger / menu from toggling row expansion (the row
 // is a role="button", and portaled menu clicks still bubble through the React
-// tree). Actions are placeholders — disabled until wired up.
-function ActionsMenu() {
+// tree). "View details" navigates to the tenant page; the rest are placeholders
+// — disabled until wired up.
+function ActionsMenu({ tenantId }: { tenantId: string }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -284,6 +201,13 @@ function ActionsMenu() {
         onClick={(e) => e.stopPropagation()}
         className="min-w-48 rounded-none border border-border py-1 shadow-xl"
       >
+        <DropdownMenuItem asChild className="gap-3 px-4 py-2.5">
+          <Link href={`/tenants/${encodeURIComponent(tenantId)}`}>
+            <ArrowSquareOutIcon className="size-4" />
+            View details
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="my-1 h-px bg-border" />
         <DropdownMenuItem
           disabled
           className="gap-3 px-4 py-2.5 data-[disabled]:opacity-100"
@@ -312,66 +236,6 @@ function ActionsMenu() {
   );
 }
 
-// ── recent activity (expanded panel) ──────────────────────────────────────────
-
-function RecentActivity({ state }: { state: ActivityState | undefined }) {
-  if (!state || state.loading) {
-    return (
-      <div className="flex items-center gap-2 text-xs text-tertiary-foreground">
-        <Loader className="size-3.5 border-[1.5px]" />
-        Loading activity…
-      </div>
-    );
-  }
-  if (state.error) {
-    return (
-      <p className="text-xs text-tertiary-foreground">
-        Activity unavailable — {state.error}
-      </p>
-    );
-  }
-  if (!state.events || state.events.length === 0) {
-    return (
-      <p className="text-xs text-tertiary-foreground">No recent activity</p>
-    );
-  }
-  return (
-    <ul className="space-y-3">
-      {state.events.map((e, i) => (
-        <li key={i} className="flex gap-2.5 text-xs">
-          <span className="mt-1 size-1.5 shrink-0 rounded-full bg-emerald-500" />
-          <div className="min-w-0">
-            <p className="tabular-nums text-tertiary-foreground">
-              {formatDateTime(e.at)}
-            </p>
-            <p className="text-foreground">{e.summary || e.type}</p>
-            {e.status && (
-              <p className="text-tertiary-foreground">
-                {e.type} → <span className="font-mono">{e.status}</span>
-              </p>
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-xs text-tertiary-foreground">{label}</span>
-      <span className="text-xs text-foreground">{value}</span>
-    </div>
-  );
-}
-
 function ExpandedPanel({
   t,
   activity,
@@ -382,9 +246,18 @@ function ExpandedPanel({
   return (
     <div className="grid gap-8 bg-secondary border-t px-18 py-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
       <div className="space-y-2">
-        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-          Details
-        </h4>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+            Details
+          </h4>
+          <Link
+            href={`/tenants/${encodeURIComponent(t.id)}`}
+            className="inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
+          >
+            View full details
+            <ArrowSquareOutIcon className="size-3.5" />
+          </Link>
+        </div>
         <DetailRow
           label="Tenant ID"
           value={<span className="font-mono">{t.id}</span>}
@@ -734,9 +607,15 @@ export function TenantsTable() {
                       )}
                     />
                     <span className="min-w-0">
-                      <span className="block truncate font-medium text-foreground">
+                      {/* The name links to the tenant detail page; stopPropagation
+                          keeps the click from also toggling row expansion. */}
+                      <Link
+                        href={`/tenants/${encodeURIComponent(t.id)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block truncate font-medium text-foreground hover:underline"
+                      >
                         {t.name}
-                      </span>
+                      </Link>
                       <span className="block truncate font-mono text-xs text-tertiary-foreground">
                         {t.slug}
                       </span>
@@ -759,7 +638,7 @@ export function TenantsTable() {
                     <span className="text-right font-display text-foreground">
                       {formatBytes(t.r2Bytes)}
                     </span>
-                    <ActionsMenu />
+                    <ActionsMenu tenantId={t.id} />
                   </div>
                   {open && <ExpandedPanel t={t} activity={activity[t.id]} />}
                 </div>
