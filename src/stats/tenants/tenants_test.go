@@ -32,6 +32,9 @@ func (f *fakeTenantRepo) Registrations(context.Context, int) ([]ogen.Registratio
 func (f *fakeTenantRepo) Activity(context.Context, string, int) ([]ogen.ActivityEvent, error) {
 	return nil, nil
 }
+func (f *fakeTenantRepo) Users(context.Context, string, int) ([]ogen.User, error) {
+	return nil, nil
+}
 func (f *fakeTenantRepo) Headline(context.Context) (ogen.OverviewHeadline, error) {
 	return f.headline, nil
 }

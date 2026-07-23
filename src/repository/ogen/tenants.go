@@ -49,6 +49,15 @@ type ActivityEvent struct {
 	Summary string    `bun:"summary"         json:"summary"`
 }
 
+// User is one member of a tenant, from the Ogen users table. Its JSON shape is
+// served directly to the tenant detail page.
+type User struct {
+	ID        string    `bun:"id"         json:"id"`
+	Name      string    `bun:"name"       json:"name"`
+	Email     string    `bun:"email"      json:"email"`
+	CreatedAt time.Time `bun:"created_at" json:"createdAt"`
+}
+
 // OverviewHeadline is the tenant total plus new-signup counts over recent
 // windows, gathered in a single pass over the tenants table.
 type OverviewHeadline struct {
@@ -69,6 +78,8 @@ type TenantRepository interface {
 	Registrations(ctx context.Context, windowDays int) ([]Registration, error)
 	// Activity returns a tenant's most recent post_logs events (newest first).
 	Activity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error)
+	// Users returns a tenant's members (newest first), capped at limit.
+	Users(ctx context.Context, tenantID string, limit int) ([]User, error)
 
 	// ── overview aggregates ──────────────────────────────────────────────
 	Headline(ctx context.Context) (OverviewHeadline, error)
@@ -157,6 +168,23 @@ func (r *tenantRepository) Activity(ctx context.Context, tenantID string, limit 
 		return nil, err
 	}
 	return events, nil
+}
+
+func (r *tenantRepository) Users(ctx context.Context, tenantID string, limit int) ([]User, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	var users []User
+	err := r.db.NewRaw(`
+		SELECT id, COALESCE(name, '') AS name, COALESCE(email, '') AS email, created_at
+		FROM users
+		WHERE tenant_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?`, tenantID, limit).Scan(ctx, &users)
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
 func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, error) {

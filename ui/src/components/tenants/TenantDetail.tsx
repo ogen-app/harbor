@@ -11,6 +11,8 @@ import {
   type VendorSpend,
   type ActivityEvent,
   type ActivityState,
+  type TenantUser,
+  type UsersState,
   formatDate,
   formatUSD,
   formatBytes,
@@ -61,9 +63,23 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── metric cards ──────────────────────────────────────────────────────────────
+// ── metrics card ──────────────────────────────────────────────────────────────
 
-function StatCard({
+// CellLabel is the shared uppercase label + info tooltip atop each metric cell.
+function CellLabel({ label, info }: { label: string; info?: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+        {label}
+      </span>
+      {info && <InfoIcon text={info} />}
+    </div>
+  );
+}
+
+// MetricCell is one cell of the merged metrics card (dividers/background are
+// owned by the parent MetricsCard).
+function MetricCell({
   label,
   value,
   info,
@@ -73,13 +89,8 @@ function StatCard({
   info?: string;
 }) {
   return (
-    <div className="rounded-lg bg-primary p-5">
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-          {label}
-        </span>
-        {info && <InfoIcon text={info} />}
-      </div>
+    <div className="p-5">
+      <CellLabel label={label} info={info} />
       <p className="mt-2 font-display text-2xl font-semibold tabular-nums text-foreground">
         {value}
       </p>
@@ -87,7 +98,8 @@ function StatCard({
   );
 }
 
-function SpendCard({
+// SpendCell is the AI-spend cell, with the per-vendor concentration bar.
+function SpendCell({
   spend,
   available,
 }: {
@@ -96,13 +108,11 @@ function SpendCard({
 }) {
   const hasOther = spend.otherMicros > 0;
   return (
-    <div className="rounded-lg bg-primary p-5">
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-          AI spend (month)
-        </span>
-        <InfoIcon text="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other." />
-      </div>
+    <div className="p-5">
+      <CellLabel
+        label="AI spend (month)"
+        info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other."
+      />
       {!available ? (
         <p className="mt-2 text-sm text-tertiary-foreground">
           Analytics unavailable
@@ -128,6 +138,110 @@ function SpendCard({
   );
 }
 
+// MetricsCard merges the per-tenant metrics into one card, split into cells by
+// vertical dividers on wide screens (stacked on narrow ones).
+function MetricsCard({
+  tenant,
+  spendAvailable,
+}: {
+  tenant: Tenant;
+  spendAvailable: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-1 divide-y divide-border rounded-lg bg-primary sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+      <MetricCell
+        label="Users"
+        value={tenant.users}
+        info="People with a user account in this tenant, from the Ogen control-plane database."
+      />
+      <MetricCell
+        label="Zernio profiles"
+        value={tenant.zernioProfiles}
+        info="Active social profiles this tenant has connected through Zernio."
+      />
+      <MetricCell
+        label="R2 storage"
+        value={formatBytes(tenant.r2Bytes)}
+        info="Total size of this tenant's files stored in Cloudflare R2 object storage."
+      />
+      <SpendCell spend={tenant.spend} available={spendAvailable} />
+    </div>
+  );
+}
+
+// ── users list ────────────────────────────────────────────────────────────────
+
+// initials derives up-to-two uppercase letters from a name, falling back to email.
+function initials(name: string, email: string): string {
+  const source = name.trim() || email;
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return source.slice(0, 2).toUpperCase();
+}
+
+function UserRow({ user }: { user: TenantUser }) {
+  return (
+    <li className="flex items-center gap-3 px-6 py-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-[11px] font-semibold text-secondary-foreground">
+        {initials(user.name, user.email)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">
+          {user.name || "—"}
+        </p>
+        <p className="truncate text-xs text-tertiary-foreground">
+          {user.email || "—"}
+        </p>
+      </div>
+      <span className="shrink-0 text-xs tabular-nums text-tertiary-foreground">
+        {formatDate(user.createdAt)}
+      </span>
+    </li>
+  );
+}
+
+// UsersSection lists a tenant's members. total is the authoritative count (the
+// list itself is capped server-side), so a truncation note can be shown.
+function UsersSection({ state, total }: { state: UsersState; total: number }) {
+  return (
+    <section className="rounded-lg bg-primary">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+          Users
+        </h2>
+        <span className="text-xs tabular-nums text-tertiary-foreground">
+          {total}
+        </span>
+      </div>
+      {state.loading ? (
+        <div className="flex items-center gap-2 px-6 py-5 text-xs text-tertiary-foreground">
+          <Loader className="size-3.5 border-[1.5px]" />
+          Loading users…
+        </div>
+      ) : state.error ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">
+          Users unavailable — {state.error}
+        </p>
+      ) : !state.users || state.users.length === 0 ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">No users</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-border">
+            {state.users.map((u) => (
+              <UserRow key={u.id} user={u} />
+            ))}
+          </ul>
+          {state.users.length < total && (
+            <p className="border-t border-border px-6 py-3 text-xs text-tertiary-foreground">
+              Showing the {state.users.length} most recent of {total}.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 
 export function TenantDetail() {
@@ -135,6 +249,7 @@ export function TenantDetail() {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityState>({ loading: true });
+  const [users, setUsers] = useState<UsersState>({ loading: true });
 
   // Resolve the tenant id from the URL after mount (see tenantIdFromLocation).
   useEffect(() => {
@@ -179,6 +294,26 @@ export function TenantDetail() {
       .catch((e: unknown) => {
         if (controller.signal.aborted) return;
         setActivity({
+          loading: false,
+          error: e instanceof Error ? e.message : "Failed to load",
+        });
+      });
+
+    fetch(`/api/tenants/${enc}/users`, { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`request failed (${r.status})`);
+        return r.json();
+      })
+      .then((j: { users: TenantUser[]; available: boolean; error?: string }) =>
+        setUsers(
+          j.available
+            ? { loading: false, users: j.users }
+            : { loading: false, error: j.error ?? "unavailable" },
+        ),
+      )
+      .catch((e: unknown) => {
+        if (controller.signal.aborted) return;
+        setUsers({
           loading: false,
           error: e instanceof Error ? e.message : "Failed to load",
         });
@@ -246,24 +381,9 @@ export function TenantDetail() {
       </header>
 
       <div className="p-6 space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Users"
-            value={t.users}
-            info="People with a user account in this tenant, from the Ogen control-plane database."
-          />
-          <StatCard
-            label="Zernio profiles"
-            value={t.zernioProfiles}
-            info="Active social profiles this tenant has connected through Zernio."
-          />
-          <StatCard
-            label="R2 storage"
-            value={formatBytes(t.r2Bytes)}
-            info="Total size of this tenant's files stored in Cloudflare R2 object storage."
-          />
-          <SpendCard spend={t.spend} available={spendAvailable} />
-        </div>
+        <MetricsCard tenant={t} spendAvailable={spendAvailable} />
+
+        <UsersSection state={users} total={t.users} />
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
           <section className="rounded-lg bg-primary p-6">

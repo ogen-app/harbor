@@ -38,6 +38,19 @@ export interface ActivityState {
   events?: ActivityEvent[];
 }
 
+export interface TenantUser {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface UsersState {
+  loading: boolean;
+  error?: string;
+  users?: TenantUser[];
+}
+
 // ── formatters ────────────────────────────────────────────────────────────────
 
 export function formatDate(iso: string): string {

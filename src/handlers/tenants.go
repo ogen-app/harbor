@@ -35,6 +35,7 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants/overview", requireAuth, h.Overview)
 	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
 	app.Get("/api/tenants/:id/activity", requireAuth, h.Activity)
+	app.Get("/api/tenants/:id/users", requireAuth, h.Users)
 	// Registered after the static /overview and /registrations paths so those
 	// win over the :id param; Fiber matches routes in registration order.
 	app.Get("/api/tenants/:id", requireAuth, h.Detail)
@@ -314,6 +315,31 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "available": false, "error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"activity": events, "available": true})
+}
+
+// tenantUsersLimit caps a tenant's user list (an admin tenant has a bounded
+// number of members; this is a safety ceiling, not pagination).
+const tenantUsersLimit = 200
+
+// Users godoc
+// @Summary      Tenant users
+// @Description  Members of a tenant (name, email, joined date) from the Ogen
+// @Description  users table, newest first. Powers the /tenants/{id} user list.
+// @Tags         tenants
+// @Produce      json
+// @Param        id   path      string  true  "Tenant ID"
+// @Success      200  {object}  map[string]any
+// @Router       /api/tenants/{id}/users [get]
+func (h *TenantsHandler) Users(c *fiber.Ctx) error {
+	if !h.tenants.Available() {
+		return c.JSON(fiber.Map{"users": []ogen.User{}, "available": false, "error": "ogen database not configured"})
+	}
+
+	users, err := h.tenants.Users(c.Context(), c.Params("id"), tenantUsersLimit)
+	if err != nil {
+		return c.JSON(fiber.Map{"users": []ogen.User{}, "available": false, "error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"users": users, "available": true})
 }
 
 // Overview godoc
