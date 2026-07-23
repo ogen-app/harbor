@@ -10,22 +10,24 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/uptrace/bun"
 
-	"github.com/ogen-app/harbor/src/tenantstats"
+	"github.com/ogen-app/harbor/src/repository/analytics"
+	"github.com/ogen-app/harbor/src/repository/ogen"
+	"github.com/ogen-app/harbor/src/stats/tenants"
 )
 
-// TenantsHandler serves Ogen tenant data (read-only) from the Ogen control-plane
-// pool, plus the analytics pool for AI-spend metrics. Pools may be nil
-// (unconfigured) or unreachable; both are reported as unavailable rather than an
-// error, so the dashboard can render a soft state.
+// TenantsHandler serves Ogen tenant data (read-only) via the origin-scoped
+// repositories: the Ogen control-plane pool (identity + metrics) and the
+// analytics pool (AI spend). Either repository may be unavailable (unconfigured
+// or unreachable); that is reported as a soft state rather than an error, so the
+// dashboard can still render.
 type TenantsHandler struct {
-	ogenDB      *bun.DB
-	analyticsDB *bun.DB
+	tenants ogen.TenantRepository
+	spend   analytics.SpendRepository
 }
 
-func NewTenantsHandler(ogenDB, analyticsDB *bun.DB) *TenantsHandler {
-	return &TenantsHandler{ogenDB: ogenDB, analyticsDB: analyticsDB}
+func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository) *TenantsHandler {
+	return &TenantsHandler{tenants: tenants, spend: spend}
 }
 
 func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
@@ -42,15 +44,32 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 // (users, Zernio profiles, R2 storage) and, when analytics is available, the
 // current-period AI-spend split by model vendor.
 type tenantRow struct {
-	ID             string                  `json:"id"`
-	Name           string                  `json:"name"`
-	Slug           string                  `json:"slug"`
-	CreatedAt      time.Time               `json:"createdAt"`
-	Status         string                  `json:"status"`
-	Users          int                     `json:"users"`
-	ZernioProfiles int                     `json:"zernioProfiles"`
-	R2Bytes        int64                   `json:"r2Bytes"`
-	Spend          tenantstats.VendorSpend `json:"spend"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	Slug           string                `json:"slug"`
+	CreatedAt      time.Time             `json:"createdAt"`
+	Status         string                `json:"status"`
+	Users          int                   `json:"users"`
+	ZernioProfiles int                   `json:"zernioProfiles"`
+	R2Bytes        int64                 `json:"r2Bytes"`
+	Spend          analytics.VendorSpend `json:"spend"`
+}
+
+// rowFromMetrics builds a table row from a tenant's Ogen-side metrics and its
+// (possibly zero) AI spend. Ogen has no lifecycle column yet, so status is
+// always "active".
+func rowFromMetrics(m ogen.TenantMetrics, spend analytics.VendorSpend) tenantRow {
+	return tenantRow{
+		ID:             m.ID,
+		Name:           m.Name,
+		Slug:           m.Slug,
+		CreatedAt:      m.CreatedAt,
+		Status:         "active",
+		Users:          m.Users,
+		ZernioProfiles: m.ZernioProfiles,
+		R2Bytes:        m.R2Bytes,
+		Spend:          spend,
+	}
 }
 
 // tenantFilter is one structured token from the Tenants table's power search: a
@@ -127,53 +146,23 @@ func parseFilters(raw string) []tenantFilter {
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants [get]
 func (h *TenantsHandler) List(c *fiber.Ctx) error {
-	if h.ogenDB == nil {
+	if !h.tenants.Available() {
 		return c.JSON(fiber.Map{"tenants": []tenantRow{}, "available": false, "error": "ogen database not configured"})
 	}
 
-	// Base identity + Ogen-side metrics. Correlated subqueries keep this a single
-	// round trip and avoid fan-out from the LEFT JOINs multiplying rows.
-	var scanned []struct {
-		ID             string    `bun:"id"`
-		Name           string    `bun:"name"`
-		Slug           string    `bun:"slug"`
-		CreatedAt      time.Time `bun:"created_at"`
-		Users          int       `bun:"users"`
-		ZernioProfiles int       `bun:"zernio_profiles"`
-		R2Bytes        int64     `bun:"r2_bytes"`
-	}
-	err := h.ogenDB.NewRaw(`
-		SELECT
-			t.id, t.name, t.slug, t.created_at,
-			(SELECT count(*) FROM users u
-				WHERE u.tenant_id = t.id) AS users,
-			(SELECT count(*) FROM social_accounts sa
-				WHERE sa.tenant_id = t.id AND sa.is_active = true AND sa.deleted_at IS NULL) AS zernio_profiles,
-			(SELECT COALESCE(sum(af.size_bytes), 0) FROM asset_files af
-				WHERE af.tenant_id = t.id) AS r2_bytes
-		FROM tenants t
-		ORDER BY t.created_at`).Scan(c.Context(), &scanned)
+	metrics, err := h.tenants.ListMetrics(c.Context())
 	if err != nil {
 		return c.JSON(fiber.Map{"tenants": []tenantRow{}, "available": false, "error": err.Error()})
 	}
 
-	// Cross-database AI spend (analytics DB), merged by tenant id. Best-effort:
-	// spendAvailable=false just hides the concentration bars.
-	spend, spendAvailable := tenantstats.SpendByTenant(c.Context(), h.analyticsDB)
+	// Cross-database AI spend, merged by tenant id. Best-effort: an error just
+	// hides the concentration bars (spendAvailable=false).
+	spend, spendErr := h.spend.ByTenant(c.Context())
+	spendAvailable := spendErr == nil
 
-	rows := make([]tenantRow, len(scanned))
-	for i, s := range scanned {
-		rows[i] = tenantRow{
-			ID:             s.ID,
-			Name:           s.Name,
-			Slug:           s.Slug,
-			CreatedAt:      s.CreatedAt,
-			Status:         "active", // Ogen has no lifecycle column yet
-			Users:          s.Users,
-			ZernioProfiles: s.ZernioProfiles,
-			R2Bytes:        s.R2Bytes,
-			Spend:          spend[s.ID],
-		}
+	rows := make([]tenantRow, len(metrics))
+	for i, m := range metrics {
+		rows[i] = rowFromMetrics(m, spend[m.ID])
 	}
 
 	// Distinct statuses across all tenants, for the filter dropdown — computed
@@ -228,32 +217,12 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/{id} [get]
 func (h *TenantsHandler) Detail(c *fiber.Ctx) error {
-	if h.ogenDB == nil {
+	if !h.tenants.Available() {
 		return c.JSON(fiber.Map{"available": false, "error": "ogen database not configured"})
 	}
 	id := c.Params("id")
 
-	// Same identity + Ogen-side metrics as List, scoped to one tenant.
-	var s struct {
-		ID             string    `bun:"id"`
-		Name           string    `bun:"name"`
-		Slug           string    `bun:"slug"`
-		CreatedAt      time.Time `bun:"created_at"`
-		Users          int       `bun:"users"`
-		ZernioProfiles int       `bun:"zernio_profiles"`
-		R2Bytes        int64     `bun:"r2_bytes"`
-	}
-	err := h.ogenDB.NewRaw(`
-		SELECT
-			t.id, t.name, t.slug, t.created_at,
-			(SELECT count(*) FROM users u
-				WHERE u.tenant_id = t.id) AS users,
-			(SELECT count(*) FROM social_accounts sa
-				WHERE sa.tenant_id = t.id AND sa.is_active = true AND sa.deleted_at IS NULL) AS zernio_profiles,
-			(SELECT COALESCE(sum(af.size_bytes), 0) FROM asset_files af
-				WHERE af.tenant_id = t.id) AS r2_bytes
-		FROM tenants t
-		WHERE t.id = ?`, id).Scan(c.Context(), &s)
+	metrics, err := h.tenants.GetMetrics(c.Context(), id)
 	if err != nil {
 		// No row for this id is a not-found (soft), not a hard error.
 		if errors.Is(err, sql.ErrNoRows) {
@@ -263,24 +232,13 @@ func (h *TenantsHandler) Detail(c *fiber.Ctx) error {
 	}
 
 	// Cross-database AI spend, indexed to this tenant. Best-effort like List.
-	spend, spendAvailable := tenantstats.SpendByTenant(c.Context(), h.analyticsDB)
-
-	tenant := tenantRow{
-		ID:             s.ID,
-		Name:           s.Name,
-		Slug:           s.Slug,
-		CreatedAt:      s.CreatedAt,
-		Status:         "active", // Ogen has no lifecycle column yet
-		Users:          s.Users,
-		ZernioProfiles: s.ZernioProfiles,
-		R2Bytes:        s.R2Bytes,
-		Spend:          spend[s.ID],
-	}
+	spend, spendErr := h.spend.ByTenant(c.Context())
+	spendAvailable := spendErr == nil
 
 	return c.JSON(fiber.Map{
 		"available":      true,
 		"found":          true,
-		"tenant":         tenant,
+		"tenant":         rowFromMetrics(*metrics, spend[metrics.ID]),
 		"spendAvailable": spendAvailable,
 	})
 }
@@ -304,27 +262,19 @@ const regWindowDays = 60
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/registrations [get]
 func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
-	if h.ogenDB == nil {
+	if !h.tenants.Available() {
 		return c.JSON(fiber.Map{"days": []regDay{}, "available": false, "error": "ogen database not configured"})
 	}
 
-	// Pull the raw registrations in-window and build the dense series in Go, so
+	// Pull the raw registrations in-window and build the dense series here, so
 	// each day can carry the list of tenant names. Bucketed by UTC calendar day.
-	var rows []struct {
-		Date string `bun:"date"`
-		Name string `bun:"name"`
-	}
-	err := h.ogenDB.NewRaw(`
-		SELECT to_char((created_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date, name
-		FROM tenants
-		WHERE (created_at AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?
-		ORDER BY created_at`, regWindowDays-1).Scan(c.Context(), &rows)
+	regs, err := h.tenants.Registrations(c.Context(), regWindowDays)
 	if err != nil {
 		return c.JSON(fiber.Map{"days": []regDay{}, "available": false, "error": err.Error()})
 	}
 
-	byDay := make(map[string][]string, len(rows))
-	for _, r := range rows {
+	byDay := make(map[string][]string, len(regs))
+	for _, r := range regs {
 		byDay[r.Date] = append(byDay[r.Date], r.Name)
 	}
 
@@ -342,14 +292,8 @@ func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"days": days, "available": true})
 }
 
-// activityEvent is one entry in a tenant's recent-activity feed, sourced from the
-// Ogen post_logs audit trail.
-type activityEvent struct {
-	At      time.Time `bun:"event_timestamp" json:"at"`
-	Type    string    `bun:"event_type"      json:"type"`
-	Status  string    `bun:"to_status"       json:"status"`
-	Summary string    `bun:"summary"         json:"summary"`
-}
+// recentActivityLimit caps a tenant's activity feed.
+const recentActivityLimit = 15
 
 // Activity godoc
 // @Summary      Tenant recent activity
@@ -361,24 +305,13 @@ type activityEvent struct {
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/{id}/activity [get]
 func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
-	if h.ogenDB == nil {
-		return c.JSON(fiber.Map{"activity": []activityEvent{}, "available": false, "error": "ogen database not configured"})
+	if !h.tenants.Available() {
+		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "available": false, "error": "ogen database not configured"})
 	}
-	id := c.Params("id")
 
-	var events []activityEvent
-	err := h.ogenDB.NewRaw(`
-		SELECT
-			event_timestamp,
-			event_type,
-			COALESCE(to_status, '') AS to_status,
-			COALESCE(summary, '')   AS summary
-		FROM post_logs
-		WHERE tenant_id = ?
-		ORDER BY event_timestamp DESC
-		LIMIT 15`, id).Scan(c.Context(), &events)
+	events, err := h.tenants.Activity(c.Context(), c.Params("id"), recentActivityLimit)
 	if err != nil {
-		return c.JSON(fiber.Map{"activity": []activityEvent{}, "available": false, "error": err.Error()})
+		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "available": false, "error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"activity": events, "available": true})
 }
@@ -393,9 +326,9 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/overview [get]
 func (h *TenantsHandler) Overview(c *fiber.Ctx) error {
-	if h.ogenDB == nil {
+	if !h.tenants.Available() {
 		return c.JSON(fiber.Map{"available": false, "error": "ogen database not configured"})
 	}
-	overview := tenantstats.Collect(c.Context(), h.ogenDB, h.analyticsDB)
+	overview := tenants.Collect(c.Context(), h.tenants, h.spend)
 	return c.JSON(fiber.Map{"available": true, "overview": overview})
 }

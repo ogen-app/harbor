@@ -1,0 +1,57 @@
+name: CI
+
+# Run on every PR and on pushes to main (post-merge gate).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR branch).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Pins to the version in the `go` directive of go.mod (1.26.1).
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race ./cmd/... ./src/...
+
+  ui:
+    name: UI lint & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ui
+
+      - name: Lint
+        run: npm run lint
+        working-directory: ui
+
+      - name: Build
+        # NEXT_OUTPUT=export mirrors `make ui` — the static export that gets
+        # embedded into the Go binary.
+        run: NEXT_OUTPUT=export npm run build
+        working-directory: ui

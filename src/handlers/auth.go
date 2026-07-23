@@ -9,7 +9,7 @@ import (
 
 	"github.com/ogen-app/harbor/src/logging"
 	"github.com/ogen-app/harbor/src/models"
-	"github.com/ogen-app/harbor/src/repository"
+	"github.com/ogen-app/harbor/src/repository/harbor"
 )
 
 // sessionLocalKey is the Fiber locals key under which RequireAuth stores the
@@ -20,7 +20,7 @@ const sessionLocalKey = "session"
 // success it stores the session under sessionLocalKey and the user id under
 // logging.UserIDKey (so the slog ContextHandler tags every line). Mirrors
 // ../ogen minus tenant scoping.
-func RequireAuth(sessionRepo repository.SessionRepository, cookieName string) fiber.Handler {
+func RequireAuth(sessionRepo harbor.SessionRepository, cookieName string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		token := c.Cookies(cookieName)
 		if token == "" {

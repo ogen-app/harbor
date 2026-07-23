@@ -17,7 +17,9 @@ import (
 	"github.com/ogen-app/harbor/src/config"
 	"github.com/ogen-app/harbor/src/handlers"
 	"github.com/ogen-app/harbor/src/logging"
-	"github.com/ogen-app/harbor/src/repository"
+	"github.com/ogen-app/harbor/src/repository/analytics"
+	"github.com/ogen-app/harbor/src/repository/harbor"
+	"github.com/ogen-app/harbor/src/repository/ogen"
 )
 
 // New builds the Fiber application. uiFS is the embedded Next.js static export
@@ -49,9 +51,16 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, cfg *config.Config,
 		}))
 	}
 
-	// ── Repositories & auth ───────────────────────────────────────────────
-	userRepo := repository.NewUserRepository(db)
-	sessionRepo := repository.NewSessionRepository(db)
+	// ── Repositories (split by origin database) ───────────────────────────
+	// Harbor's own pool.
+	userRepo := harbor.NewUserRepository(db)
+	sessionRepo := harbor.NewSessionRepository(db)
+	healthRepo := harbor.NewHealthRepository(db)
+	// External Ogen control-plane + analytics pools (may be nil until reachable;
+	// the repositories report that as an unavailable state).
+	tenantRepo := ogen.NewTenantRepository(ogenDB)
+	spendRepo := analytics.NewSpendRepository(analyticsDB)
+
 	requireAuth := handlers.RequireAuth(sessionRepo, cfg.SessionCookieName)
 
 	// A genuinely nil interface when credentials are absent (see GoogleVerifier)
@@ -62,14 +71,14 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, cfg *config.Config,
 	}
 
 	// ── API routes ────────────────────────────────────────────────────────
-	handlers.NewHealthHandler(db).Register(app)
+	handlers.NewHealthHandler(healthRepo).Register(app)
 	handlers.NewAuthHandler(
 		userRepo, sessionRepo, verifier,
 		strings.Split(cfg.AuthAllowedEmails, ","),
 		cfg.GoogleClientID, cfg.SessionCookieName,
 	).Register(app, requireAuth)
 	handlers.NewStatusHandler(ogenDB, analyticsDB).Register(app, requireAuth)
-	handlers.NewTenantsHandler(ogenDB, analyticsDB).Register(app, requireAuth)
+	handlers.NewTenantsHandler(tenantRepo, spendRepo).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route

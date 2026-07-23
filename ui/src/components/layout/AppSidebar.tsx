@@ -89,6 +89,8 @@ export function AppSidebar({
     useEffect(() => {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored !== null) {
+            // Client-only restore after mount (no SSR) — intentional.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setCollapsed(stored === "true");
         }
     }, []);

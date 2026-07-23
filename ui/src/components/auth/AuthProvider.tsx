@@ -33,6 +33,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     useEffect(() => {
+        // Session bootstrap: refresh() flips `loading` before the async fetch.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional load-on-mount
         void refresh();
     }, [refresh]);
 

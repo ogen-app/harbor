@@ -5,17 +5,18 @@ package handlers
 
 import (
 	"github.com/gofiber/fiber/v2"
-	"github.com/uptrace/bun"
+
+	"github.com/ogen-app/harbor/src/repository/harbor"
 )
 
 // HealthHandler reports service + datastore health.
 type HealthHandler struct {
-	db *bun.DB
+	health harbor.HealthRepository
 }
 
 // NewHealthHandler builds the health handler.
-func NewHealthHandler(db *bun.DB) *HealthHandler {
-	return &HealthHandler{db: db}
+func NewHealthHandler(health harbor.HealthRepository) *HealthHandler {
+	return &HealthHandler{health: health}
 }
 
 // Register mounts the health routes.
@@ -33,7 +34,7 @@ func (h *HealthHandler) Register(app *fiber.App) {
 // @Failure      503  {object}  map[string]string
 // @Router       /api/health [get]
 func (h *HealthHandler) Health(c *fiber.Ctx) error {
-	if err := h.db.PingContext(c.Context()); err != nil {
+	if err := h.health.Ping(c.Context()); err != nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"status": "unhealthy",
 			"error":  err.Error(),

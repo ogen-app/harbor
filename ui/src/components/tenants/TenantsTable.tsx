@@ -368,6 +368,8 @@ export function TenantsTable() {
   // refetch (no skeleton flash); an in-flight request is aborted on change.
   useEffect(() => {
     const controller = new AbortController();
+    // Show the refetch spinner before the server-side filter query — intentional.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRefreshing(true);
     const qs = filters.length
       ? `?filters=${encodeURIComponent(JSON.stringify(filters))}`

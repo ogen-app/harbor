@@ -14,7 +14,7 @@ import (
 	"github.com/ogen-app/harbor/src/auth"
 	"github.com/ogen-app/harbor/src/logging"
 	"github.com/ogen-app/harbor/src/models"
-	"github.com/ogen-app/harbor/src/repository"
+	"github.com/ogen-app/harbor/src/repository/harbor"
 )
 
 // sessionTTL is how long a session (and its cookie) stays valid. Mirrors ogen.
@@ -30,8 +30,8 @@ type GoogleVerifier interface {
 // AuthHandler owns the login lifecycle: Google code exchange, the allowlist
 // gate, session issuance, the current-user probe, and logout.
 type AuthHandler struct {
-	users          repository.UserRepository
-	sessions       repository.SessionRepository
+	users          harbor.UserRepository
+	sessions       harbor.SessionRepository
 	verifier       GoogleVerifier
 	allowed        map[string]struct{}
 	googleClientID string
@@ -41,8 +41,8 @@ type AuthHandler struct {
 // NewAuthHandler builds the handler. allowedEmails is normalised to a
 // lowercase set. verifier may be nil (Google login disabled).
 func NewAuthHandler(
-	users repository.UserRepository,
-	sessions repository.SessionRepository,
+	users harbor.UserRepository,
+	sessions harbor.SessionRepository,
 	verifier GoogleVerifier,
 	allowedEmails []string,
 	googleClientID, cookieName string,
