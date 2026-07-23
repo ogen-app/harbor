@@ -2,15 +2,45 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  InstagramLogoIcon,
+  FacebookLogoIcon,
+  XLogoIcon,
+  TwitterLogoIcon,
+  LinkedinLogoIcon,
+  TiktokLogoIcon,
+  YoutubeLogoIcon,
+  PinterestLogoIcon,
+  ThreadsLogoIcon,
+  SnapchatLogoIcon,
+  RedditLogoIcon,
+  WhatsappLogoIcon,
+  TelegramLogoIcon,
+  DiscordLogoIcon,
+  MastodonLogoIcon,
+  TwitchLogoIcon,
+  type Icon,
+} from "@phosphor-icons/react";
+import { cn } from "@/lib/utils";
 import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
 import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
+import {
   type Tenant,
   type VendorSpend,
   type ActivityEvent,
+  type ActivityDay,
   type ActivityState,
+  type TenantUser,
+  type UsersState,
+  type ZernioAccount,
+  type ZernioState,
   formatDate,
   formatUSD,
   formatBytes,
@@ -61,9 +91,23 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── metric cards ──────────────────────────────────────────────────────────────
+// ── metrics card ──────────────────────────────────────────────────────────────
 
-function StatCard({
+// CellLabel is the shared uppercase label + info tooltip atop each metric cell.
+function CellLabel({ label, info }: { label: string; info?: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+        {label}
+      </span>
+      {info && <InfoIcon text={info} />}
+    </div>
+  );
+}
+
+// MetricCell is one cell of the metric strip (dividers/background are owned by
+// the parent ProfileCard).
+function MetricCell({
   label,
   value,
   info,
@@ -73,20 +117,17 @@ function StatCard({
   info?: string;
 }) {
   return (
-    <div className="rounded-lg bg-primary p-5">
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-          {label}
-        </span>
-        {info && <InfoIcon text={info} />}
-      </div>
-      <p className="mt-2 font-display text-2xl font-semibold tabular-nums text-foreground">
+    <div className="p-5">
+      <CellLabel label={label} info={info} />
+      <p className="mt-2 font-display text-2xl font-semibold text-foreground">
         {value}
       </p>
     </div>
   );
 }
 
+// SpendCard is the screen-wide AI-spend card: the period total beside a
+// per-vendor concentration bar with amounts.
 function SpendCard({
   spend,
   available,
@@ -96,35 +137,434 @@ function SpendCard({
 }) {
   const hasOther = spend.otherMicros > 0;
   return (
-    <div className="rounded-lg bg-primary p-5">
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-          AI spend (month)
-        </span>
-        <InfoIcon text="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other." />
-      </div>
+    <div className="rounded-lg bg-primary p-6">
+      <CellLabel
+        label="AI spend (month)"
+        info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other."
+      />
       {!available ? (
         <p className="mt-2 text-sm text-tertiary-foreground">
           Analytics unavailable
         </p>
       ) : (
-        <>
-          <p className="mt-2 font-display text-2xl font-semibold tabular-nums text-foreground">
+        <div className="mt-3 flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-10">
+          <p className="font-display text-3xl font-semibold tabular-nums text-foreground">
             {formatUSD(spend.totalMicros)}
           </p>
           {spend.totalMicros > 0 && (
-            <>
-              <Bar className="mt-3" segments={spendSegments(spend)} />
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-tertiary-foreground">
-                <Dot color="bg-orange-500" label="Anthropic" />
-                <Dot color="bg-blue-500" label="Google" />
-                {hasOther && <Dot color="bg-neutral-400" label="Other" />}
+            <div className="min-w-0 flex-1">
+              <Bar segments={spendSegments(spend)} />
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-tertiary-foreground">
+                <Dot
+                  color="bg-orange-500"
+                  label={`Anthropic · ${formatUSD(spend.anthropicMicros)}`}
+                />
+                <Dot
+                  color="bg-blue-500"
+                  label={`Google · ${formatUSD(spend.googleMicros)}`}
+                />
+                {hasOther && (
+                  <Dot
+                    color="bg-neutral-400"
+                    label={`Other · ${formatUSD(spend.otherMicros)}`}
+                  />
+                )}
               </div>
-            </>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ProfileCard merges the tenant's core metrics (users, Zernio, R2) and its
+// identity details into a single card: a metric strip above, identity below.
+function ProfileCard({ tenant }: { tenant: Tenant }) {
+  return (
+    <div className="rounded-lg bg-primary">
+      <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <MetricCell
+          label="Users"
+          value={tenant.users}
+          info="People with a user account in this tenant, from the Ogen control-plane database."
+        />
+        <MetricCell
+          label="Zernio profiles"
+          value={tenant.zernioProfiles}
+          info="Active social profiles this tenant has connected through Zernio."
+        />
+        <MetricCell
+          label="R2 storage"
+          value={formatBytes(tenant.r2Bytes)}
+          info="Total size of this tenant's files stored in Cloudflare R2 object storage."
+        />
+      </div>
+      <div className="border-t border-border p-6">
+        <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+          Identity
+        </h2>
+        <div className="grid gap-x-10 gap-y-2.5 sm:grid-cols-2">
+          <DetailRow
+            label="Tenant ID"
+            value={<span className="font-mono">{tenant.id}</span>}
+          />
+          <DetailRow
+            label="Slug"
+            value={<span className="font-mono">{tenant.slug}</span>}
+          />
+          <DetailRow label="Registered" value={formatDate(tenant.createdAt)} />
+          <DetailRow label="Status" value={<StatusLabel status={tenant.status} />} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── users list ────────────────────────────────────────────────────────────────
+
+// initials derives up-to-two uppercase letters from a name, falling back to email.
+function initials(name: string, email: string): string {
+  const source = name.trim() || email;
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return source.slice(0, 2).toUpperCase();
+}
+
+function UserRow({ user }: { user: TenantUser }) {
+  return (
+    <li className="flex items-center gap-3 px-6 py-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-[11px] font-semibold text-secondary-foreground">
+        {initials(user.name, user.email)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">
+          {user.name || "—"}
+        </p>
+        <p className="truncate text-xs text-tertiary-foreground">
+          {user.email || "—"}
+        </p>
+      </div>
+      <span className="shrink-0 text-xs tabular-nums text-tertiary-foreground">
+        {formatDate(user.createdAt)}
+      </span>
+    </li>
+  );
+}
+
+// UsersSection lists a tenant's members. total is the authoritative count (the
+// list itself is capped server-side), so a truncation note can be shown.
+function UsersSection({ state, total }: { state: UsersState; total: number }) {
+  return (
+    <section className="rounded-lg bg-primary">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+          Users
+        </h2>
+        <span className="text-xs tabular-nums text-tertiary-foreground">
+          {total}
+        </span>
+      </div>
+      {state.loading ? (
+        <div className="flex items-center gap-2 px-6 py-5 text-xs text-tertiary-foreground">
+          <Loader className="size-3.5 border-[1.5px]" />
+          Loading users…
+        </div>
+      ) : state.error ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">
+          Users unavailable — {state.error}
+        </p>
+      ) : !state.users || state.users.length === 0 ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">No users</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-border">
+            {state.users.map((u) => (
+              <UserRow key={u.id} user={u} />
+            ))}
+          </ul>
+          {state.users.length < total && (
+            <p className="border-t border-border px-6 py-3 text-xs text-tertiary-foreground">
+              Showing the {state.users.length} most recent of {total}.
+            </p>
           )}
         </>
       )}
+    </section>
+  );
+}
+
+// ── zernio accounts ────────────────────────────────────────────────────────────
+
+// Each known platform maps to its Phosphor brand logo, tinted in the platform's
+// brand colour (no background). The text-[#…] literals are static so Tailwind
+// picks them up; black-brand marks use text-foreground so they adapt to theme.
+type PlatformStyle = { Icon: Icon; color: string };
+
+const PLATFORMS: Record<string, PlatformStyle> = {
+  instagram: { Icon: InstagramLogoIcon, color: "text-[#E4405F]" },
+  facebook: { Icon: FacebookLogoIcon, color: "text-[#1877F2]" },
+  twitter: { Icon: TwitterLogoIcon, color: "text-[#1DA1F2]" },
+  x: { Icon: XLogoIcon, color: "text-foreground" },
+  linkedin: { Icon: LinkedinLogoIcon, color: "text-[#0A66C2]" },
+  tiktok: { Icon: TiktokLogoIcon, color: "text-foreground" },
+  youtube: { Icon: YoutubeLogoIcon, color: "text-[#FF0000]" },
+  pinterest: { Icon: PinterestLogoIcon, color: "text-[#E60023]" },
+  threads: { Icon: ThreadsLogoIcon, color: "text-foreground" },
+  snapchat: { Icon: SnapchatLogoIcon, color: "text-[#F5B301]" },
+  reddit: { Icon: RedditLogoIcon, color: "text-[#FF4500]" },
+  whatsapp: { Icon: WhatsappLogoIcon, color: "text-[#25D366]" },
+  telegram: { Icon: TelegramLogoIcon, color: "text-[#229ED9]" },
+  discord: { Icon: DiscordLogoIcon, color: "text-[#5865F2]" },
+  mastodon: { Icon: MastodonLogoIcon, color: "text-[#6364FF]" },
+  twitch: { Icon: TwitchLogoIcon, color: "text-[#9146FF]" },
+};
+
+// Common alternative spellings → canonical platform key.
+const PLATFORM_ALIASES: Record<string, string> = {
+  ig: "instagram",
+  fb: "facebook",
+  meta: "facebook",
+  yt: "youtube",
+  snap: "snapchat",
+  xtwitter: "x",
+  twitterx: "x",
+};
+
+function platformStyle(platform: string): PlatformStyle | null {
+  const key = platform.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return PLATFORMS[PLATFORM_ALIASES[key] ?? key] ?? null;
+}
+
+// PlatformBadge shows a connected profile's social-network logo tinted in its
+// brand colour, falling back to the platform's first two letters when the
+// network isn't recognised.
+function PlatformBadge({ platform }: { platform: string }) {
+  const style = platformStyle(platform);
+  if (!style) {
+    return (
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-semibold uppercase text-tertiary-foreground">
+        {platform.slice(0, 2) || "–"}
+      </span>
+    );
+  }
+  const { Icon: PlatformIcon, color } = style;
+  return (
+    <span className="flex size-9 shrink-0 items-center justify-center">
+      <PlatformIcon className={cn("size-7", color)} weight="fill" />
+    </span>
+  );
+}
+
+// AccountStat is one labelled throughput number in a Zernio account row.
+function AccountStat({
+  label,
+  value,
+  danger,
+}: {
+  label: string;
+  value: number;
+  danger?: boolean;
+}) {
+  return (
+    <div className="text-right">
+      <p
+        className={cn(
+          "font-display text-base font-semibold leading-none tabular-nums",
+          danger && value > 0 ? "text-red-600" : "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-[10px] uppercase tracking-wide text-tertiary-foreground">
+        {label}
+      </p>
     </div>
+  );
+}
+
+function ZernioRow({ account: a }: { account: ZernioAccount }) {
+  return (
+    <li className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <PlatformBadge platform={a.platform} />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">
+            {a.username ? `@${a.username}` : "—"}
+          </p>
+          <p className="truncate text-xs text-tertiary-foreground">
+            <span className="capitalize">{a.platform || "unknown"}</span>
+            {a.lastPostAt
+              ? ` · last post ${formatDate(a.lastPostAt)}`
+              : a.createdAt
+                ? ` · joined ${formatDate(a.createdAt)}`
+                : ""}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:justify-end">
+        <AccountStat label="Scheduled" value={a.scheduledPosts} />
+        <AccountStat label="Published" value={a.publishedPosts} />
+        <AccountStat label="Failed" value={a.failedPosts} danger />
+        <AccountStat label="Total" value={a.totalPosts} />
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              a.isActive ? "bg-emerald-500" : "bg-amber-500",
+            )}
+          />
+          <span className="text-xs text-secondary-foreground">
+            {a.isActive ? "Active" : "Inactive"}
+          </span>
+        </span>
+      </div>
+    </li>
+  );
+}
+
+// ZernioSection is the screen-wide connected-accounts block: one row per social
+// profile with its post throughput.
+function ZernioSection({ state, total }: { state: ZernioState; total: number }) {
+  const count = state.accounts?.length ?? total;
+  return (
+    <section className="rounded-lg bg-primary">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+            Zernio accounts
+          </h2>
+          <InfoIcon text="Social profiles this tenant has connected through Zernio, each with its post throughput — scheduled, published, failed, and total — from the Ogen posts table." />
+        </div>
+        <span className="text-xs tabular-nums text-tertiary-foreground">
+          {count}
+        </span>
+      </div>
+      {state.loading ? (
+        <div className="flex items-center gap-2 px-6 py-5 text-xs text-tertiary-foreground">
+          <Loader className="size-3.5 border-[1.5px]" />
+          Loading accounts…
+        </div>
+      ) : state.error ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">
+          Accounts unavailable — {state.error}
+        </p>
+      ) : !state.accounts || state.accounts.length === 0 ? (
+        <p className="px-6 py-5 text-xs text-tertiary-foreground">
+          No connected accounts
+        </p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {state.accounts.map((a) => (
+            <ZernioRow key={a.id} account={a} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// ── recent activity ───────────────────────────────────────────────────────────
+
+// "2026-06-28" → "Jun 28" (parsed as local midnight to avoid TZ drift).
+function fmtDay(date: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+const ACTIVITY_CHART_H = 48; // px
+
+// ActivityChart is a 60-day daily event-volume bar chart (mirrors the Tenants
+// page registrations chart, in the activity accent colour).
+function ActivityChart({ series }: { series: ActivityDay[] }) {
+  const max = Math.max(1, ...series.map((d) => d.count));
+  return (
+    <div>
+      <div className="flex items-end gap-[2px]" style={{ height: ACTIVITY_CHART_H }}>
+        {series.map((d) =>
+          d.count > 0 ? (
+            <Tooltip key={d.date}>
+              <TooltipTrigger asChild>
+                <div
+                  className="flex-1 cursor-default rounded-sm bg-emerald-500 transition-colors hover:bg-emerald-400"
+                  style={{
+                    height: `${Math.max((d.count / max) * ACTIVITY_CHART_H, 3)}px`,
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent className="border-foreground bg-foreground text-left text-background">
+                <p className="font-medium">{fmtDay(d.date)}</p>
+                <p className="text-background/70">
+                  {d.count} {d.count === 1 ? "event" : "events"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div
+              key={d.date}
+              title={`${fmtDay(d.date)} · no activity`}
+              className="flex-1 rounded-sm bg-secondary"
+              style={{ height: "2px" }}
+            />
+          ),
+        )}
+      </div>
+      <div className="mt-2 flex justify-between text-[11px] text-tertiary-foreground">
+        <span>{series.length ? fmtDay(series[0].date) : ""}</span>
+        <span>{series.length ? fmtDay(series[series.length - 1].date) : ""}</span>
+      </div>
+    </div>
+  );
+}
+
+// ActivityCard is the screen-wide recent-activity card: a 60-day volume chart
+// above a scrollable event list that fades out at the bottom.
+function ActivityCard({ state }: { state: ActivityState }) {
+  const series = state.series ?? [];
+  const total = series.reduce((sum, d) => sum + d.count, 0);
+  return (
+    <section className="rounded-lg bg-primary p-6">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+            Recent activity
+          </h2>
+          <InfoIcon text="Publishing and content events for this tenant from the Ogen post_logs audit trail. The chart shows daily event volume over the last 60 days; the list shows the most recent events." />
+        </div>
+        {!state.loading && !state.error && (
+          <span className="text-xs tabular-nums text-tertiary-foreground">
+            {total} in 60 days
+          </span>
+        )}
+      </div>
+
+      {state.loading ? (
+        <div className="mt-4 flex items-center gap-2 text-xs text-tertiary-foreground">
+          <Loader className="size-3.5 border-[1.5px]" />
+          Loading activity…
+        </div>
+      ) : state.error ? (
+        <p className="mt-4 text-xs text-tertiary-foreground">
+          Activity unavailable — {state.error}
+        </p>
+      ) : (
+        <>
+          <div className="mt-4">
+            <ActivityChart series={series} />
+          </div>
+          {/* Scrollable event list, capped at 200px, fading out at the bottom
+              so the cut-off reads as "there's more, scroll". */}
+          <div className="relative mt-5">
+            <div className="max-h-62.5 overflow-y-auto pr-1 pb-6">
+              <RecentActivity state={state} />
+            </div>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-primary to-transparent" />
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -135,6 +575,8 @@ export function TenantDetail() {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityState>({ loading: true });
+  const [users, setUsers] = useState<UsersState>({ loading: true });
+  const [zernio, setZernio] = useState<ZernioState>({ loading: true });
 
   // Resolve the tenant id from the URL after mount (see tenantIdFromLocation).
   useEffect(() => {
@@ -169,16 +611,66 @@ export function TenantDetail() {
         return r.json();
       })
       .then(
-        (j: { activity: ActivityEvent[]; available: boolean; error?: string }) =>
+        (j: {
+          activity: ActivityEvent[];
+          series?: ActivityDay[];
+          available: boolean;
+          error?: string;
+        }) =>
           setActivity(
             j.available
-              ? { loading: false, events: j.activity }
+              ? { loading: false, events: j.activity, series: j.series }
               : { loading: false, error: j.error ?? "unavailable" },
           ),
       )
       .catch((e: unknown) => {
         if (controller.signal.aborted) return;
         setActivity({
+          loading: false,
+          error: e instanceof Error ? e.message : "Failed to load",
+        });
+      });
+
+    fetch(`/api/tenants/${enc}/users`, { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`request failed (${r.status})`);
+        return r.json();
+      })
+      .then((j: { users: TenantUser[]; available: boolean; error?: string }) =>
+        setUsers(
+          j.available
+            ? { loading: false, users: j.users }
+            : { loading: false, error: j.error ?? "unavailable" },
+        ),
+      )
+      .catch((e: unknown) => {
+        if (controller.signal.aborted) return;
+        setUsers({
+          loading: false,
+          error: e instanceof Error ? e.message : "Failed to load",
+        });
+      });
+
+    fetch(`/api/tenants/${enc}/zernio`, { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`request failed (${r.status})`);
+        return r.json();
+      })
+      .then(
+        (j: {
+          accounts: ZernioAccount[];
+          available: boolean;
+          error?: string;
+        }) =>
+          setZernio(
+            j.available
+              ? { loading: false, accounts: j.accounts }
+              : { loading: false, error: j.error ?? "unavailable" },
+          ),
+      )
+      .catch((e: unknown) => {
+        if (controller.signal.aborted) return;
+        setZernio({
           loading: false,
           error: e instanceof Error ? e.message : "Failed to load",
         });
@@ -246,54 +738,15 @@ export function TenantDetail() {
       </header>
 
       <div className="p-6 space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Users"
-            value={t.users}
-            info="People with a user account in this tenant, from the Ogen control-plane database."
-          />
-          <StatCard
-            label="Zernio profiles"
-            value={t.zernioProfiles}
-            info="Active social profiles this tenant has connected through Zernio."
-          />
-          <StatCard
-            label="R2 storage"
-            value={formatBytes(t.r2Bytes)}
-            info="Total size of this tenant's files stored in Cloudflare R2 object storage."
-          />
-          <SpendCard spend={t.spend} available={spendAvailable} />
-        </div>
+        <ProfileCard tenant={t} />
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-          <section className="rounded-lg bg-primary p-6">
-            <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-              Identity
-            </h2>
-            <div className="space-y-2.5">
-              <DetailRow
-                label="Tenant ID"
-                value={<span className="font-mono">{t.id}</span>}
-              />
-              <DetailRow
-                label="Slug"
-                value={<span className="font-mono">{t.slug}</span>}
-              />
-              <DetailRow label="Registered" value={formatDate(t.createdAt)} />
-              <DetailRow
-                label="Status"
-                value={<span className="capitalize">{t.status}</span>}
-              />
-            </div>
-          </section>
+        <UsersSection state={users} total={t.users} />
 
-          <section className="rounded-lg bg-primary p-6">
-            <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-              Recent activity
-            </h2>
-            <RecentActivity state={activity} />
-          </section>
-        </div>
+        <ZernioSection state={zernio} total={t.zernioProfiles} />
+
+        <SpendCard spend={t.spend} available={spendAvailable} />
+
+        <ActivityCard state={activity} />
       </div>
     </main>
   );

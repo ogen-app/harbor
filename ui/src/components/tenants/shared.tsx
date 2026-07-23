@@ -32,10 +32,48 @@ export interface ActivityEvent {
   summary: string;
 }
 
+export interface ActivityDay {
+  date: string;
+  count: number;
+}
+
 export interface ActivityState {
   loading: boolean;
   error?: string;
   events?: ActivityEvent[];
+  series?: ActivityDay[];
+}
+
+export interface TenantUser {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface UsersState {
+  loading: boolean;
+  error?: string;
+  users?: TenantUser[];
+}
+
+export interface ZernioAccount {
+  id: string;
+  platform: string;
+  username: string;
+  isActive: boolean;
+  createdAt: string | null;
+  totalPosts: number;
+  scheduledPosts: number;
+  publishedPosts: number;
+  failedPosts: number;
+  lastPostAt: string | null;
+}
+
+export interface ZernioState {
+  loading: boolean;
+  error?: string;
+  accounts?: ZernioAccount[];
 }
 
 // ── formatters ────────────────────────────────────────────────────────────────

@@ -675,7 +675,7 @@ export function DatabaseStatus() {
             <div className="border-t border-border">
                 <div
                     role="tablist"
-                    className="flex gap-6 overflow-x-auto border-b border-border px-6"
+                    className="flex gap-6 overflow-x-auto border-b border-border px-6 pt-3"
                 >
                     {data.map((d, i) => (
                         <button

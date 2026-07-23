@@ -11,6 +11,8 @@ package ogen
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -49,6 +51,37 @@ type ActivityEvent struct {
 	Summary string    `bun:"summary"         json:"summary"`
 }
 
+// User is one member of a tenant, from the Ogen users table. Its JSON shape is
+// served directly to the tenant detail page.
+type User struct {
+	ID        string    `bun:"id"         json:"id"`
+	Name      string    `bun:"name"       json:"name"`
+	Email     string    `bun:"email"      json:"email"`
+	CreatedAt time.Time `bun:"created_at" json:"createdAt"`
+}
+
+// ActivityDay is a single UTC day's activity-event count for a tenant, used to
+// build the detail page's 60-day activity chart.
+type ActivityDay struct {
+	Date  string `bun:"date"`
+	Count int    `bun:"count"`
+}
+
+// ZernioAccount is one connected social profile plus its post throughput,
+// aggregated from the Ogen social_accounts + posts tables. Served directly.
+type ZernioAccount struct {
+	ID             string     `bun:"id"              json:"id"`
+	Platform       string     `bun:"platform"        json:"platform"`
+	Username       string     `bun:"username"        json:"username"`
+	IsActive       bool       `bun:"is_active"       json:"isActive"`
+	CreatedAt      *time.Time `bun:"created_at"      json:"createdAt"`
+	TotalPosts     int        `bun:"total_posts"     json:"totalPosts"`
+	ScheduledPosts int        `bun:"scheduled_posts" json:"scheduledPosts"`
+	PublishedPosts int        `bun:"published_posts" json:"publishedPosts"`
+	FailedPosts    int        `bun:"failed_posts"    json:"failedPosts"`
+	LastPostAt     *time.Time `bun:"last_post_at"    json:"lastPostAt"`
+}
+
 // OverviewHeadline is the tenant total plus new-signup counts over recent
 // windows, gathered in a single pass over the tenants table.
 type OverviewHeadline struct {
@@ -69,6 +102,14 @@ type TenantRepository interface {
 	Registrations(ctx context.Context, windowDays int) ([]Registration, error)
 	// Activity returns a tenant's most recent post_logs events (newest first).
 	Activity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error)
+	// Users returns a tenant's members (newest first), capped at limit.
+	Users(ctx context.Context, tenantID string, limit int) ([]User, error)
+	// ActivitySeries returns per-day activity-event counts within the last
+	// windowDays days (sparse — only days with events).
+	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error)
+	// ZernioAccounts returns a tenant's connected social profiles with per-account
+	// post throughput (scheduled / published / failed / total), newest first.
+	ZernioAccounts(ctx context.Context, tenantID string) ([]ZernioAccount, error)
 
 	// ── overview aggregates ──────────────────────────────────────────────
 	Headline(ctx context.Context) (OverviewHeadline, error)
@@ -157,6 +198,214 @@ func (r *tenantRepository) Activity(ctx context.Context, tenantID string, limit 
 		return nil, err
 	}
 	return events, nil
+}
+
+func (r *tenantRepository) Users(ctx context.Context, tenantID string, limit int) ([]User, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	var users []User
+	err := r.db.NewRaw(`
+		SELECT id, COALESCE(name, '') AS name, COALESCE(email, '') AS email, created_at
+		FROM users
+		WHERE tenant_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?`, tenantID, limit).Scan(ctx, &users)
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func (r *tenantRepository) ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	var days []ActivityDay
+	err := r.db.NewRaw(`
+		SELECT to_char((event_timestamp AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date, count(*) AS count
+		FROM post_logs
+		WHERE tenant_id = ?
+		  AND (event_timestamp AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?
+		GROUP BY date
+		ORDER BY date`, tenantID, windowDays-1).Scan(ctx, &days)
+	if err != nil {
+		return nil, err
+	}
+	return days, nil
+}
+
+// postLinkColumns are the candidate posts→social_accounts foreign-key columns,
+// most-specific first. Ogen's exact name varies, so we detect which one exists
+// rather than hard-coding it. Values come from a fixed allowlist (never user
+// input), so they are safe to interpolate into SQL.
+var postLinkColumns = []string{
+	"social_account_id",
+	"social_account",
+	"account_id",
+	"social_profile_id",
+	"social_profile",
+	"profile_id",
+	"channel_id",
+	"connection_id",
+	"social_id",
+}
+
+// postStat is one account's post throughput.
+type postStat struct {
+	total, scheduled, published, failed int
+	lastPostAt                          *time.Time
+}
+
+func (r *tenantRepository) ZernioAccounts(ctx context.Context, tenantID string) ([]ZernioAccount, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+
+	// Accounts first. platform/username/is_active/deleted_at are confirmed, but
+	// created_at isn't universal on social_accounts, so it's adapted (selected
+	// and ordered on only when present).
+	saCols := r.tableColumns(ctx, "social_accounts")
+	createdSel, orderBy := "NULL::timestamptz AS created_at", "id"
+	if saCols["created_at"] {
+		createdSel, orderBy = "created_at", "created_at DESC"
+	}
+	accountsQuery := fmt.Sprintf(`
+		SELECT
+			id,
+			COALESCE(platform, '') AS platform,
+			COALESCE(username, '') AS username,
+			is_active,
+			%s
+		FROM social_accounts
+		WHERE tenant_id = ? AND deleted_at IS NULL
+		ORDER BY %s`, createdSel, orderBy)
+
+	var accounts []ZernioAccount
+	err := r.db.NewRaw(accountsQuery, tenantID).Scan(ctx, &accounts)
+	if err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 {
+		return accounts, nil
+	}
+
+	// Post throughput is best-effort and merged in Go: the posts→account FK name
+	// and the status column vary across Ogen schema versions, so a failure here
+	// leaves the counts at zero rather than failing the whole block.
+	stats := r.postStatsByAccount(ctx, tenantID)
+	for i := range accounts {
+		if s, ok := stats[accounts[i].ID]; ok {
+			accounts[i].TotalPosts = s.total
+			accounts[i].ScheduledPosts = s.scheduled
+			accounts[i].PublishedPosts = s.published
+			accounts[i].FailedPosts = s.failed
+			accounts[i].LastPostAt = s.lastPostAt
+		}
+	}
+	return accounts, nil
+}
+
+// postStatsByAccount aggregates posts per social account, keyed by account id.
+// It adapts to the posts schema (link-column name, presence of a status column)
+// and returns nil on any failure so the caller degrades to zero counts.
+func (r *tenantRepository) postStatsByAccount(ctx context.Context, tenantID string) map[string]postStat {
+	cols := r.tableColumns(ctx, "posts")
+	linkCol := firstPresent(cols, postLinkColumns)
+	if linkCol == "" {
+		slog.Debug("zernio: no posts→account link column found",
+			"component", "ogen", "tried", postLinkColumns)
+		return nil
+	}
+
+	// "Scheduled" prefers a status column, then a future scheduled_at.
+	scheduledExpr := "0"
+	switch {
+	case cols["status"]:
+		scheduledExpr = "count(*) FILTER (WHERE status = 'scheduled')"
+	case cols["scheduled_at"]:
+		scheduledExpr = "count(*) FILTER (WHERE scheduled_at > now())"
+	}
+	publishedExpr := "0"
+	if cols["published_at"] {
+		publishedExpr = "count(*) FILTER (WHERE published_at IS NOT NULL)"
+	}
+	failedExpr := "0"
+	if cols["failure_reason"] {
+		failedExpr = "count(*) FILTER (WHERE failure_reason IS NOT NULL AND failure_reason <> '')"
+	}
+	lastExpr := "NULL::timestamptz"
+	if cols["published_at"] {
+		lastExpr = "max(COALESCE(published_at, created_at))"
+	} else if cols["created_at"] {
+		lastExpr = "max(created_at)"
+	}
+
+	// %s values are catalog-derived column names / allowlisted expressions, not
+	// user input; tenantID stays a bound parameter.
+	query := fmt.Sprintf(`
+		SELECT
+			%s AS account_id,
+			count(*)    AS total,
+			%s          AS scheduled,
+			%s          AS published,
+			%s          AS failed,
+			%s          AS last_post_at
+		FROM posts
+		WHERE tenant_id = ? AND %s IS NOT NULL
+		GROUP BY %s`, linkCol, scheduledExpr, publishedExpr, failedExpr, lastExpr, linkCol, linkCol)
+
+	var rows []struct {
+		AccountID  string     `bun:"account_id"`
+		Total      int        `bun:"total"`
+		Scheduled  int        `bun:"scheduled"`
+		Published  int        `bun:"published"`
+		Failed     int        `bun:"failed"`
+		LastPostAt *time.Time `bun:"last_post_at"`
+	}
+	if err := r.db.NewRaw(query, tenantID).Scan(ctx, &rows); err != nil {
+		slog.Debug("zernio: post stats query failed",
+			"component", "ogen", "linkColumn", linkCol, "err", err)
+		return nil
+	}
+
+	out := make(map[string]postStat, len(rows))
+	for _, row := range rows {
+		out[row.AccountID] = postStat{
+			total:      row.Total,
+			scheduled:  row.Scheduled,
+			published:  row.Published,
+			failed:     row.Failed,
+			lastPostAt: row.LastPostAt,
+		}
+	}
+	return out
+}
+
+// tableColumns returns the set of column names on a table (across schemas), for
+// adapting queries to the live Ogen schema. Returns nil on error.
+func (r *tenantRepository) tableColumns(ctx context.Context, table string) map[string]bool {
+	var names []string
+	if err := r.db.NewRaw(
+		`SELECT column_name FROM information_schema.columns WHERE table_name = ?`,
+		table).Scan(ctx, &names); err != nil {
+		return nil
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
+}
+
+// firstPresent returns the first candidate found in cols, or "".
+func firstPresent(cols map[string]bool, candidates []string) string {
+	for _, c := range candidates {
+		if cols[c] {
+			return c
+		}
+	}
+	return ""
 }
 
 func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, error) {
