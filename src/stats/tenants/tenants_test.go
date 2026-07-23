@@ -1,4 +1,4 @@
-package tenantstats
+package tenants
 
 import (
 	"context"

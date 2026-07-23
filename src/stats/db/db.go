@@ -1,8 +1,8 @@
-// Package dbstats collects diagnostic Postgres statistics for a database pool.
-// Every query is read-only and best-effort: a failed section (permissions, a
-// missing extension/table, an unsupported version) is logged at debug and left
-// zero so it never fails the whole snapshot.
-package dbstats
+// Package db collects diagnostic Postgres statistics for a database pool. Every
+// query is read-only and best-effort: a failed section (permissions, a missing
+// extension/table, an unsupported version) is logged at debug and left zero so
+// it never fails the whole snapshot.
+package db
 
 import (
 	"context"

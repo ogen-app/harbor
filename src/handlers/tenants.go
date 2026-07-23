@@ -13,7 +13,7 @@ import (
 
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	"github.com/ogen-app/harbor/src/repository/ogen"
-	"github.com/ogen-app/harbor/src/tenantstats"
+	"github.com/ogen-app/harbor/src/stats/tenants"
 )
 
 // TenantsHandler serves Ogen tenant data (read-only) via the origin-scoped
@@ -329,6 +329,6 @@ func (h *TenantsHandler) Overview(c *fiber.Ctx) error {
 	if !h.tenants.Available() {
 		return c.JSON(fiber.Map{"available": false, "error": "ogen database not configured"})
 	}
-	overview := tenantstats.Collect(c.Context(), h.tenants, h.spend)
+	overview := tenants.Collect(c.Context(), h.tenants, h.spend)
 	return c.JSON(fiber.Map{"available": true, "overview": overview})
 }

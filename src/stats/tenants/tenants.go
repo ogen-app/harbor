@@ -1,8 +1,8 @@
-// Package tenantstats computes the tenant overview shown on Harbor's dashboard.
-// It is a pure aggregator: all database access goes through the origin-scoped
+// Package tenants computes the tenant overview shown on Harbor's dashboard. It
+// is a pure aggregator: all database access goes through the origin-scoped
 // repositories (ogen control-plane + analytics/Timescale). Every section is
 // best-effort — a failing repository call is logged at debug and left zero.
-package tenantstats
+package tenants
 
 import (
 	"context"
