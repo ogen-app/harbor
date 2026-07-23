@@ -119,7 +119,7 @@ function MetricCell({
   return (
     <div className="p-5">
       <CellLabel label={label} info={info} />
-      <p className="mt-2 font-display text-2xl font-semibold tabular-nums text-foreground">
+      <p className="mt-2 font-display text-2xl font-semibold text-foreground">
         {value}
       </p>
     </div>
@@ -296,28 +296,28 @@ function UsersSection({ state, total }: { state: UsersState; total: number }) {
 
 // ── zernio accounts ────────────────────────────────────────────────────────────
 
-// Each known platform maps to its Phosphor brand logo plus its brand colours
-// (a coloured square with a contrasting glyph). The bg-[#…] literals are static
-// so Tailwind picks them up.
-type PlatformStyle = { Icon: Icon; bg: string; fg: string };
+// Each known platform maps to its Phosphor brand logo, tinted in the platform's
+// brand colour (no background). The text-[#…] literals are static so Tailwind
+// picks them up; black-brand marks use text-foreground so they adapt to theme.
+type PlatformStyle = { Icon: Icon; color: string };
 
 const PLATFORMS: Record<string, PlatformStyle> = {
-  instagram: { Icon: InstagramLogoIcon, bg: "bg-[#E4405F]", fg: "text-white" },
-  facebook: { Icon: FacebookLogoIcon, bg: "bg-[#1877F2]", fg: "text-white" },
-  twitter: { Icon: TwitterLogoIcon, bg: "bg-[#1DA1F2]", fg: "text-white" },
-  x: { Icon: XLogoIcon, bg: "bg-black", fg: "text-white" },
-  linkedin: { Icon: LinkedinLogoIcon, bg: "bg-[#0A66C2]", fg: "text-white" },
-  tiktok: { Icon: TiktokLogoIcon, bg: "bg-black", fg: "text-white" },
-  youtube: { Icon: YoutubeLogoIcon, bg: "bg-[#FF0000]", fg: "text-white" },
-  pinterest: { Icon: PinterestLogoIcon, bg: "bg-[#E60023]", fg: "text-white" },
-  threads: { Icon: ThreadsLogoIcon, bg: "bg-black", fg: "text-white" },
-  snapchat: { Icon: SnapchatLogoIcon, bg: "bg-[#FFFC00]", fg: "text-black" },
-  reddit: { Icon: RedditLogoIcon, bg: "bg-[#FF4500]", fg: "text-white" },
-  whatsapp: { Icon: WhatsappLogoIcon, bg: "bg-[#25D366]", fg: "text-white" },
-  telegram: { Icon: TelegramLogoIcon, bg: "bg-[#229ED9]", fg: "text-white" },
-  discord: { Icon: DiscordLogoIcon, bg: "bg-[#5865F2]", fg: "text-white" },
-  mastodon: { Icon: MastodonLogoIcon, bg: "bg-[#6364FF]", fg: "text-white" },
-  twitch: { Icon: TwitchLogoIcon, bg: "bg-[#9146FF]", fg: "text-white" },
+  instagram: { Icon: InstagramLogoIcon, color: "text-[#E4405F]" },
+  facebook: { Icon: FacebookLogoIcon, color: "text-[#1877F2]" },
+  twitter: { Icon: TwitterLogoIcon, color: "text-[#1DA1F2]" },
+  x: { Icon: XLogoIcon, color: "text-foreground" },
+  linkedin: { Icon: LinkedinLogoIcon, color: "text-[#0A66C2]" },
+  tiktok: { Icon: TiktokLogoIcon, color: "text-foreground" },
+  youtube: { Icon: YoutubeLogoIcon, color: "text-[#FF0000]" },
+  pinterest: { Icon: PinterestLogoIcon, color: "text-[#E60023]" },
+  threads: { Icon: ThreadsLogoIcon, color: "text-foreground" },
+  snapchat: { Icon: SnapchatLogoIcon, color: "text-[#F5B301]" },
+  reddit: { Icon: RedditLogoIcon, color: "text-[#FF4500]" },
+  whatsapp: { Icon: WhatsappLogoIcon, color: "text-[#25D366]" },
+  telegram: { Icon: TelegramLogoIcon, color: "text-[#229ED9]" },
+  discord: { Icon: DiscordLogoIcon, color: "text-[#5865F2]" },
+  mastodon: { Icon: MastodonLogoIcon, color: "text-[#6364FF]" },
+  twitch: { Icon: TwitchLogoIcon, color: "text-[#9146FF]" },
 };
 
 // Common alternative spellings → canonical platform key.
@@ -336,28 +336,22 @@ function platformStyle(platform: string): PlatformStyle | null {
   return PLATFORMS[PLATFORM_ALIASES[key] ?? key] ?? null;
 }
 
-// PlatformBadge shows a connected profile's social-network logo on a brand-
-// coloured square, falling back to the platform's first two letters when the
+// PlatformBadge shows a connected profile's social-network logo tinted in its
+// brand colour, falling back to the platform's first two letters when the
 // network isn't recognised.
 function PlatformBadge({ platform }: { platform: string }) {
   const style = platformStyle(platform);
   if (!style) {
     return (
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-semibold uppercase text-secondary-foreground">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-semibold uppercase text-tertiary-foreground">
         {platform.slice(0, 2) || "–"}
       </span>
     );
   }
-  const { Icon: PlatformIcon, bg, fg } = style;
+  const { Icon: PlatformIcon, color } = style;
   return (
-    <span
-      className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-md",
-        bg,
-        fg,
-      )}
-    >
-      <PlatformIcon className="size-5" weight="fill" />
+    <span className="flex size-9 shrink-0 items-center justify-center">
+      <PlatformIcon className={cn("size-7", color)} weight="fill" />
     </span>
   );
 }
