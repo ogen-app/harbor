@@ -64,7 +64,7 @@ interface Stats {
     vacuum: VacuumStat[];
     river?: River | null;
 }
-interface DbStatus {
+export interface DbStatus {
     key: string;
     label: string;
     kind: string;
@@ -78,11 +78,11 @@ interface DbStatus {
 const REFRESH_SECONDS = 120;
 
 // Per-database colour for the storage bar segment and its legend dot.
-const SEGMENT = ["bg-chart-1", "bg-chart-2"] as const;
+export const SEGMENT = ["bg-chart-1", "bg-chart-2"] as const;
 
 // ── formatters ──────────────────────────────────────────────────────────────
 
-function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number): string {
     if (!bytes || bytes < 0) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB", "PB"];
     const i = Math.min(
@@ -171,7 +171,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     );
 }
 
-function StatusBadge({ connected }: { connected: boolean }) {
+export function StatusBadge({ connected }: { connected: boolean }) {
     return (
         <span
             className={cn(

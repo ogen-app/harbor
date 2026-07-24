@@ -23,6 +23,7 @@ import ChevronRightIcon from '@/assets/icons/chevron_right.svg'
 import ChevronUpIcon from '@/assets/icons/chevron_up.svg'
 import CollapseTopIcon from '@/assets/icons/collapse_top.svg'
 import CommentIcon from '@/assets/icons/comment.svg'
+import DatabaseIcon from '@/assets/icons/database.svg'
 import Dots2VerticalIcon from '@/assets/icons/dots_2_vertical.svg'
 import DotsDragVerticalIcon from '@/assets/icons/dots_drag_vertical.svg'
 import EditIcon from '@/assets/icons/edit.svg'
@@ -76,6 +77,7 @@ export type IconName =
   | 'chevron_up'
   | 'collapse_top'
   | 'comment'
+  | 'database'
   | 'dots_2_vertical'
   | 'dots_drag_vertical'
   | 'edit'
@@ -136,6 +138,7 @@ const icons: Record<IconName, SvgComponent> = {
   chevron_up: ChevronUpIcon,
   collapse_top: CollapseTopIcon,
   comment: CommentIcon,
+  database: DatabaseIcon,
   dots_2_vertical: Dots2VerticalIcon,
   dots_drag_vertical: DotsDragVerticalIcon,
   edit: EditIcon,

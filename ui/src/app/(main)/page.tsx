@@ -1,4 +1,4 @@
-import { DatabaseStatus } from "@/components/dashboard/DatabaseStatus";
+import { DatabaseTeaser } from "@/components/dashboard/DatabaseTeaser";
 import { TenantsSection } from "@/components/dashboard/TenantsSection";
 import { GreetingMessage } from "@/components/dashboard/GreetingMessage";
 
@@ -12,7 +12,7 @@ export default function DashboardPage() {
             </header>
             <div className="dashboard-numeric p-6 space-y-6">
                 <TenantsSection />
-                <DatabaseStatus />
+                <DatabaseTeaser />
             </div>
         </main>
     );
