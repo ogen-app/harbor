@@ -37,7 +37,8 @@ type NavItem = {
         | "nav_strategy"
         | "nav_watchlist"
         | "layout"
-        | "tenants";
+        | "tenants"
+        | "database";
     label: string;
     href: string;
     active?: boolean;
@@ -45,6 +46,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
     { icon: "tenants", label: "Tenants", href: "/tenants" },
+    { icon: "database", label: "Databases", href: "/databases" },
     { icon: "layout", label: "Design system", href: "/design-system" },
 ];
 
@@ -105,9 +107,7 @@ export function AppSidebar({
 
     useHotkeys("bracketleft", toggle, { preventDefault: true });
     useHotkeys("g>t", () => router.push("/tenants"), { preventDefault: true });
-    // useHotkeys("g>d", () => router.push("/documents"), {
-    //     preventDefault: true,
-    // });
+    useHotkeys("g>d", () => router.push("/databases"), { preventDefault: true });
     useHotkeys("g>s", () => router.push("/settings"), { preventDefault: true });
 
     return (
