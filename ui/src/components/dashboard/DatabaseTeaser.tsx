@@ -138,7 +138,11 @@ export function DatabaseTeaser() {
                                     className="flex items-center justify-between gap-8 text-sm"
                                 >
                                     <Dot
-                                        color={d.connected ? SEGMENT[i] : "bg-tertiary"}
+                                        color={
+                                            d.connected
+                                                ? SEGMENT[i % SEGMENT.length]
+                                                : "bg-tertiary"
+                                        }
                                         label={d.label}
                                     />
                                     <div className="flex items-center gap-3">
@@ -161,7 +165,7 @@ export function DatabaseTeaser() {
                             return (
                                 <div
                                     key={d.key}
-                                    className={cn("h-full", SEGMENT[i])}
+                                    className={cn("h-full", SEGMENT[i % SEGMENT.length])}
                                     style={{ width: `${pct}%` }}
                                 />
                             );
