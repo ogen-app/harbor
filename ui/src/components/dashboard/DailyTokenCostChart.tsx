@@ -261,6 +261,7 @@ export function DailyTokenCostChart() {
                                                     key={d.date}
                                                     className="flex-1"
                                                     title={`${fmtDate(d.date)} · no spend`}
+                                                    aria-label={`${fmtDate(d.date)} · no spend`}
                                                 />
                                             );
                                         }
@@ -275,7 +276,11 @@ export function DailyTokenCostChart() {
                                         return (
                                             <Tooltip key={d.date}>
                                                 <TooltipTrigger asChild>
-                                                    <div className="flex h-full flex-1 cursor-default flex-col-reverse justify-start gap-[2px]">
+                                                    <div
+                                                        tabIndex={0}
+                                                        aria-label={`${fmtDate(d.date)} · ${fmtUSD(d.totalMicros)} total`}
+                                                        className="flex h-full flex-1 cursor-default flex-col-reverse justify-start gap-[2px]"
+                                                    >
                                                         {segs.map((s) => (
                                                             <div
                                                                 key={s.model}
