@@ -106,13 +106,20 @@ func (r *spendRepository) DailyCostByModel(ctx context.Context, windowDays int) 
 	// Bucket by UTC calendar day (matching the Ogen registrations/activity
 	// series) so the dense fill on the handler side lines up. Blank models are
 	// coalesced to "unknown" so every cost is accounted for in the chart.
+	//
+	// The WHERE compares the bare occurred_at against a UTC-midnight lower bound
+	// (start of the earliest of exactly windowDays days ending today) rather than
+	// casting the column to a date: usage_events is a TimescaleDB hypertable, and
+	// a cast on the partitioning column defeats chunk exclusion and the
+	// occurred_at index. >= is inclusive so rows exactly at midnight are kept.
 	var rows []DailyModelCost
 	err := r.db.NewRaw(`
 		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
 		       COALESCE(NULLIF(model, ''), 'unknown') AS model,
 		       sum(cost_micros) AS cost_micros
 		FROM usage_events
-		WHERE (occurred_at AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?::int
+		WHERE occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
+		                      - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
 		GROUP BY date, model
 		ORDER BY date, model`, windowDays).Scan(ctx, &rows)
 	if err != nil {
