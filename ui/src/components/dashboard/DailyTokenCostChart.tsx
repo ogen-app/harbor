@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ChartBarIcon } from "@phosphor-icons/react";
+import { HandCoinsIcon } from "@phosphor-icons/react";
 import { InfoIcon } from "@/components/dashboard/primitives";
 import {
     Tooltip,
@@ -197,7 +197,7 @@ export function DailyTokenCostChart() {
             {/* Header — matches the Tenants/Databases cards */}
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
                 <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
-                    <ChartBarIcon className="size-6" weight="bold" />
+                    <HandCoinsIcon className="size-6" weight="bold" />
                     Daily token cost
                 </h2>
                 {data?.available && (
