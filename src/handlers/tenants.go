@@ -253,11 +253,11 @@ type regDay struct {
 	Names []string `json:"names"`
 }
 
-const regWindowDays = 60
+const regWindowDays = 90
 
 // Registrations godoc
-// @Summary      Tenant registrations (60 days)
-// @Description  Daily count and names of tenants created over the last 60 days,
+// @Summary      Tenant registrations (90 days)
+// @Description  Daily count and names of tenants created over the last 90 days,
 // @Description  as a dense zero-filled series for the registrations bar chart.
 // @Tags         tenants
 // @Produce      json
