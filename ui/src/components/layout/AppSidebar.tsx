@@ -106,6 +106,7 @@ export function AppSidebar({
         });
 
     useHotkeys("bracketleft", toggle, { preventDefault: true });
+    useHotkeys("g>g", () => router.push("/"), { preventDefault: true });
     useHotkeys("g>t", () => router.push("/tenants"), { preventDefault: true });
     useHotkeys("g>d", () => router.push("/databases"), { preventDefault: true });
     useHotkeys("g>s", () => router.push("/settings"), { preventDefault: true });
