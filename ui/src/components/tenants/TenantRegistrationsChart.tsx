@@ -28,7 +28,7 @@ function fmt(date: string): string {
   });
 }
 
-const CHART_H = 50; // px — kept short per design
+const CHART_H = 100; // px
 
 export function TenantRegistrationsChart() {
   const [data, setData] = useState<RegResponse | null>(null);
@@ -56,6 +56,9 @@ export function TenantRegistrationsChart() {
   const max = Math.max(1, ...days.map((d) => d.count));
   const total = days.reduce((s, d) => s + d.count, 0);
 
+  // Label roughly seven x-axis ticks, evenly spaced across the window.
+  const labelStride = Math.max(1, Math.ceil(days.length / 7));
+
   return (
     <div className="rounded-xl bg-primary p-6">
       <div className="flex items-center justify-between gap-4">
@@ -63,11 +66,11 @@ export function TenantRegistrationsChart() {
           <h2 className="text-sm font-medium text-foreground">
             Tenant registrations
           </h2>
-          <InfoIcon text="New tenants created per day over the last 60 days, from the Ogen control-plane database." />
+          <InfoIcon text="New tenants created per day over the last 90 days, from the Ogen control-plane database." />
         </div>
         {data?.available && (
           <span className="text-xs text-tertiary-foreground">
-            {total} in 60 days
+            {total} in 90 days
           </span>
         )}
       </div>
@@ -93,6 +96,8 @@ export function TenantRegistrationsChart() {
                 <Tooltip key={d.date}>
                   <TooltipTrigger asChild>
                     <div
+                      tabIndex={0}
+                      aria-label={`${fmt(d.date)} · ${d.count} ${d.count === 1 ? "registration" : "registrations"}`}
                       className="flex-1 cursor-default rounded-sm bg-blue-500 transition-colors hover:bg-blue-400"
                       style={{
                         height: `${Math.max((d.count / max) * CHART_H, 4)}px`,
@@ -118,15 +123,27 @@ export function TenantRegistrationsChart() {
                 <div
                   key={d.date}
                   title={`${fmt(d.date)} · no registrations`}
+                  aria-label={`${fmt(d.date)} · no registrations`}
                   className="flex-1 rounded-sm bg-secondary"
                   style={{ height: "2px" }}
                 />
               ),
             )}
           </div>
-          <div className="mt-2 flex justify-between text-[11px] text-tertiary-foreground">
-            <span>{days.length ? fmt(days[0].date) : ""}</span>
-            <span>{days.length ? fmt(days[days.length - 1].date) : ""}</span>
+          {/* X-axis date labels, aligned under their bars */}
+          <div className="mt-2 flex gap-[2px]">
+            {days.map((d, i) => (
+              <span
+                key={d.date}
+                className="flex-1 text-center text-[11px] text-tertiary-foreground"
+              >
+                {i % labelStride === 0 ? (
+                  <span className="inline-block whitespace-nowrap">
+                    {fmt(d.date)}
+                  </span>
+                ) : null}
+              </span>
+            ))}
           </div>
         </div>
       )}
