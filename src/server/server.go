@@ -79,6 +79,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, cfg *config.Config,
 	).Register(app, requireAuth)
 	handlers.NewStatusHandler(ogenDB, analyticsDB).Register(app, requireAuth)
 	handlers.NewTenantsHandler(tenantRepo, spendRepo).Register(app, requireAuth)
+	handlers.NewAnalyticsHandler(spendRepo).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route

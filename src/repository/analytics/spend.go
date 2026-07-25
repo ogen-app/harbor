@@ -37,6 +37,14 @@ type VendorCost struct {
 	CostMicros int64  `bun:"cost_micros"`
 }
 
+// DailyModelCost is one (UTC calendar day, model) cost bucket for the daily
+// token-cost chart. Date is an ISO "YYYY-MM-DD" string.
+type DailyModelCost struct {
+	Date       string `bun:"date"`
+	Model      string `bun:"model"`
+	CostMicros int64  `bun:"cost_micros"`
+}
+
 type SpendRepository interface {
 	// Available reports whether the analytics pool is configured.
 	Available() bool
@@ -48,6 +56,10 @@ type SpendRepository interface {
 	Rollup(ctx context.Context) ([]VendorCost, error)
 	// PeriodTotalMicros returns total spend since the start of the current month.
 	PeriodTotalMicros(ctx context.Context) (int64, error)
+	// DailyCostByModel returns per-day, per-model summed cost over the last
+	// windowDays UTC calendar days, ordered by day then model. Returns
+	// ErrUnavailable if the pool is nil.
+	DailyCostByModel(ctx context.Context, windowDays int) ([]DailyModelCost, error)
 }
 
 type spendRepository struct{ db *bun.DB }
@@ -85,6 +97,29 @@ func (r *spendRepository) ByTenant(ctx context.Context) (map[string]VendorSpend,
 		out[row.TenantID] = s
 	}
 	return out, nil
+}
+
+func (r *spendRepository) DailyCostByModel(ctx context.Context, windowDays int) ([]DailyModelCost, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	// Bucket by UTC calendar day (matching the Ogen registrations/activity
+	// series) so the dense fill on the handler side lines up. Blank models are
+	// coalesced to "unknown" so every cost is accounted for in the chart.
+	var rows []DailyModelCost
+	err := r.db.NewRaw(`
+		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
+		       COALESCE(NULLIF(model, ''), 'unknown') AS model,
+		       sum(cost_micros) AS cost_micros
+		FROM usage_events
+		WHERE (occurred_at AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?::int
+		GROUP BY date, model
+		ORDER BY date, model`, windowDays).Scan(ctx, &rows)
+	if err != nil {
+		logFail("spend.dailyCostByModel", err)
+		return nil, err
+	}
+	return rows, nil
 }
 
 func (r *spendRepository) PeriodTotalMicros(ctx context.Context) (int64, error) {
