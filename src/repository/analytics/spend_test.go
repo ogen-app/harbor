@@ -1,6 +1,10 @@
 package analytics
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
 
 func TestAddVendorCostClassification(t *testing.T) {
 	var s VendorSpend
@@ -22,5 +26,14 @@ func TestAddVendorCostClassification(t *testing.T) {
 	}
 	if s.TotalMicros != 30 {
 		t.Errorf("total = %d, want 30", s.TotalMicros)
+	}
+}
+
+// A nil pool is the "analytics unconfigured" case; reads must report it as
+// ErrUnavailable rather than panicking on a nil *bun.DB.
+func TestDailyCostByModelUnavailable(t *testing.T) {
+	r := NewSpendRepository(nil)
+	if _, err := r.DailyCostByModel(context.Background(), 30); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
 	}
 }

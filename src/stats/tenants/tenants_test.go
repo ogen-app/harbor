@@ -79,6 +79,12 @@ func (f *fakeSpendRepo) PeriodTotalMicros(context.Context) (int64, error) {
 	}
 	return f.total, nil
 }
+func (f *fakeSpendRepo) DailyCostByModel(context.Context, int) ([]analytics.DailyModelCost, error) {
+	if !f.available {
+		return nil, analytics.ErrUnavailable
+	}
+	return nil, nil // unused by Collect
+}
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
