@@ -32,12 +32,19 @@ import (
 func EnsureDatabase(ctx context.Context, dsn string) error {
 	u, err := url.Parse(dsn)
 	if err != nil {
+		// url.Parse returns a *url.Error whose message embeds the raw dsn
+		// (credentials and all); unwrap to the bare cause so the logged error
+		// carries the reason without the secret.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return fmt.Errorf("parse dsn: %w", err)
 	}
 
 	dbName := strings.TrimPrefix(u.Path, "/")
 	if dbName == "" {
-		return fmt.Errorf("dsn has no database name: %q", dsn)
+		return errors.New("dsn has no database name")
 	}
 
 	// Point a copy of the DSN at the always-present "postgres" maintenance
