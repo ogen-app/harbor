@@ -36,6 +36,15 @@ func main() {
 	// boot errors are structured and any stray stdlib log.Print is bridged.
 	logging.New(cfg)
 
+	// Create Harbor's own database if a bare Postgres server has none yet
+	// (docker-compose pre-seeds it via POSTGRES_DB, so this is usually a no-op).
+	// Best effort: the New/Ping below is the authoritative gate, so a role that
+	// can't reach the maintenance DB still boots when the target already exists.
+	if err := database.EnsureDatabase(context.Background(), cfg.DSN); err != nil {
+		slog.Warn("ensure database (continuing; will verify on connect)",
+			logging.AttrComponent, "boot", logging.AttrError, err)
+	}
+
 	db, err := database.New(cfg.DSN, cfg.Debug)
 	if err != nil {
 		fatal("connect to database", err)
