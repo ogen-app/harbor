@@ -437,6 +437,8 @@ function ActivityChart({ series }: { series: ActivityDay[] }) {
             <Tooltip key={d.date}>
               <TooltipTrigger asChild>
                 <div
+                  tabIndex={0}
+                  aria-label={`${fmtDay(d.date)} · ${d.count} ${d.count === 1 ? "event" : "events"}`}
                   className="flex-1 cursor-default rounded-sm bg-emerald-500 transition-colors hover:bg-emerald-400"
                   style={{
                     height: `${Math.max((d.count / max) * ACTIVITY_CHART_H, 3)}px`,
