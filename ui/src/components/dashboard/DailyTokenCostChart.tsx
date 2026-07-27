@@ -31,18 +31,58 @@ interface DailyCostResponse {
 // Window shown by the chart (also the max the API allows).
 const WINDOW_DAYS = 90;
 
-// Per-model colour, assigned by the model's rank in the (cost-desc) legend so
-// the biggest spender is blue, matching the inspiration. Cycles for >8 models.
-const PALETTE = [
-    "bg-blue-500",
-    "bg-orange-500",
-    "bg-emerald-500",
-    "bg-violet-500",
-    "bg-amber-500",
-    "bg-rose-500",
-    "bg-cyan-500",
-    "bg-fuchsia-500",
-] as const;
+// Colour families by vendor: Anthropic in oranges, Google in blues, everything
+// else in neutral greys. A model's shade is fixed by its position within its
+// family (models sorted alphabetically by id), so a given model always keeps the
+// same colour regardless of its cost rank or which other models are present.
+type Vendor = "anthropic" | "google" | "other";
+
+const VENDOR_SHADES: Record<Vendor, readonly string[]> = {
+    anthropic: [
+        "bg-orange-500",
+        "bg-orange-400",
+        "bg-orange-600",
+        "bg-amber-500",
+        "bg-amber-400",
+        "bg-orange-300",
+    ],
+    google: [
+        "bg-blue-500",
+        "bg-blue-400",
+        "bg-blue-600",
+        "bg-sky-500",
+        "bg-sky-400",
+        "bg-blue-300",
+    ],
+    other: ["bg-neutral-500", "bg-neutral-400", "bg-neutral-600", "bg-neutral-300"],
+};
+
+// classifyVendor maps a model id to its colour family, mirroring the backend's
+// vendor classification (src/repository/analytics/spend.go).
+function classifyVendor(model: string): Vendor {
+    const v = model.toLowerCase();
+    if (v.includes("claude") || v.includes("anthropic")) return "anthropic";
+    if (v.includes("gemini") || v.includes("google") || v.includes("vertex"))
+        return "google";
+    return "other";
+}
+
+// buildColorMap assigns every model a stable colour from its vendor's shade
+// family. Grouping + alphabetical ordering make the mapping deterministic, so
+// colours never shuffle as daily costs (and thus legend rank) change.
+function buildColorMap(modelIds: string[]): Map<string, string> {
+    const byVendor: Record<Vendor, string[]> = { anthropic: [], google: [], other: [] };
+    for (const id of modelIds) byVendor[classifyVendor(id)].push(id);
+    const out = new Map<string, string>();
+    (Object.keys(byVendor) as Vendor[]).forEach((vendor) => {
+        const shades = VENDOR_SHADES[vendor];
+        byVendor[vendor]
+            .slice()
+            .sort()
+            .forEach((id, i) => out.set(id, shades[i % shades.length]));
+    });
+    return out;
+}
 
 const CHART_H = 240; // px — plot height, excluding axes
 
@@ -155,6 +195,9 @@ function SummaryCell({
 export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
     const [data, setData] = useState<DailyCostResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // Model highlighted by hovering a bar segment, tooltip row, or legend entry;
+    // all of that model's segments stay lit while the rest dim.
+    const [hoveredModel, setHoveredModel] = useState<string | null>(null);
 
     useEffect(() => {
         let active = true;
@@ -180,7 +223,7 @@ export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
 
     const days = data?.days ?? [];
     const models = data?.models ?? [];
-    const colorOf = new Map(models.map((m, i) => [m.model, PALETTE[i % PALETTE.length]]));
+    const colorOf = buildColorMap(models.map((m) => m.model));
 
     const maxDayUSD = Math.max(0, ...days.map((d) => d.totalMicros / 1e6));
     const { max: axisMax, ticks } = niceScale(maxDayUSD);
@@ -201,18 +244,36 @@ export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
 
     return (
         <div className="overflow-hidden rounded-lg bg-primary">
-            {/* Header — matches the Tenants/Databases cards */}
-            <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
-                <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
-                    <HandCoinsIcon className="size-6" weight="bold" />
-                    Daily token cost
-                </h2>
-                {data?.available && (
-                    <span className="shrink-0 text-xs text-tertiary-foreground">
-                        Last {data.windowDays} days
-                    </span>
-                )}
-            </div>
+            {/* Header — compact uppercase style matching the sibling sections on
+                the tenant detail page; the full display title with icon on the
+                home dashboard (beside the Tenants/Databases cards). */}
+            {tenantId ? (
+                <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+                    <div className="flex items-center gap-1.5">
+                        <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+                            Daily token cost
+                        </h2>
+                        <InfoIcon text="This tenant's AI token cost per day, split by model, over the last 90 days. Anthropic models are shown in orange, Google in blue." />
+                    </div>
+                    {data?.available && (
+                        <span className="shrink-0 text-xs tabular-nums text-tertiary-foreground">
+                            Last {data.windowDays} days
+                        </span>
+                    )}
+                </div>
+            ) : (
+                <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
+                    <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
+                        <HandCoinsIcon className="size-6" weight="bold" />
+                        Daily token cost
+                    </h2>
+                    {data?.available && (
+                        <span className="shrink-0 text-xs text-tertiary-foreground">
+                            Last {data.windowDays} days
+                        </span>
+                    )}
+                </div>
+            )}
 
             <div className="p-6">
                 <p className="text-xs text-tertiary-foreground">
@@ -291,9 +352,14 @@ export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
                                                         {segs.map((s) => (
                                                             <div
                                                                 key={s.model}
+                                                                onMouseEnter={() => setHoveredModel(s.model)}
+                                                                onMouseLeave={() => setHoveredModel(null)}
                                                                 className={cn(
-                                                                    "w-full rounded-sm transition-opacity hover:opacity-80",
+                                                                    "w-full rounded-sm transition-opacity",
                                                                     colorOf.get(s.model),
+                                                                    hoveredModel && hoveredModel !== s.model
+                                                                        ? "opacity-20"
+                                                                        : "opacity-100",
                                                                 )}
                                                                 style={{
                                                                     height: `${Math.max(
@@ -314,7 +380,12 @@ export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
                                                         {segs.map((s) => (
                                                             <li
                                                                 key={s.model}
-                                                                className="flex items-center justify-between gap-4"
+                                                                onMouseEnter={() => setHoveredModel(s.model)}
+                                                                onMouseLeave={() => setHoveredModel(null)}
+                                                                className={cn(
+                                                                    "flex items-center justify-between gap-4 transition-opacity",
+                                                                    hoveredModel && hoveredModel !== s.model && "opacity-40",
+                                                                )}
                                                             >
                                                                 <span className="flex items-center gap-1.5">
                                                                     <span
@@ -361,7 +432,12 @@ export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
                                 {models.map((m) => (
                                     <span
                                         key={m.model}
-                                        className="flex items-center gap-1.5 text-xs text-secondary-foreground"
+                                        onMouseEnter={() => setHoveredModel(m.model)}
+                                        onMouseLeave={() => setHoveredModel(null)}
+                                        className={cn(
+                                            "flex cursor-default items-center gap-1.5 text-xs text-secondary-foreground transition-opacity",
+                                            hoveredModel && hoveredModel !== m.model && "opacity-40",
+                                        )}
                                     >
                                         <span
                                             className={cn(
@@ -387,21 +463,21 @@ export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
                         info={`Total AI token cost over the last ${data.windowDays} days.`}
                     />
                     <SummaryCell
-                        label={thisMonth ? `This month · ${monthName(thisMonth)}` : "This month"}
-                        value={fmtUSD(sumMonth(thisMonth))}
-                        info={
-                            thisMonth
-                                ? `Token cost so far this calendar month (from 1 ${monthName(thisMonth, true)}).`
-                                : "Token cost so far this calendar month."
-                        }
-                    />
-                    <SummaryCell
                         label={lastMonth ? `Last month · ${monthName(lastMonth)}` : "Last month"}
                         value={fmtUSD(sumMonth(lastMonth))}
                         info={
                             lastMonth
                                 ? `Token cost for the previous calendar month (${monthName(lastMonth, true)}).`
                                 : "Token cost for the previous calendar month."
+                        }
+                    />
+                    <SummaryCell
+                        label={thisMonth ? `This month · ${monthName(thisMonth)}` : "This month"}
+                        value={fmtUSD(sumMonth(thisMonth))}
+                        info={
+                            thisMonth
+                                ? `Token cost so far this calendar month (from 1 ${monthName(thisMonth, true)}).`
+                                : "Token cost so far this calendar month."
                         }
                     />
                 </div>
