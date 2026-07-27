@@ -148,13 +148,20 @@ function SummaryCell({
     );
 }
 
-export function DailyTokenCostChart() {
+// DailyTokenCostChart renders the daily token-cost dashboard. With no props it
+// covers all tenants (the home dashboard); pass tenantId to scope it to a single
+// tenant (the /tenants/[id] detail page) — the visuals are identical, only the
+// data source differs.
+export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
     const [data, setData] = useState<DailyCostResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         let active = true;
-        fetch(`/api/analytics/daily-cost?days=${WINDOW_DAYS}`)
+        const url = tenantId
+            ? `/api/tenants/${encodeURIComponent(tenantId)}/daily-cost?days=${WINDOW_DAYS}`
+            : `/api/analytics/daily-cost?days=${WINDOW_DAYS}`;
+        fetch(url)
             .then((r) => {
                 if (!r.ok) throw new Error(`request failed (${r.status})`);
                 return r.json();
@@ -169,7 +176,7 @@ export function DailyTokenCostChart() {
         return () => {
             active = false;
         };
-    }, []);
+    }, [tenantId]);
 
     const days = data?.days ?? [];
     const models = data?.models ?? [];

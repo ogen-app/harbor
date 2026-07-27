@@ -85,6 +85,12 @@ func (f *fakeSpendRepo) DailyCostByModel(context.Context, int) ([]analytics.Dail
 	}
 	return nil, nil // unused by Collect
 }
+func (f *fakeSpendRepo) DailyCostByModelForTenant(context.Context, string, int) ([]analytics.DailyModelCost, error) {
+	if !f.available {
+		return nil, analytics.ErrUnavailable
+	}
+	return nil, nil // unused by Collect
+}
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 

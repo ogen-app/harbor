@@ -37,3 +37,10 @@ func TestDailyCostByModelUnavailable(t *testing.T) {
 		t.Fatalf("err = %v, want ErrUnavailable", err)
 	}
 }
+
+func TestDailyCostByModelForTenantUnavailable(t *testing.T) {
+	r := NewSpendRepository(nil)
+	if _, err := r.DailyCostByModelForTenant(context.Background(), "t1", 30); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+}

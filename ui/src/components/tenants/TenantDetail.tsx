@@ -23,7 +23,8 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
+import { InfoIcon } from "@/components/dashboard/primitives";
+import { DailyTokenCostChart } from "@/components/dashboard/DailyTokenCostChart";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +34,6 @@ import {
 } from "@/components/ui/tooltip";
 import {
   type Tenant,
-  type VendorSpend,
   type ActivityEvent,
   type ActivityDay,
   type ActivityState,
@@ -42,9 +42,7 @@ import {
   type ZernioAccount,
   type ZernioState,
   formatDate,
-  formatUSD,
   formatBytes,
-  spendSegments,
   StatusLabel,
   DetailRow,
   RecentActivity,
@@ -54,7 +52,6 @@ interface DetailResponse {
   available: boolean;
   found?: boolean;
   tenant?: Tenant;
-  spendAvailable?: boolean;
   error?: string;
 }
 
@@ -122,58 +119,6 @@ function MetricCell({
       <p className="mt-2 font-display text-2xl font-semibold text-foreground">
         {value}
       </p>
-    </div>
-  );
-}
-
-// SpendCard is the screen-wide AI-spend card: the period total beside a
-// per-vendor concentration bar with amounts.
-function SpendCard({
-  spend,
-  available,
-}: {
-  spend: VendorSpend;
-  available: boolean;
-}) {
-  const hasOther = spend.otherMicros > 0;
-  return (
-    <div className="rounded-lg bg-primary p-6">
-      <CellLabel
-        label="AI spend (month)"
-        info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups. The bar splits spend by vendor — Anthropic, Google, and Other."
-      />
-      {!available ? (
-        <p className="mt-2 text-sm text-tertiary-foreground">
-          Analytics unavailable
-        </p>
-      ) : (
-        <div className="mt-3 flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-10">
-          <p className="font-display text-3xl font-semibold tabular-nums text-foreground">
-            {formatUSD(spend.totalMicros)}
-          </p>
-          {spend.totalMicros > 0 && (
-            <div className="min-w-0 flex-1">
-              <Bar segments={spendSegments(spend)} />
-              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-tertiary-foreground">
-                <Dot
-                  color="bg-orange-500"
-                  label={`Anthropic · ${formatUSD(spend.anthropicMicros)}`}
-                />
-                <Dot
-                  color="bg-blue-500"
-                  label={`Google · ${formatUSD(spend.googleMicros)}`}
-                />
-                {hasOther && (
-                  <Dot
-                    color="bg-neutral-400"
-                    label={`Other · ${formatUSD(spend.otherMicros)}`}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -709,7 +654,6 @@ export function TenantDetail() {
   }
 
   const t = data.tenant;
-  const spendAvailable = data.spendAvailable ?? false;
 
   return (
     <main className="flex-1 overflow-auto flex flex-col">
@@ -744,7 +688,7 @@ export function TenantDetail() {
 
         <ZernioSection state={zernio} total={t.zernioProfiles} />
 
-        <SpendCard spend={t.spend} available={spendAvailable} />
+        <DailyTokenCostChart tenantId={t.id} />
 
         <ActivityCard state={activity} />
       </div>

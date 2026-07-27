@@ -10,6 +10,7 @@ package analytics
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -60,6 +61,9 @@ type SpendRepository interface {
 	// windowDays UTC calendar days, ordered by day then model. Returns
 	// ErrUnavailable if the pool is nil.
 	DailyCostByModel(ctx context.Context, windowDays int) ([]DailyModelCost, error)
+	// DailyCostByModelForTenant is DailyCostByModel scoped to a single tenant,
+	// powering the per-tenant daily token-cost chart on the detail page.
+	DailyCostByModelForTenant(ctx context.Context, tenantID string, windowDays int) ([]DailyModelCost, error)
 }
 
 type spendRepository struct{ db *bun.DB }
@@ -100,6 +104,17 @@ func (r *spendRepository) ByTenant(ctx context.Context) (map[string]VendorSpend,
 }
 
 func (r *spendRepository) DailyCostByModel(ctx context.Context, windowDays int) ([]DailyModelCost, error) {
+	return r.dailyCostByModel(ctx, "", windowDays)
+}
+
+func (r *spendRepository) DailyCostByModelForTenant(ctx context.Context, tenantID string, windowDays int) ([]DailyModelCost, error) {
+	return r.dailyCostByModel(ctx, tenantID, windowDays)
+}
+
+// dailyCostByModel is the shared implementation behind DailyCostByModel and its
+// per-tenant variant: a blank tenantID sums across all tenants, otherwise the
+// window is filtered to that one tenant.
+func (r *spendRepository) dailyCostByModel(ctx context.Context, tenantID string, windowDays int) ([]DailyModelCost, error) {
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
@@ -112,17 +127,29 @@ func (r *spendRepository) DailyCostByModel(ctx context.Context, windowDays int) 
 	// casting the column to a date: usage_events is a TimescaleDB hypertable, and
 	// a cast on the partitioning column defeats chunk exclusion and the
 	// occurred_at index. >= is inclusive so rows exactly at midnight are kept.
-	var rows []DailyModelCost
-	err := r.db.NewRaw(`
+	//
+	// Placeholders bind positionally in source order: windowDays first (?::int),
+	// then the optional tenant_id. The tenantFilter fragment is a constant, so
+	// the Sprintf carries no user input into the SQL text.
+	args := []any{windowDays}
+	tenantFilter := ""
+	if tenantID != "" {
+		tenantFilter = "AND tenant_id = ?"
+		args = append(args, tenantID)
+	}
+	query := fmt.Sprintf(`
 		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
 		       COALESCE(NULLIF(model, ''), 'unknown') AS model,
 		       sum(cost_micros) AS cost_micros
 		FROM usage_events
 		WHERE occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
 		                      - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
+		       %s
 		GROUP BY date, model
-		ORDER BY date, model`, windowDays).Scan(ctx, &rows)
-	if err != nil {
+		ORDER BY date, model`, tenantFilter)
+
+	var rows []DailyModelCost
+	if err := r.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
 		logFail("spend.dailyCostByModel", err)
 		return nil, err
 	}
