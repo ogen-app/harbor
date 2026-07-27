@@ -419,12 +419,16 @@ function fmtDay(date: string): string {
   });
 }
 
-const ACTIVITY_CHART_H = 48; // px
+// px — matches CHART_H (the plot height) in DailyTokenCostChart so the two
+// charts on the detail page share the same height and x-axis treatment.
+const ACTIVITY_CHART_H = 240;
 
-// ActivityChart is a 60-day daily event-volume bar chart (mirrors the Tenants
+// ActivityChart is a 90-day daily event-volume bar chart (mirrors the Tenants
 // page registrations chart, in the activity accent colour).
 function ActivityChart({ series }: { series: ActivityDay[] }) {
   const max = Math.max(1, ...series.map((d) => d.count));
+  // Label roughly seven x-axis ticks, evenly spaced (mirrors DailyTokenCostChart).
+  const labelStride = Math.max(1, Math.ceil(series.length / 7));
   return (
     <div>
       <div className="flex items-end gap-[2px]" style={{ height: ACTIVITY_CHART_H }}>
@@ -456,15 +460,27 @@ function ActivityChart({ series }: { series: ActivityDay[] }) {
           ),
         )}
       </div>
-      <div className="mt-2 flex justify-between text-[11px] text-tertiary-foreground">
-        <span>{series.length ? fmtDay(series[0].date) : ""}</span>
-        <span>{series.length ? fmtDay(series[series.length - 1].date) : ""}</span>
+      {/* X-axis date labels, aligned under their bars (mirrors the daily
+          token-cost chart). */}
+      <div className="mt-2 flex gap-[2px]">
+        {series.map((d, i) => (
+          <span
+            key={d.date}
+            className="flex-1 text-center text-[11px] text-tertiary-foreground"
+          >
+            {i % labelStride === 0 ? (
+              <span className="inline-block whitespace-nowrap">
+                {fmtDay(d.date)}
+              </span>
+            ) : null}
+          </span>
+        ))}
       </div>
     </div>
   );
 }
 
-// ActivityCard is the screen-wide recent-activity card: a 60-day volume chart
+// ActivityCard is the screen-wide recent-activity card: a 90-day volume chart
 // above a scrollable event list that fades out at the bottom.
 function ActivityCard({ state }: { state: ActivityState }) {
   const series = state.series ?? [];
@@ -476,11 +492,11 @@ function ActivityCard({ state }: { state: ActivityState }) {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
             Recent activity
           </h2>
-          <InfoIcon text="Publishing and content events for this tenant from the Ogen post_logs audit trail. The chart shows daily event volume over the last 60 days; the list shows the most recent events." />
+          <InfoIcon text="Publishing and content events for this tenant from the Ogen post_logs audit trail. The chart shows daily event volume over the last 90 days; the list shows the most recent events." />
         </div>
         {!state.loading && !state.error && (
           <span className="text-xs tabular-nums text-tertiary-foreground">
-            {total} in 60 days
+            {total} in 90 days
           </span>
         )}
       </div>
@@ -499,10 +515,10 @@ function ActivityCard({ state }: { state: ActivityState }) {
           <div className="mt-4">
             <ActivityChart series={series} />
           </div>
-          {/* Scrollable event list, capped at 200px, fading out at the bottom
+          {/* Scrollable event list, capped at 500px, fading out at the bottom
               so the cut-off reads as "there's more, scroll". */}
           <div className="relative mt-5">
-            <div className="max-h-62.5 overflow-y-auto pr-1 pb-6">
+            <div className="max-h-125 overflow-y-auto pr-1 pb-6">
               <RecentActivity state={state} />
             </div>
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-primary to-transparent" />
@@ -515,6 +531,15 @@ function ActivityCard({ state }: { state: ActivityState }) {
 
 // ── main ────────────────────────────────────────────────────────────────────
 
+// Section tabs on the detail page. "General information" holds the profile,
+// users, Zernio accounts and token cost; "Recent activity" the activity card;
+// "Emails" is a placeholder for now.
+const DETAIL_TABS = ["General information", "Recent activity", "Emails"] as const;
+
+// Stable, consistently-derived ids linking each tab to its panel (ARIA).
+const tabId = (i: number) => `tenant-tab-${i}`;
+const tabPanelId = (i: number) => `tenant-tabpanel-${i}`;
+
 export function TenantDetail() {
   const [id, setId] = useState<string | null>(null);
   const [data, setData] = useState<DetailResponse | null>(null);
@@ -522,6 +547,7 @@ export function TenantDetail() {
   const [activity, setActivity] = useState<ActivityState>({ loading: true });
   const [users, setUsers] = useState<UsersState>({ loading: true });
   const [zernio, setZernio] = useState<ZernioState>({ loading: true });
+  const [tab, setTab] = useState(0);
 
   // Resolve the tenant id from the URL after mount (see tenantIdFromLocation).
   useEffect(() => {
@@ -624,6 +650,29 @@ export function TenantDetail() {
     return () => controller.abort();
   }, [id]);
 
+  // Number keys 1..N jump straight to a tab (page-level, no focus needed).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+          target.closest?.('[role="combobox"],[role="textbox"]'))
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= DETAIL_TABS.length) {
+        e.preventDefault();
+        setTab(n - 1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Resolving the id / first fetch in flight.
   if (!data && !error) {
     return (
@@ -682,15 +731,89 @@ export function TenantDetail() {
       </header>
 
       <div className="p-6 space-y-6">
-        <ProfileCard tenant={t} />
+        {/* Section tabs */}
+        <div
+          role="tablist"
+          className="flex gap-6 overflow-x-auto border-b border-border"
+        >
+          {DETAIL_TABS.map((label, i) => (
+            <button
+              key={label}
+              id={tabId(i)}
+              type="button"
+              role="tab"
+              aria-selected={i === tab}
+              aria-controls={tabPanelId(i)}
+              aria-keyshortcuts={String(i + 1)}
+              onClick={() => setTab(i)}
+              className={cn(
+                "relative -mb-px flex shrink-0 items-center gap-2 border-b-2 py-3 text-sm whitespace-nowrap transition-colors outline-none cursor-pointer",
+                i === tab
+                  ? "border-foreground font-semibold text-foreground"
+                  : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
+              )}
+            >
+              {label}
+              {/* Dim keyboard-shortcut hint (press 1 / 2 / 3). */}
+              <span
+                aria-hidden
+                className="inline-flex size-4 items-center justify-center rounded-[3px] border border-border text-[10px] font-normal text-tertiary-foreground"
+              >
+                {i + 1}
+              </span>
+            </button>
+          ))}
+        </div>
 
-        <UsersSection state={users} total={t.users} />
+        {tab === 0 && (
+          <div
+            role="tabpanel"
+            id={tabPanelId(0)}
+            aria-labelledby={tabId(0)}
+            tabIndex={0}
+            className="space-y-6"
+          >
+            <ProfileCard tenant={t} />
 
-        <ZernioSection state={zernio} total={t.zernioProfiles} />
+            {/* Users and Zernio side by side on large screens (equal height,
+                matched to the taller card via the grid's default stretch); a
+                single stacked column on small ones. */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <UsersSection state={users} total={t.users} />
+              <ZernioSection state={zernio} total={t.zernioProfiles} />
+            </div>
 
-        <DailyTokenCostChart tenantId={t.id} />
+            <DailyTokenCostChart tenantId={t.id} />
+          </div>
+        )}
 
-        <ActivityCard state={activity} />
+        {tab === 1 && (
+          <div
+            role="tabpanel"
+            id={tabPanelId(1)}
+            aria-labelledby={tabId(1)}
+            tabIndex={0}
+          >
+            <ActivityCard state={activity} />
+          </div>
+        )}
+
+        {tab === 2 && (
+          <div
+            role="tabpanel"
+            id={tabPanelId(2)}
+            aria-labelledby={tabId(2)}
+            tabIndex={0}
+            className="rounded-lg bg-primary p-6"
+          >
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+              Emails
+            </h2>
+            <p className="mt-3 text-sm text-tertiary-foreground">
+              No emails yet.
+            </p>
+          </div>
+        )}
       </div>
     </main>
   );
