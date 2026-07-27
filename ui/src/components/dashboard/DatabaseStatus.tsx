@@ -568,6 +568,31 @@ export function DatabaseStatus() {
         if (countdown === 0) void load();
     }, [countdown, load]);
 
+    // Number keys 1..N jump straight to a database tab (page-level, no focus
+    // needed). Capped at 9 — only single-digit keys can select a tab.
+    const tabCount = Math.min(data?.length ?? 0, 9);
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (
+                target &&
+                (target.isContentEditable ||
+                    /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+                    target.closest?.('[role="combobox"],[role="textbox"]'))
+            ) {
+                return;
+            }
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            const n = Number(e.key);
+            if (Number.isInteger(n) && n >= 1 && n <= tabCount) {
+                e.preventDefault();
+                setActive(n - 1);
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [tabCount]);
+
     if (!data) {
         return (
             <div className="rounded-lg bg-primary">
@@ -683,15 +708,25 @@ export function DatabaseStatus() {
                             type="button"
                             role="tab"
                             aria-selected={i === active}
+                            aria-keyshortcuts={i < 9 ? String(i + 1) : undefined}
                             onClick={() => setActive(i)}
                             className={cn(
-                                "relative -mb-px shrink-0 border-b-4 py-3 text-sm whitespace-nowrap transition-colors outline-none cursor-pointer",
+                                "relative -mb-px flex shrink-0 items-center gap-2 border-b-4 py-3 text-sm whitespace-nowrap transition-colors outline-none cursor-pointer",
                                 i === active
                                     ? "border-foreground font-semibold text-foreground"
                                     : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
                             )}
                         >
                             {d.label}
+                            {/* Dim keyboard-shortcut hint (press 1 / 2 / 3…). */}
+                            {i < 9 && (
+                                <span
+                                    aria-hidden
+                                    className="inline-flex size-4 items-center justify-center rounded-[3px] border border-border text-[10px] font-normal text-tertiary-foreground"
+                                >
+                                    {i + 1}
+                                </span>
+                            )}
                         </button>
                     ))}
                 </div>
