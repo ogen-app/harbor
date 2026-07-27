@@ -300,7 +300,7 @@ func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
 const recentActivityLimit = 15
 
 // activityWindowDays is the span of the detail page's activity chart.
-const activityWindowDays = 60
+const activityWindowDays = 90
 
 // activityDay is one day of the activity chart: an ISO date and event count.
 type activityDay struct {
@@ -311,7 +311,7 @@ type activityDay struct {
 // Activity godoc
 // @Summary      Tenant recent activity
 // @Description  A tenant's recent post_logs events (newest first) plus a dense
-// @Description  60-day daily event-count series for the detail page's activity
+// @Description  90-day daily event-count series for the detail page's activity
 // @Description  chart. Also loaded when a row is expanded in the Tenants table.
 // @Tags         tenants
 // @Produce      json
@@ -329,7 +329,7 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": err.Error()})
 	}
 
-	// 60-day daily event counts, zero-filled for the chart. Best-effort: a query
+	// 90-day daily event counts, zero-filled for the chart. Best-effort: a query
 	// failure yields a flat series while the event list still renders.
 	counts, _ := h.tenants.ActivitySeries(c.Context(), id, activityWindowDays)
 	byDay := make(map[string]int, len(counts))
