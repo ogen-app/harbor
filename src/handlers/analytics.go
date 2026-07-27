@@ -61,6 +61,17 @@ func (h *AnalyticsHandler) DailyCost(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"available": false, "error": "analytics database not configured"})
 	}
 
+	days := dailyCostWindow(c)
+	rows, err := h.spend.DailyCostByModel(c.Context(), days)
+	if err != nil {
+		return c.JSON(fiber.Map{"available": false, "error": err.Error()})
+	}
+	return c.JSON(buildDailyCost(rows, days))
+}
+
+// dailyCostWindow reads the ?days= window for the daily-cost charts, clamped to
+// [1, dailyCostMaxDays] with dailyCostDefaultDays as the fallback.
+func dailyCostWindow(c *fiber.Ctx) int {
 	days := c.QueryInt("days", dailyCostDefaultDays)
 	if days < 1 {
 		days = dailyCostDefaultDays
@@ -68,12 +79,13 @@ func (h *AnalyticsHandler) DailyCost(c *fiber.Ctx) error {
 	if days > dailyCostMaxDays {
 		days = dailyCostMaxDays
 	}
+	return days
+}
 
-	rows, err := h.spend.DailyCostByModel(c.Context(), days)
-	if err != nil {
-		return c.JSON(fiber.Map{"available": false, "error": err.Error()})
-	}
-
+// buildDailyCost turns raw (day, model) cost buckets into the daily token-cost
+// chart response: a dense zero-filled day series, per-model totals ordered for
+// the legend, and the grand total. Shared by the global and per-tenant charts.
+func buildDailyCost(rows []analytics.DailyModelCost, days int) fiber.Map {
 	// Index the raw (day, model) buckets and accumulate per-model + grand totals.
 	byDay := make(map[string]map[string]int64, len(rows))
 	modelTotals := make(map[string]int64)
@@ -118,11 +130,11 @@ func (h *AnalyticsHandler) DailyCost(c *fiber.Ctx) error {
 		return models[a].Model < models[b].Model
 	})
 
-	return c.JSON(fiber.Map{
+	return fiber.Map{
 		"available":   true,
 		"windowDays":  days,
 		"totalMicros": grand,
 		"models":      models,
 		"days":        series,
-	})
+	}
 }

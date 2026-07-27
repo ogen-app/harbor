@@ -35,6 +35,7 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants/overview", requireAuth, h.Overview)
 	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
 	app.Get("/api/tenants/:id/activity", requireAuth, h.Activity)
+	app.Get("/api/tenants/:id/daily-cost", requireAuth, h.DailyCost)
 	app.Get("/api/tenants/:id/users", requireAuth, h.Users)
 	app.Get("/api/tenants/:id/zernio", requireAuth, h.Zernio)
 	// Registered after the static /overview and /registrations paths so those
@@ -344,6 +345,29 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"activity": events, "series": series, "available": true})
+}
+
+// DailyCost godoc
+// @Summary      Tenant daily token cost by model
+// @Description  Per-day AI token cost for a single tenant over the last N days
+// @Description  (default 30, max 90), split by model — the per-tenant twin of
+// @Description  /api/analytics/daily-cost. Powers the detail page's token-cost chart.
+// @Tags         tenants
+// @Produce      json
+// @Param        id    path      string  true   "Tenant ID"
+// @Param        days  query     int     false  "Window size in days (1-90)"
+// @Success      200   {object}  map[string]any
+// @Router       /api/tenants/{id}/daily-cost [get]
+func (h *TenantsHandler) DailyCost(c *fiber.Ctx) error {
+	if !h.spend.Available() {
+		return c.JSON(fiber.Map{"available": false, "error": "analytics database not configured"})
+	}
+	days := dailyCostWindow(c)
+	rows, err := h.spend.DailyCostByModelForTenant(c.Context(), c.Params("id"), days)
+	if err != nil {
+		return c.JSON(fiber.Map{"available": false, "error": err.Error()})
+	}
+	return c.JSON(buildDailyCost(rows, days))
 }
 
 // tenantUsersLimit caps a tenant's user list (an admin tenant has a bounded
