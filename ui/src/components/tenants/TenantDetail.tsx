@@ -419,12 +419,16 @@ function fmtDay(date: string): string {
   });
 }
 
-const ACTIVITY_CHART_H = 48; // px
+// px — matches CHART_H (the plot height) in DailyTokenCostChart so the two
+// charts on the detail page share the same height and x-axis treatment.
+const ACTIVITY_CHART_H = 240;
 
 // ActivityChart is a 90-day daily event-volume bar chart (mirrors the Tenants
 // page registrations chart, in the activity accent colour).
 function ActivityChart({ series }: { series: ActivityDay[] }) {
   const max = Math.max(1, ...series.map((d) => d.count));
+  // Label roughly seven x-axis ticks, evenly spaced (mirrors DailyTokenCostChart).
+  const labelStride = Math.max(1, Math.ceil(series.length / 7));
   return (
     <div>
       <div className="flex items-end gap-[2px]" style={{ height: ACTIVITY_CHART_H }}>
@@ -456,9 +460,21 @@ function ActivityChart({ series }: { series: ActivityDay[] }) {
           ),
         )}
       </div>
-      <div className="mt-2 flex justify-between text-[11px] text-tertiary-foreground">
-        <span>{series.length ? fmtDay(series[0].date) : ""}</span>
-        <span>{series.length ? fmtDay(series[series.length - 1].date) : ""}</span>
+      {/* X-axis date labels, aligned under their bars (mirrors the daily
+          token-cost chart). */}
+      <div className="mt-2 flex gap-[2px]">
+        {series.map((d, i) => (
+          <span
+            key={d.date}
+            className="flex-1 text-center text-[11px] text-tertiary-foreground"
+          >
+            {i % labelStride === 0 ? (
+              <span className="inline-block whitespace-nowrap">
+                {fmtDay(d.date)}
+              </span>
+            ) : null}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -499,10 +515,10 @@ function ActivityCard({ state }: { state: ActivityState }) {
           <div className="mt-4">
             <ActivityChart series={series} />
           </div>
-          {/* Scrollable event list, capped at 200px, fading out at the bottom
+          {/* Scrollable event list, capped at 500px, fading out at the bottom
               so the cut-off reads as "there's more, scroll". */}
           <div className="relative mt-5">
-            <div className="max-h-62.5 overflow-y-auto pr-1 pb-6">
+            <div className="max-h-125 overflow-y-auto pr-1 pb-6">
               <RecentActivity state={state} />
             </div>
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-primary to-transparent" />
