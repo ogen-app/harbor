@@ -32,9 +32,9 @@ interface DailyCostResponse {
 const WINDOW_DAYS = 90;
 
 // Colour families by vendor: Anthropic in oranges, Google in blues, everything
-// else in neutral greys. A model's shade is fixed by its position within its
-// family (models sorted alphabetically by id), so a given model always keeps the
-// same colour regardless of its cost rank or which other models are present.
+// else in neutral greys. A model's shade is fixed by a hash of its id within its
+// family, so a given model always keeps the same colour regardless of its cost
+// rank or which other models are present.
 type Vendor = "anthropic" | "google" | "other";
 
 const VENDOR_SHADES: Record<Vendor, readonly string[]> = {
@@ -67,20 +67,26 @@ function classifyVendor(model: string): Vendor {
     return "other";
 }
 
+// hashString folds a model id into a non-negative 32-bit int (djb2), so a shade
+// can be picked from the id alone — no dependency on the surrounding model set.
+function hashString(s: string): number {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+        h = (Math.imul(h, 33) + s.charCodeAt(i)) | 0;
+    }
+    return h >>> 0;
+}
+
 // buildColorMap assigns every model a stable colour from its vendor's shade
-// family. Grouping + alphabetical ordering make the mapping deterministic, so
-// colours never shuffle as daily costs (and thus legend rank) change.
+// family. The shade is chosen by hashing the model id into that family's list,
+// so a model's colour depends only on its own id: adding or removing other
+// models never reshuffles existing assignments, nor does a change in cost rank.
 function buildColorMap(modelIds: string[]): Map<string, string> {
-    const byVendor: Record<Vendor, string[]> = { anthropic: [], google: [], other: [] };
-    for (const id of modelIds) byVendor[classifyVendor(id)].push(id);
     const out = new Map<string, string>();
-    (Object.keys(byVendor) as Vendor[]).forEach((vendor) => {
-        const shades = VENDOR_SHADES[vendor];
-        byVendor[vendor]
-            .slice()
-            .sort()
-            .forEach((id, i) => out.set(id, shades[i % shades.length]));
-    });
+    for (const id of modelIds) {
+        const shades = VENDOR_SHADES[classifyVendor(id)];
+        out.set(id, shades[hashString(id) % shades.length]);
+    }
     return out;
 }
 
