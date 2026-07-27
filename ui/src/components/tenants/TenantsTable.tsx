@@ -12,7 +12,9 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useRowKeyboardNav } from "@/lib/useRowKeyboardNav";
 import { Bar, Dot, InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
@@ -426,6 +428,17 @@ export function TenantsTable() {
 
   const spendAvailable = data?.spendAvailable ?? false;
 
+  // Keyboard row navigation (page-level, no click needed): j/k or ↓/↑ move the
+  // highlighted row, o opens it. A row's "main link" is its tenant detail page.
+  const router = useRouter();
+  const { activeIndex, setActiveIndex, containerRef } = useRowKeyboardNav({
+    count: rows.length,
+    onOpen: (i) => {
+      const t = rows[i];
+      if (t) router.push(`/tenants/${encodeURIComponent(t.id)}`);
+    },
+  });
+
   const toggle = (t: Tenant) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -521,7 +534,7 @@ export function TenantsTable() {
             No tenants match the current filters.
           </p>
         ) : (
-          <div className="divide-y divide-border">
+          <div ref={containerRef} className="divide-y divide-border">
             {/* header */}
             <div className={`${GRID} px-6 py-2.5`}>
               <span />
@@ -578,14 +591,19 @@ export function TenantsTable() {
             </div>
 
             {/* rows */}
-            {rows.map((t) => {
+            {rows.map((t, i) => {
               const open = expanded.has(t.id);
+              const isActive = i === activeIndex;
               return (
                 <div key={t.id}>
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => toggle(t)}
+                    data-row-index={i}
+                    onClick={() => {
+                      setActiveIndex(i);
+                      toggle(t);
+                    }}
                     onKeyDown={(e) => {
                       if (
                         e.target === e.currentTarget &&
@@ -599,6 +617,8 @@ export function TenantsTable() {
                     className={cn(
                       `${GRID} w-full cursor-pointer px-6 py-3.5 text-left text-sm transition-colors hover:bg-secondary/40 focus-visible:bg-secondary/40 focus-visible:outline-none`,
                       open && "bg-secondary/40",
+                      isActive &&
+                        "bg-secondary shadow-[inset_2px_0_0_0_var(--foreground)]",
                     )}
                   >
                     <CaretRightIcon
