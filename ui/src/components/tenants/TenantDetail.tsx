@@ -536,6 +536,10 @@ function ActivityCard({ state }: { state: ActivityState }) {
 // "Emails" is a placeholder for now.
 const DETAIL_TABS = ["General information", "Recent activity", "Emails"] as const;
 
+// Stable, consistently-derived ids linking each tab to its panel (ARIA).
+const tabId = (i: number) => `tenant-tab-${i}`;
+const tabPanelId = (i: number) => `tenant-tabpanel-${i}`;
+
 export function TenantDetail() {
   const [id, setId] = useState<string | null>(null);
   const [data, setData] = useState<DetailResponse | null>(null);
@@ -735,9 +739,11 @@ export function TenantDetail() {
           {DETAIL_TABS.map((label, i) => (
             <button
               key={label}
+              id={tabId(i)}
               type="button"
               role="tab"
               aria-selected={i === tab}
+              aria-controls={tabPanelId(i)}
               aria-keyshortcuts={String(i + 1)}
               onClick={() => setTab(i)}
               className={cn(
@@ -760,7 +766,13 @@ export function TenantDetail() {
         </div>
 
         {tab === 0 && (
-          <div role="tabpanel" className="space-y-6">
+          <div
+            role="tabpanel"
+            id={tabPanelId(0)}
+            aria-labelledby={tabId(0)}
+            tabIndex={0}
+            className="space-y-6"
+          >
             <ProfileCard tenant={t} />
 
             {/* Users and Zernio side by side on large screens (equal height,
@@ -776,13 +788,24 @@ export function TenantDetail() {
         )}
 
         {tab === 1 && (
-          <div role="tabpanel">
+          <div
+            role="tabpanel"
+            id={tabPanelId(1)}
+            aria-labelledby={tabId(1)}
+            tabIndex={0}
+          >
             <ActivityCard state={activity} />
           </div>
         )}
 
         {tab === 2 && (
-          <div role="tabpanel" className="rounded-lg bg-primary p-6">
+          <div
+            role="tabpanel"
+            id={tabPanelId(2)}
+            aria-labelledby={tabId(2)}
+            tabIndex={0}
+            className="rounded-lg bg-primary p-6"
+          >
             <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
               Emails
             </h2>
