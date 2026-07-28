@@ -30,13 +30,7 @@ func (f *fakeTenantRepo) GetMetrics(context.Context, string) (*ogen.TenantMetric
 func (f *fakeTenantRepo) Registrations(context.Context, int) ([]ogen.Registration, error) {
 	return nil, nil
 }
-func (f *fakeTenantRepo) Activity(context.Context, string, int) ([]ogen.ActivityEvent, error) {
-	return nil, nil
-}
 func (f *fakeTenantRepo) Users(context.Context, string, int) ([]ogen.User, error) {
-	return nil, nil
-}
-func (f *fakeTenantRepo) ActivitySeries(context.Context, string, int) ([]ogen.ActivityDay, error) {
 	return nil, nil
 }
 func (f *fakeTenantRepo) ZernioAccounts(context.Context, string) ([]ogen.ZernioAccount, error) {

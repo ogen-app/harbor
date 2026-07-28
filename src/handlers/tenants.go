@@ -22,12 +22,13 @@ import (
 // or unreachable); that is reported as a soft state rather than an error, so the
 // dashboard can still render.
 type TenantsHandler struct {
-	tenants ogen.TenantRepository
-	spend   analytics.SpendRepository
+	tenants  ogen.TenantRepository
+	spend    analytics.SpendRepository
+	activity analytics.ActivityRepository
 }
 
-func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository) *TenantsHandler {
-	return &TenantsHandler{tenants: tenants, spend: spend}
+func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository, activity analytics.ActivityRepository) *TenantsHandler {
+	return &TenantsHandler{tenants: tenants, spend: spend, activity: activity}
 }
 
 func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
@@ -310,28 +311,30 @@ type activityDay struct {
 
 // Activity godoc
 // @Summary      Tenant recent activity
-// @Description  A tenant's recent post_logs events (newest first) plus a dense
+// @Description  A tenant's recent activity_events (newest first) plus a dense
 // @Description  90-day daily event-count series for the detail page's activity
-// @Description  chart. Also loaded when a row is expanded in the Tenants table.
+// @Description  chart. Sourced from the centralised activity_events hypertable in
+// @Description  the analytics DB (Ogen CON-125). Also loaded when a row is
+// @Description  expanded in the Tenants table.
 // @Tags         tenants
 // @Produce      json
 // @Param        id   path      string  true  "Tenant ID"
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/{id}/activity [get]
 func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
-	if !h.tenants.Available() {
-		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": "ogen database not configured"})
+	if !h.activity.Available() {
+		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": "analytics database not configured"})
 	}
 	id := c.Params("id")
 
-	events, err := h.tenants.Activity(c.Context(), id, recentActivityLimit)
+	events, err := h.activity.RecentActivity(c.Context(), id, recentActivityLimit)
 	if err != nil {
-		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": err.Error()})
+		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": err.Error()})
 	}
 
 	// 90-day daily event counts, zero-filled for the chart. Best-effort: a query
 	// failure yields a flat series while the event list still renders.
-	counts, _ := h.tenants.ActivitySeries(c.Context(), id, activityWindowDays)
+	counts, _ := h.activity.ActivitySeries(c.Context(), id, activityWindowDays)
 	byDay := make(map[string]int, len(counts))
 	for _, d := range counts {
 		byDay[d.Date] = d.Count

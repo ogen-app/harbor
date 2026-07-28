@@ -60,6 +60,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, cfg *config.Config,
 	// the repositories report that as an unavailable state).
 	tenantRepo := ogen.NewTenantRepository(ogenDB)
 	spendRepo := analytics.NewSpendRepository(analyticsDB)
+	activityRepo := analytics.NewActivityRepository(analyticsDB)
 
 	requireAuth := handlers.RequireAuth(sessionRepo, cfg.SessionCookieName)
 
@@ -78,7 +79,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, cfg *config.Config,
 		cfg.GoogleClientID, cfg.SessionCookieName,
 	).Register(app, requireAuth)
 	handlers.NewStatusHandler(ogenDB, analyticsDB).Register(app, requireAuth)
-	handlers.NewTenantsHandler(tenantRepo, spendRepo).Register(app, requireAuth)
+	handlers.NewTenantsHandler(tenantRepo, spendRepo, activityRepo).Register(app, requireAuth)
 	handlers.NewAnalyticsHandler(spendRepo).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────

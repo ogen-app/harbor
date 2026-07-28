@@ -42,15 +42,6 @@ type Registration struct {
 	Name string `bun:"name"`
 }
 
-// ActivityEvent is one entry in a tenant's recent-activity feed, sourced from
-// the Ogen post_logs audit trail. Its JSON shape is served directly.
-type ActivityEvent struct {
-	At      time.Time `bun:"event_timestamp" json:"at"`
-	Type    string    `bun:"event_type"      json:"type"`
-	Status  string    `bun:"to_status"       json:"status"`
-	Summary string    `bun:"summary"         json:"summary"`
-}
-
 // User is one member of a tenant, from the Ogen users table. Its JSON shape is
 // served directly to the tenant detail page.
 type User struct {
@@ -58,13 +49,6 @@ type User struct {
 	Name      string    `bun:"name"       json:"name"`
 	Email     string    `bun:"email"      json:"email"`
 	CreatedAt time.Time `bun:"created_at" json:"createdAt"`
-}
-
-// ActivityDay is a single UTC day's activity-event count for a tenant, used to
-// build the detail page's 60-day activity chart.
-type ActivityDay struct {
-	Date  string `bun:"date"`
-	Count int    `bun:"count"`
 }
 
 // ZernioAccount is one connected social profile plus its post throughput,
@@ -100,13 +84,8 @@ type TenantRepository interface {
 	GetMetrics(ctx context.Context, id string) (*TenantMetrics, error)
 	// Registrations returns tenant creations within the last windowDays days.
 	Registrations(ctx context.Context, windowDays int) ([]Registration, error)
-	// Activity returns a tenant's most recent post_logs events (newest first).
-	Activity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error)
 	// Users returns a tenant's members (newest first), capped at limit.
 	Users(ctx context.Context, tenantID string, limit int) ([]User, error)
-	// ActivitySeries returns per-day activity-event counts within the last
-	// windowDays days (sparse — only days with events).
-	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error)
 	// ZernioAccounts returns a tenant's connected social profiles with per-account
 	// post throughput (scheduled / published / failed / total), newest first.
 	ZernioAccounts(ctx context.Context, tenantID string) ([]ZernioAccount, error)
@@ -179,27 +158,6 @@ func (r *tenantRepository) Registrations(ctx context.Context, windowDays int) ([
 	return rows, nil
 }
 
-func (r *tenantRepository) Activity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error) {
-	if r.db == nil {
-		return nil, ErrUnavailable
-	}
-	var events []ActivityEvent
-	err := r.db.NewRaw(`
-		SELECT
-			event_timestamp,
-			event_type,
-			COALESCE(to_status, '') AS to_status,
-			COALESCE(summary, '')   AS summary
-		FROM post_logs
-		WHERE tenant_id = ?
-		ORDER BY event_timestamp DESC
-		LIMIT ?`, tenantID, limit).Scan(ctx, &events)
-	if err != nil {
-		return nil, err
-	}
-	return events, nil
-}
-
 func (r *tenantRepository) Users(ctx context.Context, tenantID string, limit int) ([]User, error) {
 	if r.db == nil {
 		return nil, ErrUnavailable
@@ -215,24 +173,6 @@ func (r *tenantRepository) Users(ctx context.Context, tenantID string, limit int
 		return nil, err
 	}
 	return users, nil
-}
-
-func (r *tenantRepository) ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error) {
-	if r.db == nil {
-		return nil, ErrUnavailable
-	}
-	var days []ActivityDay
-	err := r.db.NewRaw(`
-		SELECT to_char((event_timestamp AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date, count(*) AS count
-		FROM post_logs
-		WHERE tenant_id = ?
-		  AND (event_timestamp AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?
-		GROUP BY date
-		ORDER BY date`, tenantID, windowDays-1).Scan(ctx, &days)
-	if err != nil {
-		return nil, err
-	}
-	return days, nil
 }
 
 // postLinkColumns are the candidate posts→social_accounts foreign-key columns,
