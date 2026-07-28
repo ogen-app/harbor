@@ -2,6 +2,9 @@ package analytics
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -12,6 +15,7 @@ import (
 // which superseded the control-plane post_logs audit trail). Its JSON shape is
 // served directly to the tenant detail page and the Tenants-table expanded row.
 type ActivityEvent struct {
+	ID       string    `bun:"id"          json:"id"`
 	At       time.Time `bun:"occurred_at" json:"at"`
 	Category string    `bun:"category"    json:"category"`
 	Type     string    `bun:"type"        json:"type"`
@@ -19,11 +23,29 @@ type ActivityEvent struct {
 	Source   string    `bun:"source"      json:"source"`
 }
 
-// ActivityDay is a single UTC day's activity-event count for a tenant, used to
-// build the detail page's activity chart.
-type ActivityDay struct {
-	Date  string `bun:"date"`
-	Count int    `bun:"count"`
+// ActivityEventDetail is the full activity_events row for the per-event details
+// popover — every column except tenant_id. Tags and Payload pass through as raw
+// JSON (a JSON array and object respectively).
+type ActivityEventDetail struct {
+	ID         string          `bun:"id"          json:"id"`
+	UserID     string          `bun:"user_id"     json:"userId"`
+	Category   string          `bun:"category"    json:"category"`
+	Type       string          `bun:"type"        json:"type"`
+	EntityType string          `bun:"entity_type" json:"entityType"`
+	EntityID   string          `bun:"entity_id"   json:"entityId"`
+	Status     string          `bun:"status"      json:"status"`
+	Source     string          `bun:"source"      json:"source"`
+	Tags       json.RawMessage `bun:"tags"        json:"tags"`
+	Payload    json.RawMessage `bun:"payload"     json:"payload"`
+	At         time.Time       `bun:"occurred_at" json:"at"`
+}
+
+// ActivityCategoryCount is one (UTC calendar day, category) event-count bucket,
+// used to build the detail page's category-stacked activity chart.
+type ActivityCategoryCount struct {
+	Date     string `bun:"date"`
+	Category string `bun:"category"`
+	Count    int    `bun:"count"`
 }
 
 // ActivityRepository reads a tenant's behavioural activity from the analytics
@@ -35,10 +57,13 @@ type ActivityRepository interface {
 	// RecentActivity returns a tenant's most recent activity events (newest
 	// first), capped at limit. Returns ErrUnavailable if the pool is nil.
 	RecentActivity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error)
-	// ActivitySeries returns per-day activity-event counts over the last
-	// windowDays UTC calendar days (sparse — only days with events). Returns
-	// ErrUnavailable if the pool is nil.
-	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error)
+	// ActivityByID returns the full detail for one event scoped to the tenant,
+	// or sql.ErrNoRows if unknown. Returns ErrUnavailable if the pool is nil.
+	ActivityByID(ctx context.Context, tenantID, eventID string) (*ActivityEventDetail, error)
+	// ActivitySeries returns per-day, per-category event counts over the last
+	// windowDays UTC calendar days (sparse — only (day, category) pairs with
+	// events). Returns ErrUnavailable if the pool is nil.
+	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityCategoryCount, error)
 }
 
 type activityRepository struct{ db *bun.DB }
@@ -56,6 +81,7 @@ func (r *activityRepository) RecentActivity(ctx context.Context, tenantID string
 	var events []ActivityEvent
 	err := r.db.NewRaw(`
 		SELECT
+			id,
 			occurred_at,
 			category,
 			type,
@@ -72,27 +98,60 @@ func (r *activityRepository) RecentActivity(ctx context.Context, tenantID string
 	return events, nil
 }
 
-func (r *activityRepository) ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityDay, error) {
+func (r *activityRepository) ActivityByID(ctx context.Context, tenantID, eventID string) (*ActivityEventDetail, error) {
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
-	// Bucket by UTC calendar day. The WHERE compares the bare occurred_at against
-	// a UTC-midnight lower bound rather than casting the partitioning column, so
-	// chunk exclusion on the TimescaleDB hypertable is preserved (mirrors
-	// DailyCostByModel).
-	var days []ActivityDay
+	// tags (text[]) and payload (jsonb) are returned as JSON so they pass through
+	// to the API as a real array/object; NULLs are coalesced to [] and {}.
+	d := new(ActivityEventDetail)
+	err := r.db.NewRaw(`
+		SELECT
+			id,
+			COALESCE(user_id, '')     AS user_id,
+			category,
+			type,
+			COALESCE(entity_type, '') AS entity_type,
+			COALESCE(entity_id, '')   AS entity_id,
+			COALESCE(status, '')      AS status,
+			COALESCE(source, '')      AS source,
+			to_jsonb(COALESCE(tags, ARRAY[]::text[])) AS tags,
+			COALESCE(payload, '{}'::jsonb)            AS payload,
+			occurred_at
+		FROM activity_events
+		WHERE tenant_id = ? AND id = ?
+		LIMIT 1`, tenantID, eventID).Scan(ctx, d)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			logFail("activity.byID", err)
+		}
+		return nil, err
+	}
+	return d, nil
+}
+
+func (r *activityRepository) ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityCategoryCount, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	// Bucket by UTC calendar day and category. The WHERE compares the bare
+	// occurred_at against a UTC-midnight lower bound rather than casting the
+	// partitioning column, so chunk exclusion on the TimescaleDB hypertable is
+	// preserved (mirrors DailyCostByModel).
+	var rows []ActivityCategoryCount
 	err := r.db.NewRaw(`
 		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
+		       category,
 		       count(*) AS count
 		FROM activity_events
 		WHERE tenant_id = ?
 		  AND occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
 		                      - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
-		GROUP BY date
-		ORDER BY date`, tenantID, windowDays).Scan(ctx, &days)
+		GROUP BY date, category
+		ORDER BY date, category`, tenantID, windowDays).Scan(ctx, &rows)
 	if err != nil {
 		logFail("activity.series", err)
 		return nil, err
 	}
-	return days, nil
+	return rows, nil
 }

@@ -26,6 +26,7 @@ export interface Tenant {
 }
 
 export interface ActivityEvent {
+  id: string;
   at: string;
   category: string;
   type: string;
@@ -35,7 +36,8 @@ export interface ActivityEvent {
 
 export interface ActivityDay {
   date: string;
-  count: number;
+  total: number;
+  counts: Record<string, number>;
 }
 
 export interface ActivityState {
@@ -43,6 +45,7 @@ export interface ActivityState {
   error?: string;
   events?: ActivityEvent[];
   series?: ActivityDay[];
+  categories?: string[];
 }
 
 export interface TenantUser {
