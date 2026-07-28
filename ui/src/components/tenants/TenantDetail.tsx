@@ -722,7 +722,7 @@ interface ActivityEventDetail {
 // ScalarValue is a single boxed value cell in the details popover.
 function ScalarValue({ children }: { children: ReactNode }) {
   return (
-    <span className="block break-words rounded-md border border-border bg-secondary/40 px-2 py-1 font-mono text-xs text-foreground">
+    <span className="block break-words rounded-md bg-secondary/40 px-2 py-1 font-mono text-xs text-foreground">
       {children}
     </span>
   );
@@ -763,7 +763,7 @@ function detailRows(d: ActivityEventDetail): { label: string; node: ReactNode }[
     {
       label: "Payload",
       node: (
-        <pre className="max-h-48 overflow-auto rounded-md border border-border bg-secondary/40 p-2 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap text-foreground">
+        <pre className="max-h-48 overflow-auto rounded-md bg-secondary/40 p-2 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap text-foreground">
           {JSON.stringify(d.payload ?? {}, null, 2)}
         </pre>
       ),

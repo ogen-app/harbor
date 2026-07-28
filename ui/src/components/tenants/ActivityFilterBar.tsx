@@ -249,7 +249,7 @@ export function ActivityFilterBar({
         <div
           id="activity-filter-listbox"
           role="listbox"
-          className="absolute left-0 top-[calc(100%+6px)] z-20 max-h-64 min-w-[240px] overflow-y-auto rounded-lg border border-border bg-primary p-1 shadow-lg"
+          className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-64 min-w-[240px] overflow-y-auto rounded-lg border border-border bg-primary p-1 shadow-lg"
         >
           <div className="px-2.5 pb-1.5 pt-1 text-[11px] uppercase tracking-wide text-tertiary-foreground">
             {stage === "field" && "Choose a field"}
