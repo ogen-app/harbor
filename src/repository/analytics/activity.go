@@ -102,8 +102,8 @@ func (r *activityRepository) ActivityByID(ctx context.Context, tenantID, eventID
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
-	// tags (text[]) and payload (jsonb) are returned as JSON so they pass through
-	// to the API as a real array/object; NULLs are coalesced to [] and {}.
+	// tags and payload are jsonb in the live schema; returned as-is so they pass
+	// through to the API as a real array/object, with NULLs coalesced to [] / {}.
 	d := new(ActivityEventDetail)
 	err := r.db.NewRaw(`
 		SELECT
@@ -115,8 +115,8 @@ func (r *activityRepository) ActivityByID(ctx context.Context, tenantID, eventID
 			COALESCE(entity_id, '')   AS entity_id,
 			COALESCE(status, '')      AS status,
 			COALESCE(source, '')      AS source,
-			to_jsonb(COALESCE(tags, ARRAY[]::text[])) AS tags,
-			COALESCE(payload, '{}'::jsonb)            AS payload,
+			COALESCE(tags, '[]'::jsonb)    AS tags,
+			COALESCE(payload, '{}'::jsonb) AS payload,
 			occurred_at
 		FROM activity_events
 		WHERE tenant_id = ? AND id = ?
