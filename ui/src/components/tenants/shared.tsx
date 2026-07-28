@@ -26,15 +26,18 @@ export interface Tenant {
 }
 
 export interface ActivityEvent {
+  id: string;
   at: string;
+  category: string;
   type: string;
   status: string;
-  summary: string;
+  source: string;
 }
 
 export interface ActivityDay {
   date: string;
-  count: number;
+  total: number;
+  counts: Record<string, number>;
 }
 
 export interface ActivityState {
@@ -42,6 +45,7 @@ export interface ActivityState {
   error?: string;
   events?: ActivityEvent[];
   series?: ActivityDay[];
+  categories?: string[];
 }
 
 export interface TenantUser {
@@ -163,8 +167,9 @@ export function DetailRow({
   );
 }
 
-// RecentActivity renders a tenant's recent post_logs feed (the /activity
-// endpoint), with soft loading / error / empty states.
+// RecentActivity renders a tenant's recent activity feed (the /activity
+// endpoint, sourced from activity_events), with soft loading / error / empty
+// states. Used by the Tenants-table expanded row.
 export function RecentActivity({ state }: { state: ActivityState | undefined }) {
   if (!state || state.loading) {
     return (
@@ -193,10 +198,15 @@ export function RecentActivity({ state }: { state: ActivityState | undefined }) 
             <p className="tabular-nums text-tertiary-foreground">
               {formatDateTime(e.at)}
             </p>
-            <p className="text-foreground">{e.summary || e.type}</p>
+            <p className="text-foreground">
+              {e.type}
+              {e.category && (
+                <span className="text-tertiary-foreground"> · {e.category}</span>
+              )}
+            </p>
             {e.status && (
               <p className="text-tertiary-foreground">
-                {e.type} → <span className="font-mono">{e.status}</span>
+                status: <span className="font-mono">{e.status}</span>
               </p>
             )}
           </div>

@@ -22,12 +22,13 @@ import (
 // or unreachable); that is reported as a soft state rather than an error, so the
 // dashboard can still render.
 type TenantsHandler struct {
-	tenants ogen.TenantRepository
-	spend   analytics.SpendRepository
+	tenants  ogen.TenantRepository
+	spend    analytics.SpendRepository
+	activity analytics.ActivityRepository
 }
 
-func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository) *TenantsHandler {
-	return &TenantsHandler{tenants: tenants, spend: spend}
+func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository, activity analytics.ActivityRepository) *TenantsHandler {
+	return &TenantsHandler{tenants: tenants, spend: spend, activity: activity}
 }
 
 func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
@@ -35,6 +36,7 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants/overview", requireAuth, h.Overview)
 	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
 	app.Get("/api/tenants/:id/activity", requireAuth, h.Activity)
+	app.Get("/api/tenants/:id/activity/:eventId", requireAuth, h.ActivityEvent)
 	app.Get("/api/tenants/:id/daily-cost", requireAuth, h.DailyCost)
 	app.Get("/api/tenants/:id/users", requireAuth, h.Users)
 	app.Get("/api/tenants/:id/zernio", requireAuth, h.Zernio)
@@ -295,56 +297,126 @@ func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"days": days, "available": true})
 }
 
-// recentActivityLimit caps a tenant's activity feed (the scrollable list on the
-// detail page and the expanded row in the Tenants table).
-const recentActivityLimit = 15
+// recentActivityLimit is the default cap on a tenant's activity feed (the
+// Tenants-table expanded row uses it; the detail page requests more via ?limit).
+// activityMaxLimit bounds the ?limit override so the query stays cheap.
+const (
+	recentActivityLimit = 15
+	activityMaxLimit    = 500
+)
 
 // activityWindowDays is the span of the detail page's activity chart.
 const activityWindowDays = 90
 
-// activityDay is one day of the activity chart: an ISO date and event count.
+// activityDay is one day of the activity chart: an ISO date, the day total, and
+// the per-category split (only categories with events that day are present).
 type activityDay struct {
-	Date  string `json:"date"`
-	Count int    `json:"count"`
+	Date   string         `json:"date"`
+	Total  int            `json:"total"`
+	Counts map[string]int `json:"counts"`
 }
 
 // Activity godoc
 // @Summary      Tenant recent activity
-// @Description  A tenant's recent post_logs events (newest first) plus a dense
+// @Description  A tenant's recent activity_events (newest first) plus a dense
 // @Description  90-day daily event-count series for the detail page's activity
-// @Description  chart. Also loaded when a row is expanded in the Tenants table.
+// @Description  chart. Sourced from the centralised activity_events hypertable in
+// @Description  the analytics DB (Ogen CON-125). Also loaded when a row is
+// @Description  expanded in the Tenants table.
 // @Tags         tenants
 // @Produce      json
-// @Param        id   path      string  true  "Tenant ID"
+// @Param        id     path   string  true   "Tenant ID"
+// @Param        limit  query  int     false  "Max events (1-500, default 15)"
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/{id}/activity [get]
 func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
-	if !h.tenants.Available() {
-		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": "ogen database not configured"})
+	if !h.activity.Available() {
+		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "categories": []string{}, "available": false, "error": "analytics database not configured"})
 	}
 	id := c.Params("id")
 
-	events, err := h.tenants.Activity(c.Context(), id, recentActivityLimit)
-	if err != nil {
-		return c.JSON(fiber.Map{"activity": []ogen.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": err.Error()})
+	limit := c.QueryInt("limit", recentActivityLimit)
+	if limit < 1 {
+		limit = recentActivityLimit
+	}
+	if limit > activityMaxLimit {
+		limit = activityMaxLimit
 	}
 
-	// 90-day daily event counts, zero-filled for the chart. Best-effort: a query
-	// failure yields a flat series while the event list still renders.
-	counts, _ := h.tenants.ActivitySeries(c.Context(), id, activityWindowDays)
-	byDay := make(map[string]int, len(counts))
-	for _, d := range counts {
-		byDay[d.Date] = d.Count
+	events, err := h.activity.RecentActivity(c.Context(), id, limit)
+	if err != nil {
+		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "categories": []string{}, "available": false, "error": err.Error()})
 	}
+
+	// 90-day daily event counts split by category, zero-filled for the chart.
+	// Best-effort: a query failure yields a flat series while the event list
+	// still renders.
+	counts, _ := h.activity.ActivitySeries(c.Context(), id, activityWindowDays)
+	byDay := make(map[string]map[string]int, len(counts))
+	catTotals := make(map[string]int)
+	for _, r := range counts {
+		if byDay[r.Date] == nil {
+			byDay[r.Date] = make(map[string]int)
+		}
+		byDay[r.Date][r.Category] += r.Count
+		catTotals[r.Category] += r.Count
+	}
+
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	series := make([]activityDay, 0, activityWindowDays)
 	for i := activityWindowDays - 1; i >= 0; i-- {
 		date := today.AddDate(0, 0, -i).Format("2006-01-02")
-		series = append(series, activityDay{Date: date, Count: byDay[date]})
+		cm := byDay[date]
+		if cm == nil {
+			cm = map[string]int{}
+		}
+		total := 0
+		for _, v := range cm {
+			total += v
+		}
+		series = append(series, activityDay{Date: date, Total: total, Counts: cm})
 	}
 
-	return c.JSON(fiber.Map{"activity": events, "series": series, "available": true})
+	// Categories ordered by total desc (stable legend + colour order); ties
+	// broken by name for determinism.
+	categories := make([]string, 0, len(catTotals))
+	for cat := range catTotals {
+		categories = append(categories, cat)
+	}
+	sort.Slice(categories, func(a, b int) bool {
+		if catTotals[categories[a]] != catTotals[categories[b]] {
+			return catTotals[categories[a]] > catTotals[categories[b]]
+		}
+		return categories[a] < categories[b]
+	})
+
+	return c.JSON(fiber.Map{"activity": events, "series": series, "categories": categories, "available": true})
+}
+
+// ActivityEvent godoc
+// @Summary      Tenant activity event detail
+// @Description  Every field of a single activity_events row (except tenant_id),
+// @Description  including tags and payload, for the detail popover. Loaded on
+// @Description  demand when the row's details button is clicked.
+// @Tags         tenants
+// @Produce      json
+// @Param        id       path   string  true  "Tenant ID"
+// @Param        eventId  path   string  true  "Activity event ID"
+// @Success      200  {object}  map[string]any
+// @Router       /api/tenants/{id}/activity/{eventId} [get]
+func (h *TenantsHandler) ActivityEvent(c *fiber.Ctx) error {
+	if !h.activity.Available() {
+		return c.JSON(fiber.Map{"available": false, "error": "analytics database not configured"})
+	}
+	event, err := h.activity.ActivityByID(c.Context(), c.Params("id"), c.Params("eventId"))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.JSON(fiber.Map{"available": true, "found": false})
+		}
+		return c.JSON(fiber.Map{"available": false, "error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"available": true, "found": true, "event": event})
 }
 
 // DailyCost godoc
