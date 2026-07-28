@@ -16,11 +16,7 @@ type ActivityEvent struct {
 	Category string    `bun:"category"    json:"category"`
 	Type     string    `bun:"type"        json:"type"`
 	Status   string    `bun:"status"      json:"status"`
-	// Summary has no column in activity_events (the pre-CON-125 post_logs feed
-	// carried one). Kept in the response for API compatibility — the UI falls
-	// back to Type when it is empty; a later iteration can compose it from the
-	// event's category/entity/payload.
-	Summary string `bun:"-" json:"summary"`
+	Source   string    `bun:"source"      json:"source"`
 }
 
 // ActivityDay is a single UTC day's activity-event count for a tenant, used to
@@ -55,15 +51,16 @@ func (r *activityRepository) RecentActivity(ctx context.Context, tenantID string
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
-	// category and type are NOT NULL in the CON-125 schema; only status is
-	// nullable, so it is the only one coalesced.
+	// category and type are NOT NULL in the CON-125 schema; status and source are
+	// nullable, so they are coalesced to empty strings.
 	var events []ActivityEvent
 	err := r.db.NewRaw(`
 		SELECT
 			occurred_at,
 			category,
 			type,
-			COALESCE(status, '') AS status
+			COALESCE(status, '') AS status,
+			COALESCE(source, '') AS source
 		FROM activity_events
 		WHERE tenant_id = ?
 		ORDER BY occurred_at DESC

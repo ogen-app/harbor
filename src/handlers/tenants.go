@@ -296,9 +296,13 @@ func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"days": days, "available": true})
 }
 
-// recentActivityLimit caps a tenant's activity feed (the scrollable list on the
-// detail page and the expanded row in the Tenants table).
-const recentActivityLimit = 15
+// recentActivityLimit is the default cap on a tenant's activity feed (the
+// Tenants-table expanded row uses it; the detail page requests more via ?limit).
+// activityMaxLimit bounds the ?limit override so the query stays cheap.
+const (
+	recentActivityLimit = 15
+	activityMaxLimit    = 500
+)
 
 // activityWindowDays is the span of the detail page's activity chart.
 const activityWindowDays = 90
@@ -318,7 +322,8 @@ type activityDay struct {
 // @Description  expanded in the Tenants table.
 // @Tags         tenants
 // @Produce      json
-// @Param        id   path      string  true  "Tenant ID"
+// @Param        id     path   string  true   "Tenant ID"
+// @Param        limit  query  int     false  "Max events (1-500, default 15)"
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/{id}/activity [get]
 func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
@@ -327,7 +332,15 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 	}
 	id := c.Params("id")
 
-	events, err := h.activity.RecentActivity(c.Context(), id, recentActivityLimit)
+	limit := c.QueryInt("limit", recentActivityLimit)
+	if limit < 1 {
+		limit = recentActivityLimit
+	}
+	if limit > activityMaxLimit {
+		limit = activityMaxLimit
+	}
+
+	events, err := h.activity.RecentActivity(c.Context(), id, limit)
 	if err != nil {
 		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "available": false, "error": err.Error()})
 	}

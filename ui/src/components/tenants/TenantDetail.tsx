@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeftIcon,
@@ -42,11 +42,17 @@ import {
   type ZernioAccount,
   type ZernioState,
   formatDate,
+  formatDateTime,
   formatBytes,
   StatusLabel,
   DetailRow,
-  RecentActivity,
 } from "@/components/tenants/shared";
+import {
+  ActivityFilterBar,
+  type ActivityFilterToken,
+  type ActivityFieldKey,
+  type ActivityOptions,
+} from "@/components/tenants/ActivityFilterBar";
 
 interface DetailResponse {
   available: boolean;
@@ -482,19 +488,114 @@ function ActivityChart({ series }: { series: ActivityDay[] }) {
   );
 }
 
-// ActivityCard is the screen-wide recent-activity card: a 90-day volume chart
-// above a scrollable event list that fades out at the bottom.
-function ActivityCard({ state }: { state: ActivityState }) {
-  const series = state.series ?? [];
-  const total = series.reduce((sum, d) => sum + d.count, 0);
+// activityOptions collects the distinct non-empty values present for each
+// filterable field, feeding the filter bar's value suggestions.
+function activityOptions(events: ActivityEvent[]): ActivityOptions {
+  const sets: Record<ActivityFieldKey, Set<string>> = {
+    category: new Set(),
+    type: new Set(),
+    status: new Set(),
+    source: new Set(),
+  };
+  for (const e of events) {
+    if (e.category) sets.category.add(e.category);
+    if (e.type) sets.type.add(e.type);
+    if (e.status) sets.status.add(e.status);
+    if (e.source) sets.source.add(e.source);
+  }
+  return {
+    category: [...sets.category].sort(),
+    type: [...sets.type].sort(),
+    status: [...sets.status].sort(),
+    source: [...sets.source].sort(),
+  };
+}
+
+// matchActivity applies one filter token to an event (is / is not, exact match).
+function matchActivity(token: ActivityFilterToken, e: ActivityEvent): boolean {
+  const v = e[token.field];
+  return token.operator === "is not" ? v !== token.value : v === token.value;
+}
+
+// ── activity table ────────────────────────────────────────────────────────────
+
+const ACTIVITY_TH =
+  "sticky top-0 z-10 border-b border-border bg-primary py-2.5 font-semibold";
+
+// ActivityTable lists activity events with the CON-125 fields (source shown as a
+// tag). It scrolls within its screen-tall parent; the header stays pinned.
+function ActivityTable({ events }: { events: ActivityEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <p className="px-6 py-6 text-sm text-tertiary-foreground">
+        No activity matches the current filters.
+      </p>
+    );
+  }
   return (
-    <section className="rounded-lg bg-primary p-6">
-      <div className="flex items-center justify-between gap-3">
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-left text-[11px] uppercase tracking-wide text-tertiary-foreground">
+          <th className={cn(ACTIVITY_TH, "px-6")}>Time</th>
+          <th className={ACTIVITY_TH}>Category</th>
+          <th className={ACTIVITY_TH}>Type</th>
+          <th className={ACTIVITY_TH}>Status</th>
+          <th className={cn(ACTIVITY_TH, "px-6")}>Source</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {events.map((e, i) => (
+          <tr key={i} className="transition-colors hover:bg-secondary/40">
+            <td className="whitespace-nowrap px-6 py-2.5 tabular-nums text-tertiary-foreground">
+              {formatDateTime(e.at)}
+            </td>
+            <td className="py-2.5 text-secondary-foreground">
+              {e.category || "—"}
+            </td>
+            <td className="py-2.5 font-medium text-foreground">
+              {e.type || "—"}
+            </td>
+            <td className="py-2.5 text-secondary-foreground">
+              {e.status || "—"}
+            </td>
+            <td className="px-6 py-2.5">
+              {e.source ? (
+                <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+                  {e.source}
+                </span>
+              ) : (
+                <span className="text-tertiary-foreground">—</span>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ActivityCard is the screen-tall recent-activity panel: a 90-day volume chart,
+// a power-search filter, then a scrollable table of events.
+function ActivityCard({ state }: { state: ActivityState }) {
+  const [filters, setFilters] = useState<ActivityFilterToken[]>([]);
+  const series = state.series ?? [];
+  const events = useMemo(() => state.events ?? [], [state.events]);
+  const total = series.reduce((sum, d) => sum + d.count, 0);
+
+  const options = useMemo(() => activityOptions(events), [events]);
+  const filtered = useMemo(
+    () => events.filter((e) => filters.every((f) => matchActivity(f, e))),
+    [events, filters],
+  );
+
+  return (
+    <section className="flex h-[calc(100vh-12rem)] min-h-[32rem] flex-col overflow-hidden rounded-lg bg-primary">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
         <div className="flex items-center gap-1.5">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
             Recent activity
           </h2>
-          <InfoIcon text="Publishing and content events for this tenant from the Ogen post_logs audit trail. The chart shows daily event volume over the last 90 days; the list shows the most recent events." />
+          <InfoIcon text="Behavioural events for this tenant from the centralised activity_events store (Ogen CON-125). The chart shows daily event volume over the last 90 days; the table lists individual events, filterable by category, type, status, and source." />
         </div>
         {!state.loading && !state.error && (
           <span className="text-xs tabular-nums text-tertiary-foreground">
@@ -504,26 +605,30 @@ function ActivityCard({ state }: { state: ActivityState }) {
       </div>
 
       {state.loading ? (
-        <div className="mt-4 flex items-center gap-2 text-xs text-tertiary-foreground">
+        <div className="flex items-center gap-2 px-6 py-6 text-xs text-tertiary-foreground">
           <Loader className="size-3.5 border-[1.5px]" />
           Loading activity…
         </div>
       ) : state.error ? (
-        <p className="mt-4 text-xs text-tertiary-foreground">
+        <p className="px-6 py-6 text-xs text-tertiary-foreground">
           Activity unavailable — {state.error}
         </p>
       ) : (
         <>
-          <div className="mt-4">
+          <div className="border-b border-border p-6">
             <ActivityChart series={series} />
           </div>
-          {/* Scrollable event list, capped at 500px, fading out at the bottom
-              so the cut-off reads as "there's more, scroll". */}
-          <div className="relative mt-5">
-            <div className="max-h-125 overflow-y-auto pr-1 pb-6">
-              <RecentActivity state={state} />
-            </div>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-primary to-transparent" />
+          {/* Filter — placed between the chart and the table. */}
+          <div className="border-b border-border px-6 py-3">
+            <ActivityFilterBar
+              tokens={filters}
+              onTokensChange={setFilters}
+              options={options}
+            />
+          </div>
+          {/* Table fills the remaining height and scrolls. */}
+          <div className="min-h-0 flex-1 overflow-auto">
+            <ActivityTable events={filtered} />
           </div>
         </>
       )}
@@ -578,7 +683,9 @@ export function TenantDetail() {
         setError(e instanceof Error ? e.message : "Failed to load");
       });
 
-    fetch(`/api/tenants/${enc}/activity`, { signal: controller.signal })
+    // Request a full page of events so the (filterable) table isn't near-empty;
+    // the chart series is always the dense 90-day window regardless.
+    fetch(`/api/tenants/${enc}/activity?limit=200`, { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`request failed (${r.status})`);
         return r.json();
