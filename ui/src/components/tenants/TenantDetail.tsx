@@ -907,8 +907,8 @@ function ActivityTable({
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
-        {events.map((e, i) => (
-          <tr key={i} className="transition-colors hover:bg-secondary/40">
+        {events.map((e) => (
+          <tr key={e.id} className="transition-colors hover:bg-secondary/40">
             <td
               className={cn(
                 ACTIVITY_TD,
