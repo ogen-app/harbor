@@ -742,7 +742,7 @@ const ACTIVITY_TH =
   "sticky top-0 z-20 h-10 border-b border-border bg-primary px-3 align-middle font-semibold first:pl-6 last:pr-6";
 const ACTIVITY_TD = "px-3 py-2.5 first:pl-6 last:pr-6 align-middle";
 
-// Full activity_events row (every field except tenant_id), loaded on demand.
+// Full tenant_activity_events row (every field except tenant_id), loaded on demand.
 interface ActivityEventDetail {
   id: string;
   userId: string;
@@ -1183,7 +1183,7 @@ function ActivityCard({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
             Recent activity
           </h2>
-          <InfoIcon text="Behavioural events for this tenant from the centralised activity_events store (Ogen CON-125). The chart shows daily event volume over the last 90 days; the table lists individual events. Click a bar or legend entry to focus the table on that category (and day); it lazy-loads more as you scroll." />
+          <InfoIcon text="Behavioural events for this tenant from the centralised tenant_activity_events store (Ogen CON-125). The chart shows daily event volume over the last 90 days; the table lists individual events. Click a bar or legend entry to focus the table on that category (and day); it lazy-loads more as you scroll." />
         </div>
         {!state.loading && !state.error && (
           <span className="text-xs tabular-nums text-tertiary-foreground">

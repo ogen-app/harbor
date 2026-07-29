@@ -170,7 +170,7 @@ export function DetailRow({
 }
 
 // RecentActivity renders a tenant's recent activity feed (the /activity
-// endpoint, sourced from activity_events), with soft loading / error / empty
+// endpoint, sourced from tenant_activity_events), with soft loading / error / empty
 // states. Used by the Tenants-table expanded row.
 export function RecentActivity({ state }: { state: ActivityState | undefined }) {
   if (!state || state.loading) {
