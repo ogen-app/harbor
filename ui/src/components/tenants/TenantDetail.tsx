@@ -1134,6 +1134,12 @@ function ActivityCard({
     [events, filters],
   );
 
+  // Auto-fill is driven by the unfiltered loaded set, never the rendered rows: a
+  // narrow client-side filter must not page through the tenant's whole history
+  // just to fill the viewport with the few rows it matches.
+  const loadedCount = events.length;
+  const filterActive = filters.length > 0;
+
   // Scroll-fade strips (fade under the sticky header / above the bottom edge) and
   // the lazy-load trigger share one scroll handler.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1145,15 +1151,24 @@ function ActivityCard({
     setAtBottom(Math.ceil(remaining) <= 0);
     if (remaining < LOAD_MORE_PX) loadMore();
   };
-  // Recompute fades when rows change; also auto-page if the first page doesn't
-  // fill the viewport (so short pages can't strand more events out of reach).
+  // Recompute the fade strips whenever the rendered rows change (filter applied
+  // or cleared, page appended, selection switched).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     setAtTop(el.scrollTop <= 0);
     setAtBottom(Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0);
+  }, [filtered]);
+
+  // Auto-page while the loaded (unfiltered) content doesn't fill the viewport, so
+  // short first pages can't strand more events out of reach. Suspended while a
+  // client-side filter is active — that filter narrows the loaded rows, it must
+  // not drive fetching, and loadMore stops once hasMore is exhausted.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || filterActive || loadedCount === 0) return;
     if (el.scrollHeight <= el.clientHeight + 4) loadMore();
-  }, [filtered, loadMore]);
+  }, [loadedCount, filterActive, loadMore]);
 
   // A new chart selection replaces the whole list — jump back to the top so its
   // newest events are in view rather than a stale scroll offset.
