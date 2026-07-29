@@ -1105,9 +1105,14 @@ function ActivityCard({
   const loadMore = useCallback(() => {
     if (moreLoading || listLoading || !hasMore || events.length === 0) return;
     setMoreLoading(true);
+    // Pin the current selection's request identity: if applySelection bumps it
+    // while this page is in flight, the page belongs to a superseded list and
+    // must not append (or overwrite hasMore).
+    const id = reqId.current;
     const cursor = events[events.length - 1];
     fetchPage(selection, cursor)
       .then((j) => {
+        if (id !== reqId.current) return;
         if (j.available) {
           setEvents((prev) => [...prev, ...(j.activity ?? [])]);
           setHasMore(Boolean(j.hasMore));
@@ -1115,7 +1120,10 @@ function ActivityCard({
           setHasMore(false);
         }
       })
-      .catch(() => setHasMore(false))
+      .catch(() => {
+        // Leave hasMore untouched so a scroll can retry — a transient failure
+        // must not permanently end pagination for this view.
+      })
       .finally(() => setMoreLoading(false));
   }, [moreLoading, listLoading, hasMore, events, selection, fetchPage]);
 
