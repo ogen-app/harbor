@@ -51,7 +51,7 @@ export function ActivityView() {
     [tenants],
   );
   const nameOf = useMemo(() => {
-    const byId = new Map(tenants.map((t) => [t.id, t.name]));
+    const byId = new Map(tenants.map((t) => [t.id, t.name || t.slug || t.id]));
     return (id: string) => byId.get(id) ?? id;
   }, [tenants]);
 
