@@ -35,6 +35,10 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants", requireAuth, h.List)
 	app.Get("/api/tenants/overview", requireAuth, h.Overview)
 	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
+	// Cross-tenant activity feed for the global Activity page (?tenant= narrows
+	// it to one tenant); the per-tenant feed below is the same payload scoped by
+	// path param.
+	app.Get("/api/activity", requireAuth, h.GlobalActivity)
 	app.Get("/api/tenants/:id/activity", requireAuth, h.Activity)
 	app.Get("/api/tenants/:id/activity/:eventId", requireAuth, h.ActivityEvent)
 	app.Get("/api/tenants/:id/daily-cost", requireAuth, h.DailyCost)
@@ -337,10 +341,39 @@ type activityDay struct {
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/{id}/activity [get]
 func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
+	return h.writeActivity(c, c.Params("id"))
+}
+
+// GlobalActivity godoc
+// @Summary      Cross-tenant recent activity
+// @Description  The tenant_activity_events feed across all tenants (newest first),
+// @Description  with the same paging, filtering, and 90-day chart series as the
+// @Description  per-tenant endpoint. An optional ?tenant=<id> narrows it to a
+// @Description  single tenant, so the global Activity page can switch scope
+// @Description  without a different endpoint. Each event carries its tenantId.
+// @Tags         tenants
+// @Produce      json
+// @Param        tenant    query  string  false  "Scope to a single tenant ID (default: all tenants)"
+// @Param        limit     query  int     false  "Max events (1-500, default 15)"
+// @Param        category  query  string  false  "Only events in this category"
+// @Param        day       query  string  false  "Only events on this UTC day (YYYY-MM-DD)"
+// @Param        beforeAt  query  string  false  "Keyset cursor: occurred_at of the last loaded event (RFC3339)"
+// @Param        beforeId  query  string  false  "Keyset cursor: id of the last loaded event"
+// @Success      200  {object}  map[string]any
+// @Router       /api/activity [get]
+func (h *TenantsHandler) GlobalActivity(c *fiber.Ctx) error {
+	return h.writeActivity(c, strings.TrimSpace(c.Query("tenant")))
+}
+
+// writeActivity serves an activity page scoped to tenantID, or — when tenantID is
+// empty — spanning every tenant. It is the shared body behind both the per-tenant
+// (/api/tenants/:id/activity) and global (/api/activity) endpoints: a keyset-paged
+// event list plus, on the initial unfiltered page, the dense 90-day category
+// series for the chart.
+func (h *TenantsHandler) writeActivity(c *fiber.Ctx, tenantID string) error {
 	if !h.activity.Available() {
 		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "categories": []string{}, "hasMore": false, "available": false, "error": "analytics database not configured"})
 	}
-	id := c.Params("id")
 
 	limit := c.QueryInt("limit", recentActivityLimit)
 	if limit < 1 {
@@ -351,7 +384,7 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 	}
 
 	q := analytics.ActivityQuery{
-		TenantID: id,
+		TenantID: tenantID,
 		Category: strings.TrimSpace(c.Query("category")),
 		Day:      strings.TrimSpace(c.Query("day")),
 		Limit:    limit + 1, // one extra row tells us whether an older page exists
@@ -388,7 +421,7 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 	// 90-day daily event counts split by category, zero-filled for the chart.
 	// Best-effort: a query failure yields a flat series while the event list
 	// still renders.
-	counts, _ := h.activity.ActivitySeries(c.Context(), id, activityWindowDays)
+	counts, _ := h.activity.ActivitySeries(c.Context(), tenantID, activityWindowDays)
 	byDay := make(map[string]map[string]int, len(counts))
 	catTotals := make(map[string]int)
 	for _, r := range counts {

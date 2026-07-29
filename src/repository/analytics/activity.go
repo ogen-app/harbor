@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 // served directly to the tenant detail page and the Tenants-table expanded row.
 type ActivityEvent struct {
 	ID       string    `bun:"id"          json:"id"`
+	TenantID string    `bun:"tenant_id"   json:"tenantId"`
 	At       time.Time `bun:"occurred_at" json:"at"`
 	Category string    `bun:"category"    json:"category"`
 	Type     string    `bun:"type"        json:"type"`
@@ -49,8 +51,9 @@ type ActivityCategoryCount struct {
 	Count    int    `bun:"count"`
 }
 
-// ActivityQuery selects a page of a tenant's events for the detail-page table.
-// Beyond the tenant, every field is optional:
+// ActivityQuery selects a page of activity events for the detail-page table.
+// TenantID scopes to one tenant; an empty TenantID spans all tenants (the
+// global Activity page). Beyond the tenant, every field is optional:
 //   - Category filters to a single category (the legend/bar selection).
 //   - Day filters to a single UTC calendar day "YYYY-MM-DD" (the bar selection).
 //   - BeforeAt/BeforeID, when HasCursor is set, request the next page of older
@@ -66,15 +69,17 @@ type ActivityQuery struct {
 	HasCursor bool
 }
 
-// ActivityRepository reads a tenant's behavioural activity from the analytics
-// tenant_activity_events hypertable. Best-effort like SpendRepository: a nil pool
-// returns ErrUnavailable and query failures are logged at debug.
+// ActivityRepository reads behavioural activity from the analytics
+// tenant_activity_events hypertable — either one tenant's or, when the query's
+// TenantID is empty, every tenant's (the global feed). Best-effort like
+// SpendRepository: a nil pool returns ErrUnavailable and query failures are
+// logged at debug.
 type ActivityRepository interface {
 	// Available reports whether the analytics pool is configured.
 	Available() bool
-	// Events returns a page of a tenant's events (newest first) matching the
-	// query's optional category/day filters and keyset cursor. Returns
-	// ErrUnavailable if the pool is nil.
+	// Events returns a page of events (newest first) matching the query's optional
+	// category/day filters and keyset cursor, scoped to q.TenantID or — when it is
+	// empty — spanning all tenants. Returns ErrUnavailable if the pool is nil.
 	Events(ctx context.Context, q ActivityQuery) ([]ActivityEvent, error)
 	// RecentActivity returns a tenant's most recent activity events (newest
 	// first), capped at limit — Events with no filters or cursor. Returns
@@ -85,7 +90,8 @@ type ActivityRepository interface {
 	ActivityByID(ctx context.Context, tenantID, eventID string) (*ActivityEventDetail, error)
 	// ActivitySeries returns per-day, per-category event counts over the last
 	// windowDays UTC calendar days (sparse — only (day, category) pairs with
-	// events). Returns ErrUnavailable if the pool is nil.
+	// events), scoped to tenantID or — when it is empty — across all tenants.
+	// Returns ErrUnavailable if the pool is nil.
 	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityCategoryCount, error)
 }
 
@@ -110,9 +116,14 @@ func (r *activityRepository) Events(ctx context.Context, q ActivityQuery) ([]Act
 
 	// Filters are assembled as positional-placeholder clauses so chunk exclusion
 	// on the TimescaleDB hypertable stays intact (bare occurred_at comparisons,
-	// no casts on the partitioning column).
-	where := []string{"tenant_id = ?"}
-	args := []any{q.TenantID}
+	// no casts on the partitioning column). An empty TenantID leaves the tenant
+	// filter off entirely — the cross-tenant global feed.
+	var where []string
+	var args []any
+	if q.TenantID != "" {
+		where = append(where, "tenant_id = ?")
+		args = append(args, q.TenantID)
+	}
 
 	if q.Category != "" {
 		where = append(where, "category = ?")
@@ -146,17 +157,22 @@ func (r *activityRepository) Events(ctx context.Context, q ActivityQuery) ([]Act
 	}
 
 	// category and type are NOT NULL in the CON-125 schema; status and source are
-	// nullable, so they are coalesced to empty strings.
+	// nullable, so they are coalesced to empty strings. tenant_id is selected so
+	// the global feed can attribute each event and load its detail.
 	query := `
 		SELECT
 			id,
+			tenant_id,
 			occurred_at,
 			category,
 			type,
 			COALESCE(status, '') AS status,
 			COALESCE(source, '') AS source
-		FROM tenant_activity_events
-		WHERE ` + strings.Join(where, " AND ") + `
+		FROM tenant_activity_events`
+	if len(where) > 0 {
+		query += "\n\t\tWHERE " + strings.Join(where, " AND ")
+	}
+	query += `
 		ORDER BY occurred_at DESC, id DESC
 		LIMIT ?`
 	args = append(args, limit)
@@ -208,18 +224,30 @@ func (r *activityRepository) ActivitySeries(ctx context.Context, tenantID string
 	// Bucket by UTC calendar day and category. The WHERE compares the bare
 	// occurred_at against a UTC-midnight lower bound rather than casting the
 	// partitioning column, so chunk exclusion on the TimescaleDB hypertable is
-	// preserved (mirrors DailyCostByModel).
-	var rows []ActivityCategoryCount
-	err := r.db.NewRaw(`
+	// preserved (mirrors DailyCostByModel). An empty tenantID aggregates across
+	// all tenants — the global activity chart.
+	//
+	// Placeholders bind positionally: the optional tenant_id first (matching the
+	// tenantFilter fragment), then windowDays. tenantFilter is a constant, so no
+	// user input reaches the SQL text.
+	args := []any{}
+	tenantFilter := ""
+	if tenantID != "" {
+		tenantFilter = "tenant_id = ? AND"
+		args = append(args, tenantID)
+	}
+	args = append(args, windowDays)
+	query := fmt.Sprintf(`
 		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
 		       category,
 		       count(*) AS count
 		FROM tenant_activity_events
-		WHERE tenant_id = ?
-		  AND occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
+		WHERE %s occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
 		                      - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
 		GROUP BY date, category
-		ORDER BY date, category`, tenantID, windowDays).Scan(ctx, &rows)
+		ORDER BY date, category`, tenantFilter)
+	var rows []ActivityCategoryCount
+	err := r.db.NewRaw(query, args...).Scan(ctx, &rows)
 	if err != nil {
 		logFail("activity.series", err)
 		return nil, err
