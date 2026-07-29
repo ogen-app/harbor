@@ -357,13 +357,17 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 		Limit:    limit + 1, // one extra row tells us whether an older page exists
 	}
 	// Keyset cursor for lazy-loading older events: the client echoes back the last
-	// row's occurred_at + id. A malformed timestamp is ignored (first page).
+	// row's occurred_at + id. A malformed timestamp is a client error, not a
+	// silent fall-back to the first page — which would make the client re-serve
+	// and duplicate rows it already has.
 	if at := strings.TrimSpace(c.Query("beforeAt")); at != "" {
-		if t, perr := time.Parse(time.RFC3339Nano, at); perr == nil {
-			q.BeforeAt = t
-			q.BeforeID = strings.TrimSpace(c.Query("beforeId"))
-			q.HasCursor = true
+		t, perr := time.Parse(time.RFC3339Nano, at)
+		if perr != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"available": true, "error": "invalid beforeAt cursor"})
 		}
+		q.BeforeAt = t
+		q.BeforeID = strings.TrimSpace(c.Query("beforeId"))
+		q.HasCursor = true
 	}
 
 	events, err := h.activity.Events(c.Context(), q)

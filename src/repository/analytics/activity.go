@@ -118,19 +118,31 @@ func (r *activityRepository) Events(ctx context.Context, q ActivityQuery) ([]Act
 		where = append(where, "category = ?")
 		args = append(args, q.Category)
 	}
-	// Single UTC calendar day, matching how ActivitySeries buckets events.
+	// Single UTC calendar day, matching how ActivitySeries buckets events. A
+	// malformed day is surfaced rather than silently dropped (which would widen
+	// the result to every day).
 	if q.Day != "" {
-		if day, err := time.ParseInLocation("2006-01-02", q.Day, time.UTC); err == nil {
-			end := day.AddDate(0, 0, 1)
-			where = append(where, "occurred_at >= ? AND occurred_at < ?")
-			args = append(args, day, end)
+		day, err := time.ParseInLocation("2006-01-02", q.Day, time.UTC)
+		if err != nil {
+			return nil, err
 		}
+		end := day.AddDate(0, 0, 1)
+		where = append(where, "occurred_at >= ? AND occurred_at < ?")
+		args = append(args, day, end)
 	}
 	// Keyset cursor: strictly older than the last row of the previous page in the
-	// (occurred_at DESC, id DESC) ordering.
+	// (occurred_at DESC, id DESC) ordering. With a known id the tie-breaker walks
+	// past siblings sharing the boundary timestamp; without one, `id < ''` would
+	// drop every boundary row, so fall back to `<=` to keep them (favouring a
+	// possible repeat over a silent skip).
 	if q.HasCursor {
-		where = append(where, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
-		args = append(args, q.BeforeAt, q.BeforeAt, q.BeforeID)
+		if q.BeforeID != "" {
+			where = append(where, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
+			args = append(args, q.BeforeAt, q.BeforeAt, q.BeforeID)
+		} else {
+			where = append(where, "occurred_at <= ?")
+			args = append(args, q.BeforeAt)
+		}
 	}
 
 	// category and type are NOT NULL in the CON-125 schema; status and source are
