@@ -42,6 +42,7 @@ import {
   type ActivityFilterToken,
   type ActivityFieldKey,
   type ActivityOptions,
+  type TenantFilterOption,
 } from "@/components/tenants/ActivityFilterBar";
 
 // "2026-06-28" → "Jun 28" (parsed as local midnight to avoid TZ drift).
@@ -342,7 +343,10 @@ function activityOptions(events: ActivityEvent[]): ActivityOptions {
 }
 
 // matchActivity applies one filter token to an event (is / is not, exact match).
+// A tenant token is a server-side scope, not a row predicate, so it never
+// narrows the loaded rows here.
 function matchActivity(token: ActivityFilterToken, e: ActivityEvent): boolean {
+  if (token.field === "tenant") return true;
   const v = e[token.field];
   return token.operator === "is not" ? v !== token.value : v === token.value;
 }
@@ -608,9 +612,12 @@ function ActivityTable({
 }
 
 // One page of the events table. limit+1 on the server tells us whether an older
-// page exists, echoed back as hasMore.
+// page exists, echoed back as hasMore. The unfiltered first page also carries
+// the dense 90-day chart series/categories (absent on cursor/filtered pages).
 interface ActivityPageResponse {
   activity?: ActivityEvent[];
+  series?: ActivityDay[];
+  categories?: string[];
   hasMore?: boolean;
   available: boolean;
   error?: string;
@@ -632,46 +639,67 @@ const DEFAULT_INFO_TEXT =
 // table then pages through just those events. With no selection it pages through
 // the latest events.
 //
-// It is source-agnostic: `endpoint` is the list/series URL and `tenantFilter`,
-// when set, is appended as ?tenant= to every request so the global feed can be
-// scoped to one tenant. `showTenant`/`tenantName` add and label the Tenant
-// column for the cross-tenant view.
+// It is source-agnostic: `endpoint` is the list/series URL. When `tenantOptions`
+// are supplied (the global page) the smart filter offers a "Tenant" scope token
+// that appends ?tenant=<id> to every request; with none selected it spans all
+// tenants and shows a Tenant column (labelled via `tenantName`).
 export function ActivityCard({
   state,
   endpoint,
-  tenantFilter,
-  showTenant,
   tenantName,
+  tenantOptions,
   infoText = DEFAULT_INFO_TEXT,
+  filters: controlledFilters,
+  onFiltersChange,
 }: {
   state: ActivityState;
   endpoint: string;
-  tenantFilter?: string;
-  showTenant?: boolean;
   tenantName?: (tenantId: string) => string;
+  // When set, the smart filter offers a "Tenant" scope field (global page); a
+  // selected tenant re-scopes the feed via ?tenant= and hides the Tenant column.
+  tenantOptions?: TenantFilterOption[];
   infoText?: string;
+  // Filter tokens can be controlled by the parent (so a tenant token is owned
+  // alongside the tenant list); uncontrolled otherwise (the detail page).
+  filters?: ActivityFilterToken[];
+  onFiltersChange?: (tokens: ActivityFilterToken[]) => void;
 }) {
-  const series = state.series ?? [];
-  const categories = state.categories ?? [];
+  const [internalFilters, setInternalFilters] = useState<ActivityFilterToken[]>(
+    [],
+  );
+  const filters = controlledFilters ?? internalFilters;
+  const setFilters = onFiltersChange ?? setInternalFilters;
+
+  // Server-side scope: the tenant token, if any. Drives the ?tenant= param and
+  // hides the (now redundant) Tenant column; the detail page has neither.
+  const scopeTenant = filters.find((f) => f.field === "tenant")?.value;
+  const showTenant = Boolean(tenantOptions) && !scopeTenant;
+
+  // The chart series/categories seed from the parent's initial fetch but are
+  // owned here so a scope change can refresh them in place (no remount).
+  const [series, setSeries] = useState<ActivityDay[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const total = series.reduce((sum, d) => sum + d.total, 0);
 
-  const [filters, setFilters] = useState<ActivityFilterToken[]>([]);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [selection, setSelection] = useState<ActivitySelection | null>(null);
-  // listLoading covers a selection switch (whole table replaced); moreLoading a
-  // lazy-load appended to the bottom.
+  // listLoading covers a selection or scope switch (table refreshed in place);
+  // moreLoading a lazy-load appended to the bottom.
   const [listLoading, setListLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
-  // Seed the table from the parent's initial (unfiltered) fetch, once it lands.
+  // Seed the chart + table from the parent's initial (unfiltered) fetch, once it
+  // lands.
   const seeded = useRef(false);
   useEffect(() => {
     if (seeded.current || state.loading || state.error) return;
     seeded.current = true;
     setEvents(state.events ?? []);
     setHasMore(state.hasMore ?? false);
+    setSeries(state.series ?? []);
+    setCategories(state.categories ?? []);
   }, [state]);
 
   // Fetch one page for a selection, optionally after a keyset cursor (the last
@@ -682,7 +710,7 @@ export function ActivityCard({
       cursor?: ActivityEvent,
     ): Promise<ActivityPageResponse> => {
       const params = new URLSearchParams({ limit: String(ACTIVITY_PAGE) });
-      if (tenantFilter) params.set("tenant", tenantFilter);
+      if (scopeTenant) params.set("tenant", scopeTenant);
       if (sel) {
         params.set("category", sel.category);
         if (sel.date) params.set("day", sel.date);
@@ -695,7 +723,7 @@ export function ActivityCard({
       if (!res.ok) throw new Error(`request failed (${res.status})`);
       return (await res.json()) as ActivityPageResponse;
     },
-    [endpoint, tenantFilter],
+    [endpoint, scopeTenant],
   );
 
   // Switch the table to a new chart selection (or back to "latest"). A request
@@ -713,6 +741,10 @@ export function ActivityCard({
           if (j.available) {
             setEvents(j.activity ?? []);
             setHasMore(Boolean(j.hasMore));
+            // The unfiltered first page (no cursor/category/day) also carries a
+            // fresh chart series, so a scope change refreshes the chart in place.
+            if (j.series) setSeries(j.series);
+            if (j.categories) setCategories(j.categories);
           } else {
             setEvents([]);
             setHasMore(false);
@@ -731,6 +763,17 @@ export function ActivityCard({
     },
     [fetchPage],
   );
+
+  // A tenant scope change (adding/removing the tenant token) refreshes the feed
+  // in place via the same path as a chart selection — the section, chart, and
+  // filter bar stay mounted, only the table shows a brief loading state (no hard
+  // reload). Skipped until the initial seed lands.
+  const prevScope = useRef(scopeTenant);
+  useEffect(() => {
+    if (!seeded.current || prevScope.current === scopeTenant) return;
+    prevScope.current = scopeTenant;
+    applySelection(null);
+  }, [scopeTenant, applySelection]);
 
   // Toggle: re-selecting the exact same category/day clears back to "latest".
   const onSelect = useCallback(
@@ -812,11 +855,11 @@ export function ActivityCard({
     if (el.scrollHeight <= el.clientHeight + 4) loadMore();
   }, [loadedCount, filterActive, loadMore]);
 
-  // A new chart selection replaces the whole list — jump back to the top so its
-  // newest events are in view rather than a stale scroll offset.
+  // A new chart selection or tenant scope replaces the whole list — jump back to
+  // the top so its newest events are in view rather than a stale scroll offset.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [selection]);
+  }, [selection, scopeTenant]);
 
   return (
     <section className="flex h-[calc(100vh-13rem)] min-h-[32rem] flex-col overflow-hidden rounded-lg bg-primary">
@@ -890,6 +933,7 @@ export function ActivityCard({
               tokens={filters}
               onTokensChange={setFilters}
               options={options}
+              tenantOptions={tenantOptions}
             />
           </div>
           {/* Table fills the remaining height and scrolls, with fade strips

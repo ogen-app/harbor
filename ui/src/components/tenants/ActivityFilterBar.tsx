@@ -10,16 +10,30 @@ import { cn } from "@/lib/utils";
 
 export type ActivityFieldKey = "category" | "type" | "status" | "source";
 
+// "tenant" is a special scope field: the categorical fields narrow the loaded
+// rows client-side, but a tenant token re-scopes the whole feed server-side. It
+// only appears when tenantOptions are supplied (the global Activity page).
+export type ActivityFilterField = ActivityFieldKey | "tenant";
+
 export interface ActivityFilterToken {
-  field: ActivityFieldKey;
+  field: ActivityFilterField;
   operator: "is" | "is not";
   value: string;
+  // Display label for tokens whose value is an opaque id (tenant → tenant name).
+  label?: string;
 }
 
 export type ActivityOptions = Record<ActivityFieldKey, string[]>;
 
+// One selectable tenant for the scope field: value is the id, label the name.
+export interface TenantFilterOption {
+  id: string;
+  name: string;
+}
+
 const FIELD_ORDER: ActivityFieldKey[] = ["category", "type", "status", "source"];
-const FIELD_LABEL: Record<ActivityFieldKey, string> = {
+const FIELD_LABEL: Record<ActivityFilterField, string> = {
+  tenant: "Tenant",
   category: "Category",
   type: "Type",
   status: "Status",
@@ -27,17 +41,20 @@ const FIELD_LABEL: Record<ActivityFieldKey, string> = {
 };
 const OPERATORS = ["is", "is not"] as const;
 
-type Draft = { field: ActivityFieldKey; operator?: "is" | "is not" };
+type Draft = { field: ActivityFilterField; operator?: "is" | "is not" };
 type Suggestion = { label: string; apply: () => void };
 
 export function ActivityFilterBar({
   tokens,
   onTokensChange,
   options,
+  tenantOptions,
 }: {
   tokens: ActivityFilterToken[];
   onTokensChange: (t: ActivityFilterToken[]) => void;
   options: ActivityOptions;
+  // When provided, adds a "Tenant" scope field to the bar (the global page).
+  tenantOptions?: TenantFilterOption[];
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [text, setText] = useState("");
@@ -82,21 +99,42 @@ export function ActivityFilterBar({
   const suggestions: Suggestion[] = useMemo(() => {
     const q = text.trim().toLowerCase();
     if (stage === "field") {
-      return FIELD_ORDER.filter((f) =>
-        FIELD_LABEL[f].toLowerCase().includes(q),
-      ).map((f) => ({
-        label: FIELD_LABEL[f],
-        apply: () => setDraft({ field: f }),
-      }));
+      // Offer the tenant scope field only when options exist and no tenant token
+      // is set yet — a single tenant scopes the whole feed.
+      const hasTenant = tokens.some((t) => t.field === "tenant");
+      const fields: ActivityFilterField[] = [
+        ...(tenantOptions && tenantOptions.length > 0 && !hasTenant
+          ? (["tenant"] as const)
+          : []),
+        ...FIELD_ORDER,
+      ];
+      return fields
+        .filter((f) => FIELD_LABEL[f].toLowerCase().includes(q))
+        .map((f) => ({
+          label: FIELD_LABEL[f],
+          apply: () => setDraft({ field: f }),
+        }));
     }
     if (stage === "operator" && draft) {
-      return OPERATORS.filter((op) => op.includes(q)).map((op) => ({
+      // Tenant is a scope (one value), so only "is"; categorical fields also
+      // allow "is not".
+      const ops = draft.field === "tenant" ? (["is"] as const) : OPERATORS;
+      return ops.filter((op) => op.includes(q)).map((op) => ({
         label: op,
         apply: () => setDraft({ ...draft, operator: op }),
       }));
     }
     if (!draft || !draft.operator) return [];
     const op = draft.operator;
+    if (draft.field === "tenant") {
+      return (tenantOptions ?? [])
+        .filter((t) => t.name.toLowerCase().includes(q))
+        .map((t) => ({
+          label: t.name,
+          apply: () =>
+            commit({ field: "tenant", operator: op, value: t.id, label: t.name }),
+        }));
+    }
     return (options[draft.field] ?? [])
       .filter((o) => o.toLowerCase().includes(q))
       .map((o) => ({
@@ -104,7 +142,7 @@ export function ActivityFilterBar({
         apply: () => commit({ field: draft.field, operator: op, value: o }),
       }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, text, draft, options, tokens]);
+  }, [stage, text, draft, options, tenantOptions, tokens]);
 
   function removeToken(i: number) {
     onTokensChange(tokens.filter((_, idx) => idx !== i));
@@ -150,10 +188,14 @@ export function ActivityFilterBar({
     stage === "field"
       ? tokens.length
         ? "Add filter…"
-        : "Filter by category, type, status, source…"
+        : tenantOptions && tenantOptions.length > 0
+          ? "Filter by tenant, category, type, status, source…"
+          : "Filter by category, type, status, source…"
       : stage === "operator"
         ? "Operator…"
-        : "Pick a value…";
+        : draft?.field === "tenant"
+          ? "Pick a tenant…"
+          : "Pick a value…";
 
   return (
     <div
@@ -181,11 +223,11 @@ export function ActivityFilterBar({
           <span className="text-secondary-foreground">
             {FIELD_LABEL[t.field]}{" "}
             <span className="text-tertiary-foreground">{t.operator}</span>{" "}
-            <b className="font-semibold text-foreground">{t.value}</b>
+            <b className="font-semibold text-foreground">{t.label ?? t.value}</b>
           </span>
           <button
             type="button"
-            aria-label={`Remove filter ${FIELD_LABEL[t.field]} ${t.operator} ${t.value}`}
+            aria-label={`Remove filter ${FIELD_LABEL[t.field]} ${t.operator} ${t.label ?? t.value}`}
             className="inline-flex rounded-full p-0.5 text-tertiary-foreground transition-colors hover:bg-primary hover:text-foreground"
             onClick={() => removeToken(i)}
           >
