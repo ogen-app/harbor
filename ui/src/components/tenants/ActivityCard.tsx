@@ -690,9 +690,11 @@ export function ActivityCard({
   const [moreLoading, setMoreLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
-  // Seed the chart + table from the parent's initial (unfiltered) fetch, once it
-  // lands.
+  // Seed the chart + table from the parent's initial (unfiltered, all-tenants)
+  // fetch, once it lands. scopeRef (used by the scope effect below) tracks the
+  // tenant scope those loaded rows currently reflect — undefined after the seed.
   const seeded = useRef(false);
+  const scopeRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (seeded.current || state.loading || state.error) return;
     seeded.current = true;
@@ -764,16 +766,20 @@ export function ActivityCard({
     [fetchPage],
   );
 
-  // A tenant scope change (adding/removing the tenant token) refreshes the feed
-  // in place via the same path as a chart selection — the section, chart, and
-  // filter bar stay mounted, only the table shows a brief loading state (no hard
-  // reload). Skipped until the initial seed lands.
-  const prevScope = useRef(scopeTenant);
+  // Keep the feed in sync with the tenant scope: a scope change (adding/removing
+  // the tenant token) refreshes in place via applySelection — the section,
+  // chart, and filter bar stay mounted, only the table shows a brief loading
+  // state (no hard reload). Gated on the seed being ready (a derived value, not
+  // a ref) and re-run when it becomes ready, so a scope selected before the
+  // initial fetch lands is reconciled immediately rather than swallowed by a
+  // pre-seed guard. With no scope active (scopeRef stays undefined after the
+  // seed) the seed data is left as-is.
+  const seedReady = !state.loading && !state.error;
   useEffect(() => {
-    if (!seeded.current || prevScope.current === scopeTenant) return;
-    prevScope.current = scopeTenant;
+    if (!seedReady || scopeRef.current === scopeTenant) return;
+    scopeRef.current = scopeTenant;
     applySelection(null);
-  }, [scopeTenant, applySelection]);
+  }, [seedReady, scopeTenant, applySelection]);
 
   // Toggle: re-selecting the exact same category/day clears back to "latest".
   const onSelect = useCallback(
