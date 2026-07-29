@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -48,14 +49,36 @@ type ActivityCategoryCount struct {
 	Count    int    `bun:"count"`
 }
 
+// ActivityQuery selects a page of a tenant's events for the detail-page table.
+// Beyond the tenant, every field is optional:
+//   - Category filters to a single category (the legend/bar selection).
+//   - Day filters to a single UTC calendar day "YYYY-MM-DD" (the bar selection).
+//   - BeforeAt/BeforeID, when HasCursor is set, request the next page of older
+//     events via a keyset on (occurred_at, id) — stable under concurrent inserts
+//     where a plain OFFSET would skip or repeat rows.
+type ActivityQuery struct {
+	TenantID  string
+	Category  string
+	Day       string
+	Limit     int
+	BeforeAt  time.Time
+	BeforeID  string
+	HasCursor bool
+}
+
 // ActivityRepository reads a tenant's behavioural activity from the analytics
 // activity_events hypertable. Best-effort like SpendRepository: a nil pool
 // returns ErrUnavailable and query failures are logged at debug.
 type ActivityRepository interface {
 	// Available reports whether the analytics pool is configured.
 	Available() bool
+	// Events returns a page of a tenant's events (newest first) matching the
+	// query's optional category/day filters and keyset cursor. Returns
+	// ErrUnavailable if the pool is nil.
+	Events(ctx context.Context, q ActivityQuery) ([]ActivityEvent, error)
 	// RecentActivity returns a tenant's most recent activity events (newest
-	// first), capped at limit. Returns ErrUnavailable if the pool is nil.
+	// first), capped at limit — Events with no filters or cursor. Returns
+	// ErrUnavailable if the pool is nil.
 	RecentActivity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error)
 	// ActivityByID returns the full detail for one event scoped to the tenant,
 	// or sql.ErrNoRows if unknown. Returns ErrUnavailable if the pool is nil.
@@ -73,13 +96,58 @@ func NewActivityRepository(db *bun.DB) ActivityRepository { return &activityRepo
 func (r *activityRepository) Available() bool { return r.db != nil }
 
 func (r *activityRepository) RecentActivity(ctx context.Context, tenantID string, limit int) ([]ActivityEvent, error) {
+	return r.Events(ctx, ActivityQuery{TenantID: tenantID, Limit: limit})
+}
+
+func (r *activityRepository) Events(ctx context.Context, q ActivityQuery) ([]ActivityEvent, error) {
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
+	limit := q.Limit
+	if limit < 1 {
+		limit = 1
+	}
+
+	// Filters are assembled as positional-placeholder clauses so chunk exclusion
+	// on the TimescaleDB hypertable stays intact (bare occurred_at comparisons,
+	// no casts on the partitioning column).
+	where := []string{"tenant_id = ?"}
+	args := []any{q.TenantID}
+
+	if q.Category != "" {
+		where = append(where, "category = ?")
+		args = append(args, q.Category)
+	}
+	// Single UTC calendar day, matching how ActivitySeries buckets events. A
+	// malformed day is surfaced rather than silently dropped (which would widen
+	// the result to every day).
+	if q.Day != "" {
+		day, err := time.ParseInLocation("2006-01-02", q.Day, time.UTC)
+		if err != nil {
+			return nil, err
+		}
+		end := day.AddDate(0, 0, 1)
+		where = append(where, "occurred_at >= ? AND occurred_at < ?")
+		args = append(args, day, end)
+	}
+	// Keyset cursor: strictly older than the last row of the previous page in the
+	// (occurred_at DESC, id DESC) ordering. With a known id the tie-breaker walks
+	// past siblings sharing the boundary timestamp; without one, `id < ''` would
+	// drop every boundary row, so fall back to `<=` to keep them (favouring a
+	// possible repeat over a silent skip).
+	if q.HasCursor {
+		if q.BeforeID != "" {
+			where = append(where, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
+			args = append(args, q.BeforeAt, q.BeforeAt, q.BeforeID)
+		} else {
+			where = append(where, "occurred_at <= ?")
+			args = append(args, q.BeforeAt)
+		}
+	}
+
 	// category and type are NOT NULL in the CON-125 schema; status and source are
 	// nullable, so they are coalesced to empty strings.
-	var events []ActivityEvent
-	err := r.db.NewRaw(`
+	query := `
 		SELECT
 			id,
 			occurred_at,
@@ -88,11 +156,14 @@ func (r *activityRepository) RecentActivity(ctx context.Context, tenantID string
 			COALESCE(status, '') AS status,
 			COALESCE(source, '') AS source
 		FROM activity_events
-		WHERE tenant_id = ?
-		ORDER BY occurred_at DESC
-		LIMIT ?`, tenantID, limit).Scan(ctx, &events)
-	if err != nil {
-		logFail("activity.recent", err)
+		WHERE ` + strings.Join(where, " AND ") + `
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT ?`
+	args = append(args, limit)
+
+	var events []ActivityEvent
+	if err := r.db.NewRaw(query, args...).Scan(ctx, &events); err != nil {
+		logFail("activity.events", err)
 		return nil, err
 	}
 	return events, nil

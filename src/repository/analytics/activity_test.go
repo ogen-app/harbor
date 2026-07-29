@@ -16,6 +16,9 @@ func TestActivityRepositoryUnavailable(t *testing.T) {
 	if _, err := r.RecentActivity(context.Background(), "t1", 15); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("RecentActivity err = %v, want ErrUnavailable", err)
 	}
+	if _, err := r.Events(context.Background(), ActivityQuery{TenantID: "t1", Limit: 50}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Events err = %v, want ErrUnavailable", err)
+	}
 	if _, err := r.ActivitySeries(context.Background(), "t1", 90); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("ActivitySeries err = %v, want ErrUnavailable", err)
 	}

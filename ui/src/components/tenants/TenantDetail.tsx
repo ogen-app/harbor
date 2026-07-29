@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import {
   ArrowLeftIcon,
   BracketsCurlyIcon,
+  XIcon,
   InstagramLogoIcon,
   FacebookLogoIcon,
   XLogoIcon,
@@ -498,18 +506,33 @@ function niceCountScale(max: number): { max: number; ticks: number[] } {
   return { max: niceMax, ticks };
 }
 
+// ActivitySelection is the chart-driven filter applied to the events table: a
+// category (from a legend click) optionally narrowed to one UTC day (from a
+// stacked sub-bar click). null means "latest events, unfiltered".
+type ActivitySelection = { category: string; date?: string };
+
 // ActivityChart is a 90-day daily event-volume chart with bars stacked and
 // coloured by category, a y-axis, per-day tooltips, and category hover-linking —
-// mirroring the DailyTokenCost chart.
+// mirroring the DailyTokenCost chart. Clicking a legend item selects that
+// category; clicking a stacked sub-bar selects that category on that day. The
+// current selection stays highlighted (its bars lit, others dimmed).
 function ActivityChart({
   series,
   categories,
+  selected,
+  onSelect,
 }: {
   series: ActivityDay[];
   categories: string[];
+  selected: ActivitySelection | null;
+  onSelect: (next: ActivitySelection) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const colorOf = new Map(categories.map((c) => [c, categoryColor(c)]));
+  // Hover gives transient feedback; the persisted selection lights its category
+  // whenever nothing is hovered. Either dims every other category.
+  const selectedCategory = selected?.category ?? null;
+  const active = hovered ?? selectedCategory;
 
   const maxDay = Math.max(0, ...series.map((d) => d.total));
   const { max: axisMax, ticks } = niceCountScale(maxDay);
@@ -564,23 +587,32 @@ function ActivityChart({
               const segs = categories
                 .map((c) => ({ category: c, count: d.counts[c] ?? 0 }))
                 .filter((s) => s.count > 0);
+              const daySelected = selected?.date === d.date;
               return (
                 <Tooltip key={d.date}>
                   <TooltipTrigger asChild>
                     <div
                       tabIndex={0}
                       aria-label={`${fmtDay(d.date)} · ${d.total} ${d.total === 1 ? "event" : "events"}`}
-                      className="flex h-full flex-1 cursor-default flex-col-reverse justify-start gap-px"
+                      className={cn(
+                        "flex h-full flex-1 cursor-default flex-col-reverse justify-start gap-px rounded-sm",
+                        daySelected && "bg-secondary/70",
+                      )}
                     >
                       {segs.map((s) => (
-                        <div
+                        <button
+                          type="button"
                           key={s.category}
                           onMouseEnter={() => setHovered(s.category)}
                           onMouseLeave={() => setHovered(null)}
+                          onClick={() =>
+                            onSelect({ category: s.category, date: d.date })
+                          }
+                          aria-label={`${prettyCategory(s.category)} · ${fmtDay(d.date)} · ${s.count} ${s.count === 1 ? "event" : "events"}`}
                           className={cn(
-                            "w-full rounded-sm transition-opacity",
+                            "w-full cursor-pointer rounded-sm transition-opacity",
                             colorOf.get(s.category),
-                            hovered && hovered !== s.category
+                            active && active !== s.category
                               ? "opacity-20"
                               : "opacity-100",
                           )}
@@ -604,7 +636,7 @@ function ActivityChart({
                           onMouseLeave={() => setHovered(null)}
                           className={cn(
                             "flex items-center justify-between gap-4 transition-opacity",
-                            hovered && hovered !== s.category && "opacity-40",
+                            active && active !== s.category && "opacity-40",
                           )}
                         >
                           <span className="flex items-center gap-1.5">
@@ -644,22 +676,28 @@ function ActivityChart({
         ))}
       </div>
 
-      {/* Legend */}
+      {/* Legend — each entry selects its category (click again to clear). */}
       {categories.length > 0 && (
         <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2">
           {categories.map((c) => (
-            <span
+            <button
+              type="button"
               key={c}
               onMouseEnter={() => setHovered(c)}
               onMouseLeave={() => setHovered(null)}
+              onClick={() => onSelect({ category: c })}
+              aria-pressed={selectedCategory === c}
               className={cn(
-                "flex cursor-default items-center gap-1.5 text-xs text-secondary-foreground transition-opacity",
-                hovered && hovered !== c && "opacity-40",
+                "flex cursor-pointer items-center gap-1.5 text-xs transition-opacity",
+                active && active !== c ? "opacity-40" : "opacity-100",
+                selectedCategory === c
+                  ? "font-medium text-foreground"
+                  : "text-secondary-foreground",
               )}
             >
               <span className={cn("size-2.5 rounded-sm", categoryColor(c))} />
               {prettyCategory(c)}
-            </span>
+            </button>
           ))}
         </div>
       )}
@@ -945,8 +983,25 @@ function ActivityTable({
   );
 }
 
+// One page of the events table. limit+1 on the server tells us whether an older
+// page exists, echoed back as hasMore.
+interface ActivityPageResponse {
+  activity?: ActivityEvent[];
+  hasMore?: boolean;
+  available: boolean;
+  error?: string;
+}
+
+// ACTIVITY_PAGE is the page size for both the initial load and each lazy-load;
+// LOAD_MORE_PX is how close to the bottom (in px) triggers the next page.
+const ACTIVITY_PAGE = 50;
+const LOAD_MORE_PX = 240;
+
 // ActivityCard is the screen-tall recent-activity panel: a 90-day volume chart,
-// a power-search filter, then a scrollable table of events.
+// a power-search filter, then a lazily-loaded, scrollable table of events. The
+// chart drives a server-side selection (a category, optionally one day); the
+// table then pages through just those events. With no selection it pages through
+// the tenant's latest events.
 function ActivityCard({
   state,
   tenantId,
@@ -954,31 +1009,172 @@ function ActivityCard({
   state: ActivityState;
   tenantId: string;
 }) {
-  const [filters, setFilters] = useState<ActivityFilterToken[]>([]);
+  const enc = encodeURIComponent(tenantId);
   const series = state.series ?? [];
   const categories = state.categories ?? [];
-  const events = useMemo(() => state.events ?? [], [state.events]);
   const total = series.reduce((sum, d) => sum + d.total, 0);
 
+  const [filters, setFilters] = useState<ActivityFilterToken[]>([]);
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [selection, setSelection] = useState<ActivitySelection | null>(null);
+  // listLoading covers a selection switch (whole table replaced); moreLoading a
+  // lazy-load appended to the bottom.
+  const [listLoading, setListLoading] = useState(false);
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+
+  // Seed the table from the parent's initial (unfiltered) fetch, once it lands.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || state.loading || state.error) return;
+    seeded.current = true;
+    setEvents(state.events ?? []);
+    setHasMore(state.hasMore ?? false);
+  }, [state]);
+
+  // Fetch one page for a selection, optionally after a keyset cursor (the last
+  // loaded event). Shared by selection switches and lazy-loads.
+  const fetchPage = useCallback(
+    async (
+      sel: ActivitySelection | null,
+      cursor?: ActivityEvent,
+    ): Promise<ActivityPageResponse> => {
+      const params = new URLSearchParams({ limit: String(ACTIVITY_PAGE) });
+      if (sel) {
+        params.set("category", sel.category);
+        if (sel.date) params.set("day", sel.date);
+      }
+      if (cursor) {
+        params.set("beforeAt", cursor.at);
+        params.set("beforeId", cursor.id);
+      }
+      const res = await fetch(`/api/tenants/${enc}/activity?${params.toString()}`);
+      if (!res.ok) throw new Error(`request failed (${res.status})`);
+      return (await res.json()) as ActivityPageResponse;
+    },
+    [enc],
+  );
+
+  // Switch the table to a new chart selection (or back to "latest"). A request
+  // counter drops any response that a newer selection has superseded.
+  const reqId = useRef(0);
+  const applySelection = useCallback(
+    (next: ActivitySelection | null) => {
+      setSelection(next);
+      setListError(null);
+      setListLoading(true);
+      const id = ++reqId.current;
+      fetchPage(next)
+        .then((j) => {
+          if (id !== reqId.current) return;
+          if (j.available) {
+            setEvents(j.activity ?? []);
+            setHasMore(Boolean(j.hasMore));
+          } else {
+            setEvents([]);
+            setHasMore(false);
+            setListError(j.error ?? "unavailable");
+          }
+        })
+        .catch((e: unknown) => {
+          if (id !== reqId.current) return;
+          setEvents([]);
+          setHasMore(false);
+          setListError(e instanceof Error ? e.message : "Failed to load");
+        })
+        .finally(() => {
+          if (id === reqId.current) setListLoading(false);
+        });
+    },
+    [fetchPage],
+  );
+
+  // Toggle: re-selecting the exact same category/day clears back to "latest".
+  const onSelect = useCallback(
+    (next: ActivitySelection) => {
+      const same =
+        selection?.category === next.category &&
+        (selection?.date ?? undefined) === next.date;
+      applySelection(same ? null : next);
+    },
+    [selection, applySelection],
+  );
+
+  // Append the next page of older events for the current view (infinite scroll).
+  const loadMore = useCallback(() => {
+    if (moreLoading || listLoading || !hasMore || events.length === 0) return;
+    setMoreLoading(true);
+    // Pin the current selection's request identity: if applySelection bumps it
+    // while this page is in flight, the page belongs to a superseded list and
+    // must not append (or overwrite hasMore).
+    const id = reqId.current;
+    const cursor = events[events.length - 1];
+    fetchPage(selection, cursor)
+      .then((j) => {
+        if (id !== reqId.current) return;
+        if (j.available) {
+          setEvents((prev) => [...prev, ...(j.activity ?? [])]);
+          setHasMore(Boolean(j.hasMore));
+        } else {
+          setHasMore(false);
+        }
+      })
+      .catch(() => {
+        // Leave hasMore untouched so a scroll can retry — a transient failure
+        // must not permanently end pagination for this view.
+      })
+      .finally(() => setMoreLoading(false));
+  }, [moreLoading, listLoading, hasMore, events, selection, fetchPage]);
+
+  // The filter bar narrows the loaded rows client-side (options come from them).
   const options = useMemo(() => activityOptions(events), [events]);
   const filtered = useMemo(
     () => events.filter((e) => filters.every((f) => matchActivity(f, e))),
     [events, filters],
   );
 
-  // Scroll-fade strips: fade content under the sticky header (top) and above the
-  // bottom edge, shown only while there is more to scroll to in that direction.
+  // Auto-fill is driven by the unfiltered loaded set, never the rendered rows: a
+  // narrow client-side filter must not page through the tenant's whole history
+  // just to fill the viewport with the few rows it matches.
+  const loadedCount = events.length;
+  const filterActive = filters.length > 0;
+
+  // Scroll-fade strips (fade under the sticky header / above the bottom edge) and
+  // the lazy-load trigger share one scroll handler.
   const scrollRef = useRef<HTMLDivElement>(null);
   const [atTop, setAtTop] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
-  const syncFades = (el: HTMLDivElement) => {
+  const onScroll = (el: HTMLDivElement) => {
     setAtTop(el.scrollTop <= 0);
-    setAtBottom(Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight);
+    const remaining = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    setAtBottom(Math.ceil(remaining) <= 0);
+    if (remaining < LOAD_MORE_PX) loadMore();
   };
-  // Recompute when the row set changes (the scrollable height changes with it).
+  // Recompute the fade strips whenever the rendered rows change (filter applied
+  // or cleared, page appended, selection switched).
   useEffect(() => {
-    if (scrollRef.current) syncFades(scrollRef.current);
+    const el = scrollRef.current;
+    if (!el) return;
+    setAtTop(el.scrollTop <= 0);
+    setAtBottom(Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0);
   }, [filtered]);
+
+  // Auto-page while the loaded (unfiltered) content doesn't fill the viewport, so
+  // short first pages can't strand more events out of reach. Suspended while a
+  // client-side filter is active — that filter narrows the loaded rows, it must
+  // not drive fetching, and loadMore stops once hasMore is exhausted.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || filterActive || loadedCount === 0) return;
+    if (el.scrollHeight <= el.clientHeight + 4) loadMore();
+  }, [loadedCount, filterActive, loadMore]);
+
+  // A new chart selection replaces the whole list — jump back to the top so its
+  // newest events are in view rather than a stale scroll offset.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [selection]);
 
   return (
     <section className="flex h-[calc(100vh-13rem)] min-h-[32rem] flex-col overflow-hidden rounded-lg bg-primary">
@@ -987,7 +1183,7 @@ function ActivityCard({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
             Recent activity
           </h2>
-          <InfoIcon text="Behavioural events for this tenant from the centralised activity_events store (Ogen CON-125). The chart shows daily event volume over the last 90 days; the table lists individual events, filterable by category, type, status, and source." />
+          <InfoIcon text="Behavioural events for this tenant from the centralised activity_events store (Ogen CON-125). The chart shows daily event volume over the last 90 days; the table lists individual events. Click a bar or legend entry to focus the table on that category (and day); it lazy-loads more as you scroll." />
         </div>
         {!state.loading && !state.error && (
           <span className="text-xs tabular-nums text-tertiary-foreground">
@@ -1008,8 +1204,44 @@ function ActivityCard({
       ) : (
         <>
           <div className="border-b border-border p-6">
-            <ActivityChart series={series} categories={categories} />
+            <ActivityChart
+              series={series}
+              categories={categories}
+              selected={selection}
+              onSelect={onSelect}
+            />
           </div>
+          {/* Active chart selection — shown only when the table is focused on a
+              category/day, with a control to clear it back to latest events. */}
+          {selection && (
+            <div className="flex items-center gap-2 border-b border-border px-6 py-2.5 text-xs">
+              <span className="text-tertiary-foreground">Showing</span>
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1">
+                <span
+                  className={cn(
+                    "size-2 rounded-sm",
+                    categoryColor(selection.category),
+                  )}
+                />
+                <span className="font-medium text-foreground">
+                  {prettyCategory(selection.category)}
+                </span>
+                {selection.date && (
+                  <span className="text-tertiary-foreground">
+                    · {fmtDay(selection.date)}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => applySelection(null)}
+                className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-tertiary-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <XIcon className="size-3.5" weight="bold" />
+                Clear
+              </button>
+            </div>
+          )}
           {/* Filter — placed between the chart and the table. */}
           <div className="border-b border-border px-6 py-3">
             <ActivityFilterBar
@@ -1023,10 +1255,34 @@ function ActivityCard({
           <div className="relative min-h-0 flex-1">
             <div
               ref={scrollRef}
-              onScroll={(e) => syncFades(e.currentTarget)}
+              onScroll={(e) => onScroll(e.currentTarget)}
               className="h-full overflow-auto"
             >
-              <ActivityTable events={filtered} tenantId={tenantId} />
+              {listLoading && events.length === 0 ? (
+                <div className="flex items-center gap-2 px-6 py-6 text-xs text-tertiary-foreground">
+                  <Loader className="size-3.5 border-[1.5px]" />
+                  Loading events…
+                </div>
+              ) : listError ? (
+                <p className="px-6 py-6 text-xs text-tertiary-foreground">
+                  Events unavailable — {listError}
+                </p>
+              ) : (
+                <>
+                  <ActivityTable events={filtered} tenantId={tenantId} />
+                  {moreLoading && (
+                    <div className="flex items-center justify-center gap-2 px-6 py-4 text-xs text-tertiary-foreground">
+                      <Loader className="size-3.5 border-[1.5px]" />
+                      Loading more…
+                    </div>
+                  )}
+                  {!hasMore && !listLoading && filtered.length > 0 && (
+                    <p className="px-6 py-4 text-center text-[11px] text-tertiary-foreground">
+                      End of activity
+                    </p>
+                  )}
+                </>
+              )}
             </div>
             {/* Top strip — sits just below the 40px sticky header. */}
             <div
@@ -1098,9 +1354,9 @@ export function TenantDetail() {
         setError(e instanceof Error ? e.message : "Failed to load");
       });
 
-    // Request a full page of events so the (filterable) table isn't near-empty;
-    // the chart series is always the dense 90-day window regardless.
-    fetch(`/api/tenants/${enc}/activity?limit=200`, { signal: controller.signal })
+    // Load the first page of events; the table lazy-loads older ones on scroll.
+    // The chart series is always the dense 90-day window regardless of the page.
+    fetch(`/api/tenants/${enc}/activity?limit=50`, { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`request failed (${r.status})`);
         return r.json();
@@ -1110,6 +1366,7 @@ export function TenantDetail() {
           activity: ActivityEvent[];
           series?: ActivityDay[];
           categories?: string[];
+          hasMore?: boolean;
           available: boolean;
           error?: string;
         }) =>
@@ -1120,6 +1377,7 @@ export function TenantDetail() {
                   events: j.activity,
                   series: j.series,
                   categories: j.categories,
+                  hasMore: j.hasMore,
                 }
               : { loading: false, error: j.error ?? "unavailable" },
           ),
