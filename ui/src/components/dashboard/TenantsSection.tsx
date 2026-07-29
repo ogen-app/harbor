@@ -37,7 +37,8 @@ interface Spend {
     available: boolean;
     periodStart: string | null;
     totalMicros: number;
-    top: SpendTenant[];
+    // null when the analytics DB is unavailable (a nil Go slice marshals to null).
+    top: SpendTenant[] | null;
 }
 interface Exceptions {
     failedPublishes24h: number;
@@ -272,8 +273,11 @@ function QuotaTile() {
 }
 
 function SpendTile({ s }: { s: Spend }) {
-    const maxCost = Math.max(1, ...s.top.map((t) => t.costMicros));
-    const hasOther = s.top.some((t) => t.otherMicros > 0);
+    // top is null when analytics is unavailable; normalise before use so the
+    // metrics below never run against a null (the "unavailable" state renders).
+    const top = s.top ?? [];
+    const maxCost = Math.max(1, ...top.map((t) => t.costMicros));
+    const hasOther = top.some((t) => t.otherMicros > 0);
     return (
         <Tile
             title="AI spend concentration"
@@ -298,12 +302,12 @@ function SpendTile({ s }: { s: Spend }) {
                         {hasOther && <Dot color="bg-neutral-400" label="Other" />}
                     </div>
                     <div className="mt-3 space-y-2">
-                        {s.top.length === 0 && (
+                        {top.length === 0 && (
                             <p className="text-xs text-tertiary-foreground">
                                 No spend yet this period
                             </p>
                         )}
-                        {s.top.map((t) => (
+                        {top.map((t) => (
                             <div key={t.tenantId}>
                                 <div className="flex items-center justify-between gap-3 text-xs">
                                     <span className="truncate font-medium text-foreground">
