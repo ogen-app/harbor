@@ -46,6 +46,8 @@ export interface ActivityState {
   events?: ActivityEvent[];
   series?: ActivityDay[];
   categories?: string[];
+  // Whether older events remain past the first page (drives lazy-loading).
+  hasMore?: boolean;
 }
 
 export interface TenantUser {

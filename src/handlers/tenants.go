@@ -318,20 +318,27 @@ type activityDay struct {
 
 // Activity godoc
 // @Summary      Tenant recent activity
-// @Description  A tenant's recent activity_events (newest first) plus a dense
-// @Description  90-day daily event-count series for the detail page's activity
-// @Description  chart. Sourced from the centralised activity_events hypertable in
-// @Description  the analytics DB (Ogen CON-125). Also loaded when a row is
-// @Description  expanded in the Tenants table.
+// @Description  A tenant's recent activity_events (newest first) plus, on the
+// @Description  initial unfiltered page, a dense 90-day daily event-count series
+// @Description  for the detail page's activity chart. Events page via a keyset
+// @Description  cursor (beforeAt+beforeId) and can be scoped to one category
+// @Description  and/or UTC day; hasMore signals whether an older page exists.
+// @Description  Sourced from the centralised activity_events hypertable in the
+// @Description  analytics DB (Ogen CON-125). Also loaded when a row is expanded
+// @Description  in the Tenants table.
 // @Tags         tenants
 // @Produce      json
-// @Param        id     path   string  true   "Tenant ID"
-// @Param        limit  query  int     false  "Max events (1-500, default 15)"
+// @Param        id        path   string  true   "Tenant ID"
+// @Param        limit     query  int     false  "Max events (1-500, default 15)"
+// @Param        category  query  string  false  "Only events in this category"
+// @Param        day       query  string  false  "Only events on this UTC day (YYYY-MM-DD)"
+// @Param        beforeAt  query  string  false  "Keyset cursor: occurred_at of the last loaded event (RFC3339)"
+// @Param        beforeId  query  string  false  "Keyset cursor: id of the last loaded event"
 // @Success      200  {object}  map[string]any
 // @Router       /api/tenants/{id}/activity [get]
 func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 	if !h.activity.Available() {
-		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "categories": []string{}, "available": false, "error": "analytics database not configured"})
+		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "categories": []string{}, "hasMore": false, "available": false, "error": "analytics database not configured"})
 	}
 	id := c.Params("id")
 
@@ -343,9 +350,35 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 		limit = activityMaxLimit
 	}
 
-	events, err := h.activity.RecentActivity(c.Context(), id, limit)
+	q := analytics.ActivityQuery{
+		TenantID: id,
+		Category: strings.TrimSpace(c.Query("category")),
+		Day:      strings.TrimSpace(c.Query("day")),
+		Limit:    limit + 1, // one extra row tells us whether an older page exists
+	}
+	// Keyset cursor for lazy-loading older events: the client echoes back the last
+	// row's occurred_at + id. A malformed timestamp is ignored (first page).
+	if at := strings.TrimSpace(c.Query("beforeAt")); at != "" {
+		if t, perr := time.Parse(time.RFC3339Nano, at); perr == nil {
+			q.BeforeAt = t
+			q.BeforeID = strings.TrimSpace(c.Query("beforeId"))
+			q.HasCursor = true
+		}
+	}
+
+	events, err := h.activity.Events(c.Context(), q)
 	if err != nil {
-		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "categories": []string{}, "available": false, "error": err.Error()})
+		return c.JSON(fiber.Map{"activity": []analytics.ActivityEvent{}, "series": []activityDay{}, "categories": []string{}, "hasMore": false, "available": false, "error": err.Error()})
+	}
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
+	}
+
+	// The chart's dense series + legend are only needed on the initial, unfiltered
+	// page; the client keeps them while paging and switching chart selections.
+	if q.HasCursor || q.Category != "" || q.Day != "" {
+		return c.JSON(fiber.Map{"activity": events, "hasMore": hasMore, "available": true})
 	}
 
 	// 90-day daily event counts split by category, zero-filled for the chart.
@@ -391,7 +424,7 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 		return categories[a] < categories[b]
 	})
 
-	return c.JSON(fiber.Map{"activity": events, "series": series, "categories": categories, "available": true})
+	return c.JSON(fiber.Map{"activity": events, "series": series, "categories": categories, "hasMore": hasMore, "available": true})
 }
 
 // ActivityEvent godoc
