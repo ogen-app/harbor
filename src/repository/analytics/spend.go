@@ -1,5 +1,5 @@
 // Package analytics holds the bun-backed data-access layer for the external
-// Ogen analytics/TimescaleDB pool (usage_events → AI spend). One of the three
+// Ogen analytics/TimescaleDB pool (vendor_usage_events → AI spend). One of the three
 // origin-differentiated repository packages, alongside harbor and ogen.
 //
 // Every read is best-effort: the pool may be nil (unconfigured) or unreachable.
@@ -79,7 +79,7 @@ func (r *spendRepository) Rollup(ctx context.Context) ([]VendorCost, error) {
 	var rows []VendorCost
 	err := r.db.NewRaw(`
 		SELECT tenant_id, vendor, sum(cost_micros) AS cost_micros
-		FROM usage_events
+		FROM vendor_usage_events
 		WHERE occurred_at >= date_trunc('month', now())
 		GROUP BY tenant_id, vendor`).Scan(ctx, &rows)
 	if err != nil {
@@ -124,7 +124,7 @@ func (r *spendRepository) dailyCostByModel(ctx context.Context, tenantID string,
 	//
 	// The WHERE compares the bare occurred_at against a UTC-midnight lower bound
 	// (start of the earliest of exactly windowDays days ending today) rather than
-	// casting the column to a date: usage_events is a TimescaleDB hypertable, and
+	// casting the column to a date: vendor_usage_events is a TimescaleDB hypertable, and
 	// a cast on the partitioning column defeats chunk exclusion and the
 	// occurred_at index. >= is inclusive so rows exactly at midnight are kept.
 	//
@@ -141,7 +141,7 @@ func (r *spendRepository) dailyCostByModel(ctx context.Context, tenantID string,
 		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
 		       COALESCE(NULLIF(model, ''), 'unknown') AS model,
 		       sum(cost_micros) AS cost_micros
-		FROM usage_events
+		FROM vendor_usage_events
 		WHERE occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
 		                      - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
 		       %s
@@ -162,7 +162,7 @@ func (r *spendRepository) PeriodTotalMicros(ctx context.Context) (int64, error) 
 	}
 	var total int64
 	err := r.db.NewRaw(`
-		SELECT COALESCE(sum(cost_micros), 0) FROM usage_events
+		SELECT COALESCE(sum(cost_micros), 0) FROM vendor_usage_events
 		WHERE occurred_at >= date_trunc('month', now())`).Scan(ctx, &total)
 	if err != nil {
 		logFail("spend.total", err)
@@ -190,7 +190,7 @@ func addVendorCost(s *VendorSpend, vendor string, costMicros int64) {
 	}
 }
 
-// classifyVendor maps a usage_events vendor string to a model-family bucket.
+// classifyVendor maps a vendor_usage_events vendor string to a model-family bucket.
 func classifyVendor(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch {

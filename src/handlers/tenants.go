@@ -318,12 +318,12 @@ type activityDay struct {
 
 // Activity godoc
 // @Summary      Tenant recent activity
-// @Description  A tenant's recent activity_events (newest first) plus, on the
+// @Description  A tenant's recent tenant_activity_events (newest first) plus, on the
 // @Description  initial unfiltered page, a dense 90-day daily event-count series
 // @Description  for the detail page's activity chart. Events page via a keyset
 // @Description  cursor (beforeAt+beforeId) and can be scoped to one category
 // @Description  and/or UTC day; hasMore signals whether an older page exists.
-// @Description  Sourced from the centralised activity_events hypertable in the
+// @Description  Sourced from the centralised tenant_activity_events hypertable in the
 // @Description  analytics DB (Ogen CON-125). Also loaded when a row is expanded
 // @Description  in the Tenants table.
 // @Tags         tenants
@@ -433,7 +433,7 @@ func (h *TenantsHandler) Activity(c *fiber.Ctx) error {
 
 // ActivityEvent godoc
 // @Summary      Tenant activity event detail
-// @Description  Every field of a single activity_events row (except tenant_id),
+// @Description  Every field of a single tenant_activity_events row (except tenant_id),
 // @Description  including tags and payload, for the detail popover. Loaded on
 // @Description  demand when the row's details button is clicked.
 // @Tags         tenants

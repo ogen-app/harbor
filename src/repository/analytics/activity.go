@@ -12,7 +12,7 @@ import (
 )
 
 // ActivityEvent is one entry in a tenant's recent-activity feed, sourced from
-// the centralised activity_events hypertable in the analytics DB (Ogen CON-125,
+// the centralised tenant_activity_events hypertable in the analytics DB (Ogen CON-125,
 // which superseded the control-plane post_logs audit trail). Its JSON shape is
 // served directly to the tenant detail page and the Tenants-table expanded row.
 type ActivityEvent struct {
@@ -24,7 +24,7 @@ type ActivityEvent struct {
 	Source   string    `bun:"source"      json:"source"`
 }
 
-// ActivityEventDetail is the full activity_events row for the per-event details
+// ActivityEventDetail is the full tenant_activity_events row for the per-event details
 // popover — every column except tenant_id. Tags and Payload pass through as raw
 // JSON (a JSON array and object respectively).
 type ActivityEventDetail struct {
@@ -67,7 +67,7 @@ type ActivityQuery struct {
 }
 
 // ActivityRepository reads a tenant's behavioural activity from the analytics
-// activity_events hypertable. Best-effort like SpendRepository: a nil pool
+// tenant_activity_events hypertable. Best-effort like SpendRepository: a nil pool
 // returns ErrUnavailable and query failures are logged at debug.
 type ActivityRepository interface {
 	// Available reports whether the analytics pool is configured.
@@ -155,7 +155,7 @@ func (r *activityRepository) Events(ctx context.Context, q ActivityQuery) ([]Act
 			type,
 			COALESCE(status, '') AS status,
 			COALESCE(source, '') AS source
-		FROM activity_events
+		FROM tenant_activity_events
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY occurred_at DESC, id DESC
 		LIMIT ?`
@@ -189,7 +189,7 @@ func (r *activityRepository) ActivityByID(ctx context.Context, tenantID, eventID
 			COALESCE(tags, '[]'::jsonb)    AS tags,
 			COALESCE(payload, '{}'::jsonb) AS payload,
 			occurred_at
-		FROM activity_events
+		FROM tenant_activity_events
 		WHERE tenant_id = ? AND id = ?
 		LIMIT 1`, tenantID, eventID).Scan(ctx, d)
 	if err != nil {
@@ -214,7 +214,7 @@ func (r *activityRepository) ActivitySeries(ctx context.Context, tenantID string
 		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
 		       category,
 		       count(*) AS count
-		FROM activity_events
+		FROM tenant_activity_events
 		WHERE tenant_id = ?
 		  AND occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
 		                      - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'

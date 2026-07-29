@@ -48,7 +48,7 @@ Harbor talks to three Postgres databases:
 | --- | --- | --- |
 | **Harbor** (`DATABASE_DSN`) | read/write, **migrated** | Its own store (users, sessions). Created on start if missing, then migrated. |
 | **Ogen control-plane** (`OGEN_DATABASE_DSN`) | read/write, never migrated | Tenants, users, Zernio profiles, activity. |
-| **Ogen analytics / TimescaleDB** (`ANALYTICS_DSN`) | read, never migrated | `usage_events` → AI token cost. |
+| **Ogen analytics / TimescaleDB** (`ANALYTICS_DSN`) | read, never migrated | `vendor_usage_events` → AI token cost. |
 
 The external Ogen databases are **fail-open**: a connect failure at boot is
 logged but non-fatal (the pool reconnects on use), so Harbor still serves its

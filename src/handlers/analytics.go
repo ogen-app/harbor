@@ -10,7 +10,7 @@ import (
 )
 
 // AnalyticsHandler serves aggregate views over the Ogen analytics/TimescaleDB
-// pool (usage_events). Best-effort: an unconfigured or unreachable pool is
+// pool (vendor_usage_events). Best-effort: an unconfigured or unreachable pool is
 // reported as a soft "unavailable" state so the dashboard still renders.
 type AnalyticsHandler struct {
 	spend analytics.SpendRepository
