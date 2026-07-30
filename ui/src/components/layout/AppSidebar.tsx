@@ -22,23 +22,32 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
-import { SidebarSimpleIcon, WavesIcon } from "@phosphor-icons/react";
+import {
+    SidebarSimpleIcon,
+    WavesIcon,
+    PulseIcon,
+    type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
 
+// A nav item's icon is either the name of a local SVG (rendered via <Icon/>) or a
+// Phosphor icon component (rendered directly), so items can mix both sources.
+type NavIconName =
+    | "nav_portfolios"
+    | "nav_ideas"
+    | "nav_settings"
+    | "nav_dashboard"
+    | "nav_journal"
+    | "nav_screening"
+    | "nav_strategy"
+    | "nav_watchlist"
+    | "layout"
+    | "tenants"
+    | "database";
+
 type NavItem = {
-    icon:
-        | "nav_portfolios"
-        | "nav_ideas"
-        | "nav_settings"
-        | "nav_dashboard"
-        | "nav_journal"
-        | "nav_screening"
-        | "nav_strategy"
-        | "nav_watchlist"
-        | "layout"
-        | "tenants"
-        | "database";
+    icon: NavIconName | PhosphorIcon;
     label: string;
     href: string;
     active?: boolean;
@@ -46,6 +55,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
     { icon: "tenants", label: "Tenants", href: "/tenants" },
+    { icon: PulseIcon, label: "Activity", href: "/activity" },
     { icon: "database", label: "Databases", href: "/databases" },
     { icon: "layout", label: "Design system", href: "/design-system" },
 ];
@@ -108,6 +118,7 @@ export function AppSidebar({
     useHotkeys("bracketleft", toggle, { preventDefault: true });
     useHotkeys("g>g", () => router.push("/"), { preventDefault: true });
     useHotkeys("g>t", () => router.push("/tenants"), { preventDefault: true });
+    useHotkeys("g>a", () => router.push("/activity"), { preventDefault: true });
     useHotkeys("g>d", () => router.push("/databases"), { preventDefault: true });
     useHotkeys("g>s", () => router.push("/settings"), { preventDefault: true });
 
@@ -169,10 +180,14 @@ export function AppSidebar({
                                     "bg-sidebar-secondary text-secondary-foreground icon-sidebar-active",
                             )}
                         >
-                            <Icon
-                                name={item.icon}
-                                className="size-5 shrink-0 stroke-[1.5]"
-                            />
+                            {typeof item.icon === "string" ? (
+                                <Icon
+                                    name={item.icon}
+                                    className="size-5 shrink-0 stroke-[1.5]"
+                                />
+                            ) : (
+                                <item.icon className="size-5 shrink-0" />
+                            )}
                             <span
                                 className={cn(
                                     "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",

@@ -27,6 +27,9 @@ export interface Tenant {
 
 export interface ActivityEvent {
   id: string;
+  // The owning tenant. Always populated; used by the global Activity feed to
+  // attribute each row and to load its detail (which is tenant-scoped).
+  tenantId: string;
   at: string;
   category: string;
   type: string;
