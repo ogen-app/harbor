@@ -86,6 +86,9 @@ func main() {
 	case cfg.OgenGRPCAddr != "" && cfg.OgenGRPCToken == "":
 		slog.Warn("ogen secrets client disabled: OGEN_GRPC_ADDR set but OGEN_GRPC_TOKEN empty",
 			logging.AttrComponent, "boot")
+	case cfg.OgenGRPCAddr == "" && cfg.OgenGRPCToken != "":
+		slog.Warn("ogen secrets client disabled: OGEN_GRPC_TOKEN set but OGEN_GRPC_ADDR empty",
+			logging.AttrComponent, "boot")
 	default:
 		slog.Info("ogen secrets client disabled (OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN unset)", logging.AttrComponent, "boot")
 	}
