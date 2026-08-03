@@ -33,7 +33,9 @@ function LockIcon({ className }: { className?: string }) {
 }
 
 function relativeTime(iso: string): string {
-  const secs = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return "unknown"; // empty or malformed timestamp
+  const secs = Math.max(0, (Date.now() - ms) / 1000);
   if (secs < 60) return "just now";
   const m = Math.floor(secs / 60);
   if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
