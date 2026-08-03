@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 import { SecretsTab } from "@/components/settings/SecretsTab";
 
@@ -11,6 +11,14 @@ const SETTINGS_TABS = ["Secrets"] as const;
 
 const tabId = (i: number) => `settings-tab-${i}`;
 const tabPanelId = (i: number) => `settings-tabpanel-${i}`;
+
+// Tab-panel ARIA wiring is applied only when the tablist actually renders
+// (>1 tab). With a single tab there is no tab button to point at, so
+// aria-labelledby would dangle — fall back to a plain container instead.
+const panelProps = (i: number): HTMLAttributes<HTMLDivElement> =>
+  SETTINGS_TABS.length > 1
+    ? { role: "tabpanel", id: tabPanelId(i), "aria-labelledby": tabId(i), tabIndex: 0 }
+    : {};
 
 export default function SettingsPage() {
   const [tab, setTab] = useState(0);
@@ -82,12 +90,7 @@ export default function SettingsPage() {
         )}
 
         {tab === 0 && (
-          <div
-            role="tabpanel"
-            id={tabPanelId(0)}
-            aria-labelledby={tabId(0)}
-            tabIndex={0}
-          >
+          <div {...panelProps(0)}>
             <SecretsTab />
           </div>
         )}
