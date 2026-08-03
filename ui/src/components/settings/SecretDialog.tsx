@@ -81,6 +81,9 @@ function SecretForm({
 
   const effectiveName = mode === "update" ? name : (name ?? selectedName);
   const nameFixed = mode === "update" || !!name;
+  // The name is an editable <select> (labelable) only in create mode with
+  // unset names; otherwise it's static text, which a <label for> can't target.
+  const showSelect = !nameFixed && unsetNames.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,12 +132,17 @@ function SecretForm({
       </DialogHeader>
 
       <div className="grid gap-1.5">
-        <Label htmlFor="secret-name">Name</Label>
+        <Label id="secret-name-label" htmlFor={showSelect ? "secret-name" : undefined}>
+          Name
+        </Label>
         {nameFixed ? (
-          <div id="secret-name" className="font-mono text-sm text-foreground">
+          <div
+            aria-labelledby="secret-name-label"
+            className="font-mono text-sm text-foreground"
+          >
             {effectiveName}
           </div>
-        ) : unsetNames.length > 0 ? (
+        ) : showSelect ? (
           <select
             id="secret-name"
             value={selectedName}
