@@ -1,0 +1,18 @@
+# Generate the Go gRPC CLIENT stubs for proto/secrets/v1 into ./gen.
+#
+# Harbor only consumes SecretsService (implemented in ../ogen). Generating our
+# own stubs — rather than importing ogen/gen — keeps Harbor's module graph lean
+# (just google.golang.org/grpc + protobuf), matching Harbor's single-lean-binary
+# design. The proto here is a pinned mirror of ogen's canonical contract.
+version: v1
+managed:
+  enabled: true
+  go_package_prefix:
+    default: github.com/ogen-app/harbor/gen
+plugins:
+  - plugin: go
+    out: gen
+    opt: paths=source_relative
+  - plugin: go-grpc
+    out: gen
+    opt: paths=source_relative
