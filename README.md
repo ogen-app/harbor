@@ -22,6 +22,13 @@ Access is gated by **Google sign-in** against an email allowlist.
   connected Postgres databases, auto-refreshing.
 - **AI spend analytics** — per-day, per-model token cost sourced from Ogen's
   analytics (TimescaleDB) database.
+- **Settings → Secrets** (`/settings`) — a GitHub-style manager for Ogen's
+  third-party API keys (the allowlisted `public.secret` entries). Harbor never
+  touches the encrypted table directly: it calls a small internal **gRPC**
+  service in Ogen that wraps Ogen's own `secrets.Store`, so envelope encryption,
+  the name allowlist, and hot-reload of rotated keys are all reused, not
+  duplicated. Values are write-only (set/rotate/clear; never read back). Enabled
+  by `OGEN_GRPC_ADDR` + `OGEN_GRPC_TOKEN` (matching Ogen's `GRPC_AUTH_TOKEN`).
 
 Small keyboard affordances throughout: `j`/`k`/`↓`/`↑` move a highlighted row in
 the tenants table and `o`/`Enter` open it; number keys switch tabs.
