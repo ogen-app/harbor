@@ -34,6 +34,18 @@ type Config struct {
 	OgenDSN      string `envconfig:"OGEN_DATABASE_DSN" default:"postgres://ogen:ogen@postgres:5432/ogen?sslmode=disable"`
 	AnalyticsDSN string `envconfig:"ANALYTICS_DSN"     default:"postgres://ogen:ogen@timescaledb:5432/ogen_analytics?sslmode=disable"`
 
+	// Ogen's internal operator gRPC surface — how Harbor manages Ogen's
+	// envelope-encrypted `secret` table without touching the DB (it goes through
+	// Ogen's secrets.Store, reusing the crypto/allowlist/hot-reload). The Secrets
+	// settings tab is enabled only when BOTH are set (matching Ogen's server,
+	// which starts only when both are set); otherwise the tab renders
+	// "unavailable". Both default empty so the feature is opt-in and never blocks
+	// boot. OgenGRPCToken must match Ogen's GRPC_AUTH_TOKEN; it is sent as a
+	// bearer token in gRPC metadata and never logged. Local host value is
+	// localhost:9091 (Ogen's exposed port); in-cluster, the private hostname.
+	OgenGRPCAddr  string `envconfig:"OGEN_GRPC_ADDR"  default:""`
+	OgenGRPCToken string `envconfig:"OGEN_GRPC_TOKEN" default:""`
+
 	// CORS allowlist for a decoupled UI origin. Empty (the default) disables
 	// the CORS middleware entirely — the production build serves the UI from
 	// the same origin as the API (single binary, embedded export), and

@@ -21,6 +21,10 @@ services:
       ADDR: ":9002"
       DATABASE_DSN: "postgres://harbor:harbor@postgres:5432/harbor?sslmode=disable"
       DEBUG: "false"
+      # Ogen internal gRPC surface for the Settings → Secrets tab. Empty addr
+      # disables the tab; the token must match Ogen's GRPC_AUTH_TOKEN.
+      OGEN_GRPC_ADDR: "${OGEN_GRPC_ADDR:-}"
+      OGEN_GRPC_TOKEN: "${OGEN_GRPC_TOKEN:-}"
     ports:
       - "9002:9002"
     depends_on:

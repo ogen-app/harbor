@@ -20,6 +20,7 @@ import (
 	"github.com/ogen-app/harbor/src/config"
 	"github.com/ogen-app/harbor/src/database"
 	"github.com/ogen-app/harbor/src/logging"
+	"github.com/ogen-app/harbor/src/repository/ogensecrets"
 	"github.com/ogen-app/harbor/src/server"
 	"github.com/ogen-app/harbor/src/ui"
 )
@@ -70,12 +71,34 @@ func main() {
 		defer analyticsDB.Close()
 	}
 
+	// gRPC client for Ogen's internal secrets surface. Enabled only when both
+	// OGEN_GRPC_ADDR and OGEN_GRPC_TOKEN are set; otherwise the client is nil and
+	// the Secrets tab renders "unavailable" (fail-open, never a boot error).
+	// grpc.NewClient connects lazily, so this never blocks on Ogen being up.
+	secretsClient, err := ogensecrets.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen secrets client", err)
+	}
+	switch {
+	case secretsClient != nil:
+		defer secretsClient.Close()
+		slog.Info("ogen secrets client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	case cfg.OgenGRPCAddr != "" && cfg.OgenGRPCToken == "":
+		slog.Warn("ogen secrets client disabled: OGEN_GRPC_ADDR set but OGEN_GRPC_TOKEN empty",
+			logging.AttrComponent, "boot")
+	case cfg.OgenGRPCAddr == "" && cfg.OgenGRPCToken != "":
+		slog.Warn("ogen secrets client disabled: OGEN_GRPC_TOKEN set but OGEN_GRPC_ADDR empty",
+			logging.AttrComponent, "boot")
+	default:
+		slog.Info("ogen secrets client disabled (OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN unset)", logging.AttrComponent, "boot")
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}

@@ -33,7 +33,7 @@ func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 	}
 	db := bun.NewDB(sqldb, pgdialect.New())
 
-	app, err := New(t.Context(), db, nil, nil, &config.Config{}, uiFS)
+	app, err := New(t.Context(), db, nil, nil, nil, &config.Config{}, uiFS)
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}
