@@ -31,7 +31,12 @@ ui-install:
 # server). Next proxies /api to the Go server, so the browser sees one origin.
 run: dev-api
 
+# Load .env (if present) so the live-reloaded server sees GOOGLE_CLIENT_ID and
+# the other keys; air's child process inherits these exported vars. `set -a`
+# auto-exports everything sourced. Dev only — prod/docker-compose set env
+# explicitly and never rely on this, and a missing .env is a no-op.
 dev-api:
+	set -a; [ -f .env ] && . ./.env; set +a; \
 	go run github.com/air-verse/air@latest
 
 ui-dev: ui-install
