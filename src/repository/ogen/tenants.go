@@ -117,8 +117,16 @@ const metricsSelect = `
 			WHERE u.tenant_id = t.id) AS users,
 		(SELECT count(*) FROM social_accounts sa
 			WHERE sa.tenant_id = t.id AND sa.is_active = true AND sa.deleted_at IS NULL) AS zernio_profiles,
-		(SELECT COALESCE(sum(af.size_bytes), 0) FROM asset_files af
-			WHERE af.tenant_id = t.id) AS r2_bytes
+		-- R2 storage spans both R2-backed tables: uploaded library assets
+		-- (asset_files) and media attached to posts (post_attachments). Summing
+		-- only asset_files under-reported tenants whose files are post media as 0.
+		(
+			(SELECT COALESCE(sum(af.size_bytes), 0) FROM asset_files af
+				WHERE af.tenant_id = t.id)
+			+
+			(SELECT COALESCE(sum(pa.size_bytes), 0) FROM post_attachments pa
+				WHERE pa.tenant_id = t.id)
+		) AS r2_bytes
 	FROM tenants t`
 
 func (r *tenantRepository) ListMetrics(ctx context.Context) ([]TenantMetrics, error) {
