@@ -26,6 +26,7 @@ import {
     SidebarSimpleIcon,
     WavesIcon,
     PulseIcon,
+    PaperPlaneRightIcon,
     type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -236,6 +237,27 @@ export function AppSidebar({
                         )}
                     >
                         Secrets
+                    </span>
+                </Link>
+
+                <Link
+                    href="/email-templates"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                        activeHref.startsWith("/email-templates") &&
+                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
+                    )}
+                >
+                    <PaperPlaneRightIcon className="size-5 shrink-0" />
+                    <span
+                        className={cn(
+                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Email templates
                     </span>
                 </Link>
 

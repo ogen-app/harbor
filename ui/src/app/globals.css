@@ -401,3 +401,26 @@
     font-family: var(--font-plex-mono), ui-monospace, "SF Mono", monospace;
     font-weight: 600;
 }
+
+/* Line-number gutter for the react-simple-code-editor on the email-templates
+   page. Numbers are injected into the highlight layer as absolutely-positioned
+   spans; `top:auto` keeps each on its logical line's first row. The 3rem left
+   padding (forced on both the <pre> and the overlaid <textarea> so the caret
+   stays aligned) reserves the gutter, so wrapped continuation lines hang-indent
+   under the code rather than dedenting to the gutter. overflow-wrap breaks the
+   long inline-style lines instead of scrolling sideways. Numbers live in the
+   highlight layer only, so the textarea value (and anything copied) stays
+   number-free. */
+.code-editor-body {
+    padding-left: 3.3rem !important;
+    overflow-wrap: break-word;
+}
+.code-editor .editor-line-number {
+    position: absolute;
+    left: 0;
+    width: 2.25rem;
+    text-align: right;
+    color: var(--tertiary-foreground);
+    user-select: none;
+    pointer-events: none;
+}
