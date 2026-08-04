@@ -170,21 +170,11 @@ export function SecretsTab() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-display font-medium">Secrets</h2>
           <p className="text-sm text-tertiary-foreground">
             Encrypted credentials Ogen uses for third-party integrations.
             Values are write-only — they can be set or rotated, never read back.
           </p>
         </div>
-        <Button
-          onClick={() => openCreate()}
-          disabled={allSet || !data?.available}
-          className="shrink-0"
-          title={allSet ? "Every secret is already set" : undefined}
-        >
-          <Icon name="plus" className="size-3.5" />
-          New secret
-        </Button>
       </div>
 
       {/* States */}
