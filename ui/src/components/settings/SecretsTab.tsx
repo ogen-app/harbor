@@ -342,7 +342,7 @@ function SecretRow({
               >
                 <Icon
                   name="edit"
-                  className="size-4"
+                  className="size-6"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
@@ -356,7 +356,7 @@ function SecretRow({
               >
                 <Icon
                   name="trash_bin"
-                  className="size-4"
+                  className="size-6"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
