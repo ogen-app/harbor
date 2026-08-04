@@ -60,6 +60,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	// External Ogen control-plane + analytics pools (may be nil until reachable;
 	// the repositories report that as an unavailable state).
 	tenantRepo := ogen.NewTenantRepository(ogenDB)
+	emailTemplateRepo := ogen.NewEmailTemplateRepository(ogenDB)
 	spendRepo := analytics.NewSpendRepository(analyticsDB)
 	activityRepo := analytics.NewActivityRepository(analyticsDB)
 
@@ -82,6 +83,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	handlers.NewStatusHandler(ogenDB, analyticsDB).Register(app, requireAuth)
 	handlers.NewTenantsHandler(tenantRepo, spendRepo, activityRepo).Register(app, requireAuth)
 	handlers.NewAnalyticsHandler(spendRepo).Register(app, requireAuth)
+	handlers.NewEmailTemplatesHandler(emailTemplateRepo).Register(app, requireAuth)
 	handlers.NewSecretsHandler(secretsClient).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
