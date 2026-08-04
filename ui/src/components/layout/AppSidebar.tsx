@@ -136,7 +136,7 @@ export function AppSidebar({
             {/* Header */}
             <div className="flex items-center justify-between p-4 h-16 shrink-0">
                 <Link href="/" className="flex items-center gap-2">
-                    <div className="h-10 w-10 bg-black font-mono font-semibold text-white text-sm flex items-center justify-center leading-tight">
+                    <div className="h-10 w-10 bg-black font-semibold text-white text-sm flex items-center justify-center leading-tight">
                         HRB
                     </div>
                 </Link>
@@ -154,7 +154,7 @@ export function AppSidebar({
                         </TooltipTrigger>
                         <TooltipContent>
                             Expand navigation sidebar
-                            <span className="font-mono ml-2">[</span>
+                            <span className="ml-2">[</span>
                         </TooltipContent>
                     </Tooltip>
                 )}
@@ -191,7 +191,7 @@ export function AppSidebar({
                             )}
                             <span
                                 className={cn(
-                                    "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                                    "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                                     collapsed ? "w-0 opacity-0" : "opacity-100",
                                 )}
                             >
@@ -232,7 +232,7 @@ export function AppSidebar({
                     />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
@@ -253,7 +253,7 @@ export function AppSidebar({
                     <PaperPlaneRightIcon className="size-5 shrink-0" />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
@@ -292,7 +292,7 @@ export function AppSidebar({
                     />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
@@ -316,7 +316,7 @@ export function AppSidebar({
                     />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
@@ -340,7 +340,7 @@ export function AppSidebar({
                     />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
@@ -364,7 +364,7 @@ export function AppSidebar({
                     />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
@@ -388,7 +388,7 @@ export function AppSidebar({
                     />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
@@ -409,11 +409,11 @@ export function AppSidebar({
                     <WavesIcon className="size-5 shrink-0" />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
-                        River Job Manager
+                        River Queue
                     </span>
                 </a>
 
@@ -433,7 +433,7 @@ export function AppSidebar({
                     />
                     <span
                         className={cn(
-                            "font-mono uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200",
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >

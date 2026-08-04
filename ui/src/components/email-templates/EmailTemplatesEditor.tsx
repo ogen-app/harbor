@@ -318,8 +318,8 @@ export function EmailTemplatesEditor() {
                           active ? "bg-secondary" : "hover:bg-secondary/60",
                         )}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate font-mono text-sm">
+                        <div className={cn("flex items-center justify-between gap-2", active ? "font-semibold" : "")}>
+                          <span className="truncate text-sm">
                             {t.key}
                           </span>
                           <KindBadge kind={t.kind} />
