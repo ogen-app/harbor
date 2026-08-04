@@ -120,7 +120,7 @@ export function AppSidebar({
     useHotkeys("g>t", () => router.push("/tenants"), { preventDefault: true });
     useHotkeys("g>a", () => router.push("/activity"), { preventDefault: true });
     useHotkeys("g>d", () => router.push("/databases"), { preventDefault: true });
-    useHotkeys("g>s", () => router.push("/settings"), { preventDefault: true });
+    useHotkeys("g>s", () => router.push("/secrets"), { preventDefault: true });
 
     return (
         <aside
@@ -200,7 +200,7 @@ export function AppSidebar({
                     );
                 })}
 
-                {/* System group */}
+                {/* Settings group */}
                 <div
                     className={cn(
                         "relative h-10 flex items-center overflow-hidden transition-all duration-200",
@@ -211,17 +211,17 @@ export function AppSidebar({
                 >
                     <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
                     <span className="absolute px-3 text-[11px] font-medium tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
-                        SYSTEM
+                        SETTINGS
                     </span>
                 </div>
 
                 <Link
-                    href="/settings"
+                    href="/secrets"
                     className={cn(
                         "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
                         collapsed ? "justify-center gap-0" : "gap-2.5",
                         "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                        activeHref.startsWith("/settings") &&
+                        activeHref.startsWith("/secrets") &&
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
                     )}
                 >
@@ -235,7 +235,7 @@ export function AppSidebar({
                             collapsed ? "w-0 opacity-0" : "opacity-100",
                         )}
                     >
-                        Settings
+                        Secrets
                     </span>
                 </Link>
 

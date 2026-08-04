@@ -20,7 +20,7 @@ const panelProps = (i: number): HTMLAttributes<HTMLDivElement> =>
     ? { role: "tabpanel", id: tabPanelId(i), "aria-labelledby": tabId(i), tabIndex: 0 }
     : {};
 
-export default function SettingsPage() {
+export default function SecretsPage() {
   const [tab, setTab] = useState(0);
 
   // Number keys 1..N jump straight to a tab (page-level, no focus needed).
@@ -50,7 +50,7 @@ export default function SettingsPage() {
   return (
     <main className="flex-1 overflow-auto flex flex-col">
       <header className="h-20 border-b border-border flex items-center justify-between px-6 shrink-0">
-        <h1 className="text-2xl font-display font-medium">Settings</h1>
+        <h1 className="text-2xl font-display font-medium">Secrets</h1>
       </header>
 
       <div className="p-6 space-y-6">
