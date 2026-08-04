@@ -11,8 +11,23 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import { SecretDialog } from "./SecretDialog";
 import type { SecretMeta, SecretsListResponse } from "./types";
+
+// Short "what is this for" copy shown under each secret name. Keyed by Ogen's
+// allowlist names; an unknown name simply shows no description (the allowlist
+// stays authoritative in Ogen, this is display-only helper text).
+const SECRET_DESCRIPTIONS: Record<string, string> = {
+  anthropic_api_key: "Anthropic (Claude) API key for AI content generation.",
+  zernio_api_key:
+    "Zernio API key for publishing posts and syncing social accounts.",
+  gemini_api_key:
+    "Google Gemini key for the embeddings behind semantic search.",
+  resend_api_key: "Resend API key for sending transactional & marketing email.",
+  resend_webhook_secret: "Signing secret that verifies inbound Resend webhooks.",
+  email_link_secret: "HMAC key that signs one-click email unsubscribe links.",
+};
 
 // A small padlock, matching GitHub's secrets list. The shared Icon set has no
 // lock glyph, so it's inlined here rather than expanding the global icon map.
@@ -25,6 +40,8 @@ function LockIcon({ className }: { className?: string }) {
       className={className}
       stroke="currentColor"
       strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
       <rect x="3" y="7" width="10" height="6.5" rx="1.2" />
       <path d="M5 7V5a3 3 0 0 1 6 0v2" />
@@ -286,32 +303,39 @@ function SecretRow({
   return (
     <tr className="border-b border-border last:border-b-0 hover:bg-secondary/30">
       <td className="px-4 py-3">
-        <span className="flex items-center gap-2">
+        <div className="flex items-start gap-2">
           <LockIcon
-            className={
-              secret.set
-                ? "size-4 text-tertiary-foreground"
-                : "size-4 text-quaternary"
-            }
+            className={cn(
+              "mt-0.5 size-4 shrink-0",
+              secret.set ? "text-tertiary-foreground" : "text-quaternary",
+            )}
           />
-          <span
-            className={
-              secret.set
-                ? "font-mono text-foreground"
-                : "font-mono text-tertiary-foreground"
-            }
-          >
-            {secret.name}
-          </span>
-          {secret.set && !secret.decryptable && (
-            <span
-              className="rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-              title="The current key can’t decrypt this value (KEK mismatch)."
-            >
-              KEK mismatch
-            </span>
-          )}
-        </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "font-mono",
+                  secret.set ? "text-foreground" : "text-tertiary-foreground",
+                )}
+              >
+                {secret.name}
+              </span>
+              {secret.set && !secret.decryptable && (
+                <span
+                  className="rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                  title="The current key can’t decrypt this value (KEK mismatch)."
+                >
+                  KEK mismatch
+                </span>
+              )}
+            </div>
+            {SECRET_DESCRIPTIONS[secret.name] && (
+              <p className="mt-0.5 text-xs text-tertiary-foreground">
+                {SECRET_DESCRIPTIONS[secret.name]}
+              </p>
+            )}
+          </div>
+        </div>
       </td>
       <td className="px-4 py-3 text-tertiary-foreground">
         {secret.set ? relativeTime(secret.updatedAt) : "Not set"}
@@ -326,16 +350,26 @@ function SecretRow({
                 aria-label={`Update ${secret.name}`}
                 onClick={onEdit}
               >
-                <Icon name="edit" className="size-4" />
+                <Icon
+                  name="edit"
+                  className="size-4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </Button>
               <Button
                 variant="ghost"
                 size="smIcon"
                 aria-label={`Delete ${secret.name}`}
                 onClick={onDelete}
-                className="text-tertiary-foreground hover:text-destructive"
+                className="hover:text-destructive"
               >
-                <Icon name="trash_bin" className="size-4" />
+                <Icon
+                  name="trash_bin"
+                  className="size-4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </Button>
             </>
           ) : (
