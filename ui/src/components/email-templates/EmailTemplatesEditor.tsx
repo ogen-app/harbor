@@ -221,11 +221,25 @@ export function EmailTemplatesEditor() {
   const templates = data?.templates ?? [];
   const selected = templates.find((t) => t.key === selectedKey) ?? null;
 
+  // TemplateEditor reports its unsaved-edits state here (ref only — no re-render)
+  // so switching templates can warn before discarding an in-progress edit.
+  const dirtyRef = useRef(false);
+  const handleDirtyChange = useCallback((d: boolean) => {
+    dirtyRef.current = d;
+  }, []);
+
   const select = useCallback(
     (key: string) => {
+      if (
+        key !== selectedKey &&
+        dirtyRef.current &&
+        !window.confirm("Discard unsaved changes to this template?")
+      ) {
+        return;
+      }
       router.push(`/email-templates?template=${encodeURIComponent(key)}`);
     },
-    [router],
+    [router, selectedKey],
   );
 
   // Patch one template in place after a save so the list subject + meta refresh
@@ -330,6 +344,7 @@ export function EmailTemplatesEditor() {
                 key={selected.key}
                 template={selected}
                 onSaved={applyUpdate}
+                onDirtyChange={handleDirtyChange}
               />
             ) : (
               <div className="flex flex-1 items-center justify-center p-6 text-sm text-tertiary-foreground">
@@ -355,9 +370,11 @@ export function EmailTemplatesEditor() {
 function TemplateEditor({
   template,
   onSaved,
+  onDirtyChange,
 }: {
   template: EmailTemplate;
   onSaved: (t: EmailTemplate) => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const initialHtml = useMemo(() => beautifyHtml(template.html), [template.html]);
 
@@ -374,6 +391,12 @@ function TemplateEditor({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const dirty = subject !== savedSubject || draft !== savedHtml;
+
+  // Report dirty state up so the parent can guard navigation. Sets a ref (not
+  // state), so this is a plain effect with no cascading render.
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
 
   const save = async () => {
     if (!dirty || saving || subject.trim() === "") return;
@@ -479,6 +502,9 @@ function TemplateEditor({
         </div>
       </div>
       <div className="relative min-h-0 flex-1">
+        <label htmlFor="template-html" className="sr-only">
+          Email HTML body
+        </label>
         <div
           ref={scrollRef}
           onScroll={(e) => onScroll(e.currentTarget)}
@@ -487,6 +513,7 @@ function TemplateEditor({
           <Editor
             value={draft}
             onValueChange={setDraft}
+            textareaId="template-html"
             highlight={highlightWithLineNumbers}
             // Gutter set two ways so it can't regress: the library writes
             // paddingLeft inline from this prop, and .code-editor-body enforces
@@ -571,6 +598,7 @@ function NewTemplateDialog({
       const created = (await r.json()) as EmailTemplate;
       setKey("");
       setSubject("");
+      setKind("transactional");
       onCreated(created);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create template.");

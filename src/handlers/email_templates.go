@@ -110,6 +110,9 @@ func (h *EmailTemplatesHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "ogen database not configured"})
 	}
 	key := c.Params("key")
+	if !templateKeyRe.MatchString(key) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "id must be 1–64 characters of lowercase letters, digits or underscores"})
+	}
 	var body struct {
 		Subject string `json:"subject"`
 		HTML    string `json:"html"`
