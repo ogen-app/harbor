@@ -19,18 +19,22 @@ var ErrDuplicateKey = errors.New("email template already exists")
 // placeholders rendered at send time. Harbor surfaces these for operators to
 // review and edit (subject + HTML body).
 type EmailTemplate struct {
-	Key       string    `bun:"key"        json:"key"`
-	Subject   string    `bun:"subject"    json:"subject"`
-	HTML      string    `bun:"html"       json:"html"`
-	Text      string    `bun:"text"       json:"text"`
-	Kind      string    `bun:"kind"       json:"kind"`
-	Version   int       `bun:"version"    json:"version"`
-	UpdatedAt time.Time `bun:"updated_at" json:"updatedAt"`
+	Key     string `bun:"key"     json:"key"`
+	Subject string `bun:"subject" json:"subject"`
+	HTML    string `bun:"html"    json:"html"`
+	Text    string `bun:"text"    json:"text"`
+	Kind    string `bun:"kind"    json:"kind"`
+	Version int    `bun:"version" json:"version"`
+	// Variables documents the template's runtime placeholders: key = the
+	// [[ .Key ]] name, value = a human explanation. Code-owned metadata Ogen's
+	// seeder keeps in sync (a jsonb column); read-only here.
+	Variables map[string]string `bun:"variables"  json:"variables"`
+	UpdatedAt time.Time         `bun:"updated_at" json:"updatedAt"`
 }
 
 // columns lists the template columns Harbor reads, shared by every statement's
 // RETURNING/SELECT so the row shape stays in one place.
-const emailTemplateColumns = `key, subject, html, text, kind, version, updated_at`
+const emailTemplateColumns = `key, subject, html, text, kind, version, variables, updated_at`
 
 // EmailTemplateRepository reads and writes email templates on the Ogen pool.
 // Reads are best-effort: a nil pool yields ErrUnavailable and the caller renders

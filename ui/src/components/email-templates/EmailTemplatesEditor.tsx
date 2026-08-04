@@ -7,7 +7,7 @@ import Prism from "prismjs";
 import "prismjs/components/prism-markup";
 import "prismjs/themes/prism.css";
 import beautify from "js-beautify";
-import { CloudArrowUpIcon } from "@phosphor-icons/react";
+import { BracketsCurlyIcon, CloudArrowUpIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface EmailTemplate {
@@ -29,6 +34,7 @@ interface EmailTemplate {
   text: string;
   kind: string;
   version: number;
+  variables: Record<string, string> | null;
   updatedAt: string;
 }
 
@@ -94,6 +100,67 @@ function relativeTime(iso: string): string {
 // Insertion order for the list mirrors the API's `ORDER BY kind, key`.
 const byKindThenKey = (a: EmailTemplate, b: EmailTemplate) =>
   a.kind === b.kind ? a.key.localeCompare(b.key) : a.kind.localeCompare(b.kind);
+
+// Compact per-kind badge for the list: a single letter on a pastel, borderless
+// fill (M = marketing/yellow, T = transactional/green).
+const KIND_BADGE: Record<string, { letter: string; className: string }> = {
+  marketing: { letter: "M", className: "bg-yellow-100 text-yellow-800" },
+  transactional: { letter: "T", className: "bg-green-100 text-green-800" },
+};
+
+function KindBadge({ kind }: { kind: string }) {
+  const badge = KIND_BADGE[kind];
+  return (
+    <span
+      title={kind}
+      aria-label={kind}
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-[3px] text-[11px] font-semibold",
+        badge?.className ?? "bg-secondary text-tertiary-foreground",
+      )}
+    >
+      {badge?.letter ?? kind.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+// VariablesList renders a template's documented placeholders — name (an inverted
+// monospace label) plus its explanation — inside the variables popover. The map
+// lives in the Ogen email_templates.variables jsonb column.
+function VariablesList({
+  variables,
+}: {
+  variables: Record<string, string> | null;
+}) {
+  const entries = Object.entries(variables ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-tertiary-foreground">
+        Available variables
+      </p>
+      {entries.length === 0 ? (
+        <p className="text-xs text-tertiary-foreground">
+          No variables documented for this template.
+        </p>
+      ) : (
+        <ul className="space-y-2.5">
+          {entries.map(([name, desc]) => (
+            <li key={name} className="space-y-1 pb-2">
+              <code className="inline-block rounded-xs bg-foreground px-1.5 py-0.5 font-mono text-xs text-background">
+                {name}
+              </code>
+              <p className="text-xs leading-snug text-tertiary-foreground">
+                {desc}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 // The two template kinds the create dialog offers (default transactional).
 // Marketing mail honours unsubscribes; transactional is essential and does not.
@@ -241,9 +308,7 @@ export function EmailTemplatesEditor() {
                           <span className="truncate font-mono text-sm">
                             {t.key}
                           </span>
-                          <span className="shrink-0 rounded-[3px] border border-border px-1.5 py-0.5 text-[10px] uppercase text-tertiary-foreground">
-                            {t.kind}
-                          </span>
+                          <KindBadge kind={t.kind} />
                         </div>
                         <p className="mt-1 truncate text-xs text-tertiary-foreground">
                           {t.subject}
@@ -365,7 +430,7 @@ function TemplateEditor({
 
   return (
     <>
-      <div className="flex shrink-0 items-center gap-4 border-b border-border px-6 pt-2.75 pb-2.75">
+      <div className="flex shrink-0 items-center gap-4 border-b border-border px-6 pt-2.5 pb-2.75">
         <div className="min-w-0 flex-1">
           <input
             value={subject}
@@ -374,7 +439,7 @@ function TemplateEditor({
             placeholder="Email subject"
             className="-mx-1.5 w-full rounded-xs bg-transparent px-1.5 py-0.5 text-sm font-medium text-foreground outline-none placeholder:text-tertiary-foreground focus:bg-secondary/50"
           />
-          <p className="mt-0.5 font-mono text-xs text-tertiary-foreground">
+          <p className="mt-0.5 text-xs text-tertiary-foreground">
             {template.key} · v{meta.version} · edited{" "}
             {relativeTime(meta.updatedAt)}
           </p>
@@ -384,15 +449,34 @@ function TemplateEditor({
             {saveError}
           </span>
         )}
-        <Button
-          size="sm" variant="defaultInverted"
-          onClick={() => void save()}
-          disabled={!dirty || saving || subject.trim() === ""}
-          className="shrink-0"
-        >
-          <CloudArrowUpIcon className="size-4" />
-          {saving ? "Saving…" : "Save"}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Template variables"
+              >
+                <BracketsCurlyIcon className="size-4" /> Variables
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="max-h-96 w-80 overflow-y-auto"
+            >
+              <VariablesList variables={template.variables} />
+            </PopoverContent>
+          </Popover>
+          <Button
+            size="sm"
+            variant="defaultInverted"
+            onClick={() => void save()}
+            disabled={!dirty || saving || subject.trim() === ""}
+          >
+            <CloudArrowUpIcon className="size-4" />
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
       </div>
       <div className="relative min-h-0 flex-1">
         <div
