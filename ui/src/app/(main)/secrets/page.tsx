@@ -54,7 +54,10 @@ export default function SecretsPage() {
       </header>
 
       <div className="p-6 space-y-6">
-        <SecretsTab />
+        {/* White card wrapping the content, matching the /databases page. */}
+        <div className="overflow-hidden rounded-lg bg-primary p-6">
+          <SecretsTab />
+        </div>
       </div>
     </main>
   );
