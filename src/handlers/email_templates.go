@@ -3,11 +3,13 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"log/slog"
 	"regexp"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/ogen-app/harbor/src/logging"
 	"github.com/ogen-app/harbor/src/repository/ogen"
 )
 
@@ -47,7 +49,8 @@ func (h *EmailTemplatesHandler) List(c *fiber.Ctx) error {
 	}
 	rows, err := h.templates.List(c.Context())
 	if err != nil {
-		return c.JSON(fiber.Map{"templates": []ogen.EmailTemplate{}, "available": false, "error": err.Error()})
+		slog.WarnContext(c.Context(), "list email templates failed", logging.AttrComponent, "email-templates", logging.AttrError, err)
+		return c.JSON(fiber.Map{"templates": []ogen.EmailTemplate{}, "available": false, "error": "failed to load templates"})
 	}
 	return c.JSON(fiber.Map{"templates": rows, "available": true})
 }
@@ -90,7 +93,8 @@ func (h *EmailTemplatesHandler) Create(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "a template with this id already exists"})
 	}
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		slog.ErrorContext(c.Context(), "create email template failed", logging.AttrComponent, "email-templates", logging.AttrError, err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create template"})
 	}
 	return c.Status(fiber.StatusCreated).JSON(row)
 }
@@ -129,7 +133,8 @@ func (h *EmailTemplatesHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "template not found"})
 	}
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		slog.ErrorContext(c.Context(), "update email template failed", logging.AttrComponent, "email-templates", logging.AttrError, err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to save template"})
 	}
 	return c.JSON(row)
 }
