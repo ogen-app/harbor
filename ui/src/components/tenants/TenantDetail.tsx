@@ -111,7 +111,7 @@ function MetricCell({
   return (
     <div className="p-5">
       <CellLabel label={label} info={info} />
-      <p className="mt-2 font-display text-2xl font-semibold text-foreground">
+      <p className="mt-2 font-display text-2xl font-semibold text-foreground font-mono">
         {value}
       </p>
     </div>
@@ -310,7 +310,7 @@ function AccountStat({
     <div className="text-right">
       <p
         className={cn(
-          "font-display text-base font-semibold leading-none tabular-nums",
+          "text-base font-mono leading-none",
           danger && value > 0 ? "text-red-600" : "text-foreground",
         )}
       >
@@ -376,7 +376,7 @@ function ZernioSection({ state, total }: { state: ZernioState; total: number }) 
           </h2>
           <InfoIcon text="Social profiles this tenant has connected through Zernio, each with its post throughput — scheduled, published, failed, and total — from the Ogen posts table." />
         </div>
-        <span className="text-xs tabular-nums text-tertiary-foreground">
+        <span className="text-xs tabular-nums text-tertiary-foreground font-mono">
           {count}
         </span>
       </div>

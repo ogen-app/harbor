@@ -523,7 +523,7 @@ function TemplateEditor({
             preClassName="code-editor-body"
             textareaClassName="code-editor-body focus:outline-none"
             className="code-editor min-h-full font-mono text-[13px] leading-relaxed"
-            style={{ fontFamily: "var(--font-plex-mono), monospace" }}
+            style={{ fontFamily: "var(--font-geist-mono), monospace" }}
           />
         </div>
         {/* Top fade — appears once scrolled down from the top. */}

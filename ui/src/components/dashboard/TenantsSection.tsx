@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { CallBellIcon, ArrowRightIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon } from "@phosphor-icons/react";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
 import { Tile, Bar, Dot, SectionTitle } from "@/components/dashboard/primitives";
@@ -88,7 +88,7 @@ function LegendRow({
     return (
         <div className="flex items-center justify-between gap-3">
             <Dot color={color} label={label} />
-            <span className="font-medium  text-foreground">{value}</span>
+            <span className="font-medium font-mono text-foreground">{value}</span>
         </div>
     );
 }
@@ -168,7 +168,7 @@ function LifecycleTile({ h }: { h: Headline }) {
                         }))}
                     />
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="font-display text-xl font-semibold leading-none ">
+                        <span className="font-display text-xl font-semibold leading-none font-mono">
                             {h.total}
                         </span>
                         <span className="mt-0.5 text-[10px] text-tertiary-foreground">
@@ -204,9 +204,9 @@ function MovementCell({
         <div>
             <p className="text-xs text-tertiary-foreground">{window}</p>
             <p className="mt-1 text-lg font-semibold ">
-                <span className="text-emerald-600">+{added}</span>
+                <span className="text-emerald-600 font-mono">+{added}</span>
                 <span className="text-tertiary-foreground"> / </span>
-                <span className="text-red-600">−{churned}</span>
+                <span className="text-red-600 font-mono">−{churned}</span>
             </p>
         </div>
     );
@@ -233,7 +233,7 @@ function ActivityTile({ a }: { a: Activity }) {
             title="Activity pulse"
             info="Tenants that published a post or generated content in the last 7 days — real usage, not just logins. Dormant-but-paying tenants are your churn pipeline."
         >
-            <p className="font-display text-2xl font-semibold ">
+            <p className="font-display text-2xl font-semibold font-mono">
                 {a.active7d}
                 <span className="text-base font-normal text-tertiary-foreground">
                     {" "}
@@ -257,7 +257,7 @@ function QuotaTile() {
             title="Quota pressure"
             info="Tenants at >80% and at 100% of their prepaid allowance — upsell opportunities and support tickets before the emails arrive. Wiring pending (needs allowance vs. usage)."
         >
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 font-mono">
                 <div>
                     <p className="text-xs text-tertiary-foreground">&gt;80%</p>
                     <p className="mt-1 text-2xl font-semibold text-tertiary-foreground">—</p>
@@ -290,7 +290,7 @@ function SpendTile({ s }: { s: Spend }) {
             ) : (
                 <>
                     <p className="font-display text-2xl font-semibold ">
-                        <span className="inline ">{formatUSD(s.totalMicros)}</span>
+                        <span className="inline font-mono">{formatUSD(s.totalMicros)}</span>
                         <span className="text-sm font-normal text-tertiary-foreground pl-1">
                             {" "}
                             this month
@@ -355,7 +355,7 @@ function ExceptionTile({ label, count }: { label: string; count: number }) {
             <span className="text-xs text-secondary-foreground">{label}</span>
             <span
                 className={cn(
-                    "text-lg font-semibold ",
+                    "text-lg font-semibold font-mono",
                     alert ? "text-red-600" : "text-foreground",
                 )}
             >
@@ -433,7 +433,6 @@ export function TenantsSection() {
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
                 <div className="flex items-center gap-3">
                     <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
-                        <CallBellIcon className="size-6" weight="bold" />
                         Tenants
                     </h2>
                     <Button asChild variant="default" size="sm" className="gap-1.5">

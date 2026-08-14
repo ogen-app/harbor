@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { DatabaseIcon, ArrowRightIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon } from "@phosphor-icons/react";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
 import { Dot } from "@/components/dashboard/primitives";
@@ -72,7 +72,6 @@ export function DatabaseTeaser() {
             <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
                 <div className="flex items-center gap-3">
                     <h2 className="flex items-center gap-2 text-xl font-medium text-foreground font-display">
-                        <DatabaseIcon className="size-6" weight="bold" />
                         Databases
                     </h2>
                     <Button asChild variant="default" size="sm" className="gap-1.5">
@@ -127,7 +126,7 @@ export function DatabaseTeaser() {
                             <p className="text-sm text-secondary-foreground">
                                 Total database storage
                             </p>
-                            <p className="mt-1 font-display text-2xl font-semibold">
+                            <p className="mt-1 text-2xl font-semibold font-mono">
                                 {formatBytes(totalBytes)}
                             </p>
                         </div>

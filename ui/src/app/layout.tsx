@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { Geist, IBM_Plex_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
-const plexMono = IBM_Plex_Mono({subsets:['latin'],weight:'600',variable:'--font-plex-mono'});
+const geistSans = Geist({subsets:['latin'],variable:'--font-geist-sans'});
+const geistMono = Geist_Mono({subsets:['latin'],variable:'--font-geist-mono'});
 
 export const metadata: Metadata = {
   title: "Ogen' Harbor",
@@ -24,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={cn("font-sans", geist.variable, plexMono.variable)}>
+    <html lang="en" className={cn("font-sans", geistSans.variable, geistMono.variable)}>
       <body>
         {children}
       </body>

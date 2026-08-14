@@ -230,7 +230,7 @@ function LegendRow({
     return (
         <div className="flex items-center justify-between gap-3">
             <Dot color={color} label={label} />
-            <span className="font-medium  text-foreground">{value}</span>
+            <span className="font-medium font-mono text-foreground">{value}</span>
         </div>
     );
 }
@@ -261,7 +261,7 @@ function ConnectionsTile({ c }: { c: Connections }) {
             title="Connections"
             info="Backends in pg_stat_activity by state, against the server's max_connections. Many idle-in-transaction sessions hold locks and block vacuum."
         >
-            <p className="font-display text-2xl font-semibold ">
+            <p className="font-mono text-2xl font-semibold ">
                 {c.total}
                 <span className="text-base font-normal text-tertiary-foreground">
                     {" "}
@@ -302,7 +302,7 @@ function CacheTile({ c }: { c: Cache }) {
             title="Cache hit ratio"
             info="Share of block reads served from shared buffers — blks_hit / (blks_hit + blks_read) from pg_stat_database. Sustained low values mean disk I/O pressure."
         >
-            <p className="font-display text-2xl font-semibold ">
+            <p className="font-mono text-2xl font-semibold ">
                 {pct.toFixed(2)}%
             </p>
             <Bar className="mt-3" segments={[{ pct, className: tone }]} />
@@ -322,7 +322,7 @@ function TxidTile({ t }: { t: TxID }) {
             title="Txn ID age"
             info="Age of the oldest unfrozen transaction id — age(datfrozenxid). It approaches wraparound near ~2.1B; autovacuum should keep it low."
         >
-            <p className="font-display text-2xl font-semibold ">
+            <p className="font-mono text-2xl font-semibold ">
                 {formatCompact(t.age)}
             </p>
             <Bar
@@ -378,7 +378,7 @@ function TablesPanel({ tables }: { tables: TableSize[] }) {
                             <span className="truncate font-medium text-foreground">
                                 {t.name}
                             </span>
-                            <span className="shrink-0  text-secondary-foreground">
+                            <span className="shrink-0 font-mono text-secondary-foreground">
                                 {formatBytes(t.totalBytes)}
                             </span>
                         </div>
@@ -657,7 +657,7 @@ export function DatabaseStatus() {
                         <p className="text-sm text-secondary-foreground">
                             Total database storage
                         </p>
-                        <p className="mt-1 font-display text-2xl font-semibold ">
+                        <p className="mt-1 font-mono text-2xl font-semibold ">
                             {formatBytes(totalBytes)}
                         </p>
                     </div>

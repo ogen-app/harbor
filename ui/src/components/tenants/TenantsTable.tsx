@@ -314,14 +314,14 @@ function SpendCell({
   }
   if (spend.totalMicros === 0) {
     return (
-      <span className="text-xs text-tertiary-foreground font-display">
+      <span className="text-xs text-tertiary-foreground font-mono">
         $0.00
       </span>
     );
   }
   return (
     <div className="min-w-0">
-      <span className="text-xs font-display text-foreground">
+      <span className="text-xs font-mono text-foreground">
         {formatUSD(spend.totalMicros)}
       </span>
       <Bar className="mt-1" segments={spendSegments(spend)} />
@@ -649,15 +649,15 @@ export function TenantsTable() {
                     <StatusLabel status={t.status} />
 
                     <span
-                      className={cn("text-right text-foreground", METRIC_START)}
+                      className={cn("text-right text-foreground font-mono", METRIC_START)}
                     >
                       {t.users}
                     </span>
                     <SpendCell spend={t.spend} available={spendAvailable} />
-                    <span className="text-right font-display text-foreground">
+                    <span className="text-right font-mono text-foreground">
                       {t.zernioProfiles}
                     </span>
-                    <span className="text-right font-display text-foreground">
+                    <span className="text-right font-mono text-foreground">
                       {formatBytes(t.r2Bytes)}
                     </span>
                     <ActionsMenu tenantId={t.id} />

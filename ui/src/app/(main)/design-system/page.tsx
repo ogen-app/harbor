@@ -22,13 +22,13 @@ export default function DesignSystemPage() {
                     </h2>
                     <div className="bg-background rounded-sm p-6 space-y-4">
                         <p className="font-display text-3xl font-semibold">
-                            Display — Zalando Sans Semi Expanded
+                            Display — Geist
                         </p>
                         <p className="font-sans text-xl font-medium">
-                            Body — Zalando Sans Variable
+                            Body — Geist
                         </p>
                         <p className="font-mono text-base">
-                            Mono — Space Grotesk Variable
+                            Mono — Geist Mono
                         </p>
                         <div className="flex gap-6 flex-wrap text-sm text-secondary-foreground">
                             <span className="font-light">Light 300</span>
