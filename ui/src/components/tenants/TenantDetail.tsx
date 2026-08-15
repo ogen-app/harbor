@@ -39,6 +39,7 @@ import {
   formatDate,
   formatBytes,
   StatusLabel,
+  LabelChip,
   DetailRow,
 } from "@/components/tenants/shared";
 import { ActivityCard } from "@/components/tenants/ActivityCard";
@@ -602,15 +603,39 @@ export function TenantDetail() {
             <ArrowLeftIcon className="size-4" />
           </Link>
         </Button>
-        <div className="min-w-0">
-          <h1 className="truncate text-2xl font-display font-medium">
-            {t.name}
-          </h1>
-          <p className="truncate font-mono text-xs text-tertiary-foreground">
-            {t.slug}
-          </p>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-display font-medium">
+              {t.name}
+            </h1>
+            <p className="truncate font-mono text-xs text-tertiary-foreground">
+              {t.slug}
+            </p>
+          </div>
+
+          {/* Tier chip next to the title, then the tenant's groups. */}
+          {t.tier && (
+            <LabelChip
+              label={t.tier.name}
+              color={t.tier.color}
+              className="shrink-0"
+            />
+          )}
+
+          {t.groups && t.groups.length > 0 && (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 text-xs text-tertiary-foreground">
+                Groups:
+              </span>
+              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                {t.groups.map((g) => (
+                  <LabelChip key={g.id} label={g.name} color={g.color} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto shrink-0">
           <StatusLabel status={t.status} />
         </div>
       </header>
