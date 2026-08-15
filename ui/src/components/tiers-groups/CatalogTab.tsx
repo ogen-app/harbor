@@ -167,12 +167,18 @@ export function CatalogTab({ config }: { config: KindConfig }) {
 
   return (
     <div className="rounded-xl bg-primary">
-      {/* Header bar — title + count + create, mirroring the tenants table. */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-3">
-        <h2 className="text-sm font-medium text-foreground">
-          All {pluralLower}
-        </h2>
-        <div className="flex items-center gap-4">
+      {/* Header bar — title + blurb + count + create, mirroring the tenants
+          table (with an explanatory line under the title). */}
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-6 py-4">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-foreground">
+            All {pluralLower}
+          </h2>
+          <p className="mt-1 max-w-xl text-xs text-tertiary-foreground">
+            {config.blurb}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-4">
           {!loading && available && (
             <span className="flex items-center gap-2 text-xs text-tertiary-foreground">
               {refreshing && <Loader className="size-3.5 border-[1.5px]" />}
