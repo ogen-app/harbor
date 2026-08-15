@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +10,18 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
+  DotsThreeOutlineVerticalIcon,
+  NotePencilIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { SecretDialog } from "./SecretDialog";
 import type { SecretMeta, SecretsListResponse } from "./types";
@@ -28,6 +39,15 @@ const SECRET_DESCRIPTIONS: Record<string, string> = {
   resend_webhook_secret: "Signing secret that verifies inbound Resend webhooks.",
   email_link_secret: "HMAC key that signs one-click email unsubscribe links.",
 };
+
+// Shared grid template so the header and every row align — columns:
+// name · last updated · actions. The actions column is a FIXED width (not
+// `auto`): each row is its own grid, so an auto track would size to its own
+// content (0 for the sr-only header, a button for rows) and the 1fr "Last
+// updated" column would start at a different x per row. Fixed keeps the tracks —
+// and the left edge of "Last updated" — identical everywhere. Mirrors /tenants.
+const GRID =
+  "grid grid-cols-[minmax(220px,2fr)_minmax(140px,1fr)_5rem] items-center gap-4";
 
 // A small padlock, matching GitHub's secrets list. The shared Icon set has no
 // lock glyph, so it's inlined here rather than expanding the global icon map.
@@ -66,10 +86,12 @@ function relativeTime(iso: string): string {
   return `${y} year${y === 1 ? "" : "s"} ago`;
 }
 
-// SecretsTab is the GitHub-style secrets manager: a table of the allowlisted
-// slots (each set or not), with add / rotate / clear actions. All state is
-// Ogen's — this only calls Harbor's /api/secrets, which proxies to Ogen's
-// gRPC secrets surface. Values are write-only and never displayed.
+// SecretsTab is the GitHub-style secrets manager, styled to match the /tenants
+// "All tenants" table: a rounded card with a title/blurb/count header bar and a
+// grid body with divide-y rows. Each row is an allowlisted slot (set or not),
+// with rotate / clear actions. All state is Ogen's — this only calls Harbor's
+// /api/secrets, which proxies to Ogen's gRPC secrets surface. Values are
+// write-only and never displayed.
 export function SecretsTab() {
   const [data, setData] = useState<SecretsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,7 +144,7 @@ export function SecretsTab() {
 
   const secrets = data?.secrets ?? [];
   const unsetNames = secrets.filter((s) => !s.set).map((s) => s.name);
-  const allSet = secrets.length > 0 && unsetNames.length === 0;
+  const setCount = secrets.length - unsetNames.length;
 
   const openCreate = (name?: string) => {
     setDialogMode("create");
@@ -166,61 +188,67 @@ export function SecretsTab() {
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-tertiary-foreground">
-            Encrypted credentials Ogen uses for third-party integrations.
-            Values are write-only — they can be set or rotated, never read back.
+    <div className="rounded-xl bg-primary">
+      {/* Header bar — title + blurb + count, mirroring the tenants table. */}
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-6 py-4">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-foreground">All secrets</h2>
+          <p className="mt-1 max-w-xl text-xs text-tertiary-foreground">
+            Encrypted credentials Ogen uses for third-party integrations. Values
+            are write-only — they can be set or rotated, never read back.
           </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-4">
+          {!loading && data?.available && (
+            <span className="text-xs text-tertiary-foreground">
+              {setCount} of {secrets.length} set
+            </span>
+          )}
         </div>
       </div>
 
-      {/* States */}
-      {loading ? (
-        <p className="text-sm text-tertiary-foreground">Loading secrets…</p>
-      ) : loadError ? (
-        <p className="text-sm text-destructive">{loadError}</p>
-      ) : !data?.available ? (
-        <div className="rounded-lg border border-border p-6 text-sm text-tertiary-foreground">
-          The secrets service is unavailable. Check that Ogen is running and
-          that Harbor’s <code className="font-mono">OGEN_GRPC_ADDR</code> /{" "}
-          <code className="font-mono">OGEN_GRPC_TOKEN</code> are configured.
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-secondary/40 text-left text-xs text-tertiary-foreground">
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Last updated</th>
-                <th className="px-4 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {secrets.map((s) => (
-                <SecretRow
-                  key={s.name}
-                  secret={s}
-                  onSet={() => openCreate(s.name)}
-                  onEdit={() => openUpdate(s.name)}
-                  onDelete={() => {
-                    setDeleteError(null);
-                    setDeleteTarget(s.name);
-                  }}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="overflow-hidden rounded-b-xl">
+        {loading ? (
+          <SkeletonRows />
+        ) : loadError ? (
+          <p className="p-6 text-sm text-destructive">{loadError}</p>
+        ) : !data?.available ? (
+          <p className="p-6 text-sm text-tertiary-foreground">
+            The secrets service is unavailable. Check that Ogen is running and
+            that Harbor’s <code className="font-mono">OGEN_GRPC_ADDR</code> /{" "}
+            <code className="font-mono">OGEN_GRPC_TOKEN</code> are configured.
+          </p>
+        ) : (
+          <div className="divide-y divide-border">
+            {/* header */}
+            <div className={`${GRID} px-6 py-2.5`}>
+              <HeaderCell label="Name" />
+              <HeaderCell label="Last updated" />
+              <span className="sr-only">Actions</span>
+            </div>
+
+            {/* rows */}
+            {secrets.map((s) => (
+              <SecretRow
+                key={s.name}
+                secret={s}
+                onSet={() => openCreate(s.name)}
+                onEdit={() => openUpdate(s.name)}
+                onDelete={() => {
+                  setDeleteError(null);
+                  setDeleteTarget(s.name);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Transient success toast */}
       {toast && (
         <div
           role="status"
-          className="fixed bottom-6 right-6 z-50 rounded-md border border-border bg-primary px-4 py-2 text-sm text-foreground shadow-xl"
+          className="fixed bottom-6 right-6 z-[200] rounded-md border border-border bg-primary px-4 py-2 text-sm text-foreground shadow-xl"
         >
           {toast}
         </div>
@@ -279,6 +307,14 @@ export function SecretsTab() {
   );
 }
 
+function HeaderCell({ label }: { label: string }) {
+  return (
+    <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+      {label}
+    </span>
+  );
+}
+
 function SecretRow({
   secret,
   onSet,
@@ -291,84 +327,124 @@ function SecretRow({
   onDelete: () => void;
 }) {
   return (
-    <tr className="border-b border-border last:border-b-0 hover:bg-secondary/30">
-      <td className="px-4 py-3">
-        <div className="flex items-start gap-2">
-          <LockIcon
-            className={cn(
-              "mt-0.5 size-4 shrink-0",
-              secret.set ? "text-tertiary-foreground" : "text-quaternary",
-            )}
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "font-mono",
-                  secret.set ? "text-foreground" : "text-tertiary-foreground",
-                )}
-              >
-                {secret.name}
-              </span>
-              {secret.set && !secret.decryptable && (
-                <span
-                  className="rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-                  title="The current key can’t decrypt this value (KEK mismatch)."
-                >
-                  KEK mismatch
-                </span>
+    <div
+      className={cn(`${GRID} px-6 py-3.5 text-sm transition-colors hover:bg-secondary/40`)}
+    >
+      {/* Name */}
+      <div className="flex min-w-0 items-start gap-2.5">
+        <LockIcon
+          className={cn(
+            "mt-0.5 size-4 shrink-0",
+            secret.set ? "text-tertiary-foreground" : "text-quaternary",
+          )}
+        />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "font-mono",
+                secret.set ? "text-foreground" : "text-tertiary-foreground",
               )}
-            </div>
-            {SECRET_DESCRIPTIONS[secret.name] && (
-              <p className="mt-0.5 text-xs text-tertiary-foreground">
-                {SECRET_DESCRIPTIONS[secret.name]}
-              </p>
+            >
+              {secret.name}
+            </span>
+            {secret.set && !secret.decryptable && (
+              <span
+                className="rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                title="The current key can’t decrypt this value (KEK mismatch)."
+              >
+                KEK mismatch
+              </span>
             )}
           </div>
-        </div>
-      </td>
-      <td className="px-4 py-3 text-tertiary-foreground">
-        {secret.set ? relativeTime(secret.updatedAt) : "Not set"}
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center justify-end gap-1">
-          {secret.set ? (
-            <>
-              <Button
-                variant="ghost"
-                size="smIcon"
-                aria-label={`Update ${secret.name}`}
-                onClick={onEdit}
-              >
-                <Icon
-                  name="edit"
-                  className="size-6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Button>
-              <Button
-                variant="ghost"
-                size="smIcon"
-                aria-label={`Delete ${secret.name}`}
-                onClick={onDelete}
-                className="hover:text-destructive"
-              >
-                <Icon
-                  name="trash_bin"
-                  className="size-6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Button>
-            </>
-          ) : (
-            <Button variant="outline" size="sm" onClick={onSet}>
-              Set
-            </Button>
+          {SECRET_DESCRIPTIONS[secret.name] && (
+            <p className="mt-0.5 text-xs text-tertiary-foreground">
+              {SECRET_DESCRIPTIONS[secret.name]}
+            </p>
           )}
         </div>
-      </td>
-    </tr>
+      </div>
+
+      {/* Last updated */}
+      <span className="text-tertiary-foreground">
+        {secret.set ? relativeTime(secret.updatedAt) : "Not set"}
+      </span>
+
+      {/* Actions */}
+      <div className="justify-self-end">
+        {secret.set ? (
+          <SecretActions name={secret.name} onEdit={onEdit} onDelete={onDelete} />
+        ) : (
+          <Button variant="outline" size="sm" onClick={onSet}>
+            Set
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// SecretActions is the per-row "⋮" menu for a set secret, matching the tenants
+// table's ActionsMenu. Rotate replaces the value; Delete clears the slot.
+function SecretActions({
+  name,
+  onEdit,
+  onDelete,
+}: {
+  name: string;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="smIcon"
+          aria-label={`Actions for ${name}`}
+          className="text-tertiary-foreground data-[state=open]:border-quaternary data-[state=open]:bg-quaternary data-[state=open]:text-primary-foreground"
+        >
+          <DotsThreeOutlineVerticalIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="bottom"
+        align="end"
+        sideOffset={6}
+        className="min-w-40 rounded-none border border-border py-1 shadow-xl"
+      >
+        <DropdownMenuItem className="gap-3 px-4 py-2.5" onClick={onEdit}>
+          <NotePencilIcon className="size-4" />
+          Rotate value
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="my-1 h-px bg-border" />
+        <DropdownMenuItem
+          variant="destructive"
+          className="gap-3 px-4 py-2.5"
+          onClick={onDelete}
+        >
+          <TrashIcon className="size-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function SkeletonRows() {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className={`${GRID} px-6 py-3.5`}>
+          <div className="flex items-center gap-2.5">
+            <div className="size-4 animate-pulse rounded bg-secondary" />
+            <div className="h-3 w-40 animate-pulse rounded bg-secondary" />
+          </div>
+          <div className="h-3 w-24 animate-pulse rounded bg-secondary" />
+          <div className="size-7 animate-pulse rounded bg-secondary justify-self-end" />
+        </div>
+      ))}
+    </div>
   );
 }

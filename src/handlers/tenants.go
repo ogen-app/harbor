@@ -13,6 +13,7 @@ import (
 
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	"github.com/ogen-app/harbor/src/repository/ogen"
+	"github.com/ogen-app/harbor/src/repository/ogentenants"
 	"github.com/ogen-app/harbor/src/stats/tenants"
 )
 
@@ -25,10 +26,14 @@ type TenantsHandler struct {
 	tenants  ogen.TenantRepository
 	spend    analytics.SpendRepository
 	activity analytics.ActivityRepository
+	// admin is the gRPC client for tenant-classification WRITES (tier/group
+	// assignment). Reads come from the Ogen DB via `tenants`. May be nil when the
+	// gRPC surface is unconfigured — writes then return 503.
+	admin *ogentenants.Client
 }
 
-func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository, activity analytics.ActivityRepository) *TenantsHandler {
-	return &TenantsHandler{tenants: tenants, spend: spend, activity: activity}
+func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository, activity analytics.ActivityRepository, admin *ogentenants.Client) *TenantsHandler {
+	return &TenantsHandler{tenants: tenants, spend: spend, activity: activity, admin: admin}
 }
 
 func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
@@ -44,6 +49,12 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants/:id/daily-cost", requireAuth, h.DailyCost)
 	app.Get("/api/tenants/:id/users", requireAuth, h.Users)
 	app.Get("/api/tenants/:id/zernio", requireAuth, h.Zernio)
+	// Tenant classification writes (tier assignment + group membership) — these
+	// go through the gRPC surface, unlike the DB-backed reads above. Distinct
+	// path shapes, so they never collide with the :id detail route below.
+	app.Put("/api/tenants/:id/tier", requireAuth, h.SetTier)
+	app.Post("/api/tenants/:id/groups/:groupId", requireAuth, h.AddGroup)
+	app.Delete("/api/tenants/:id/groups/:groupId", requireAuth, h.RemoveGroup)
 	// Registered after the static /overview and /registrations paths so those
 	// win over the :id param; Fiber matches routes in registration order.
 	app.Get("/api/tenants/:id", requireAuth, h.Detail)
@@ -62,6 +73,10 @@ type tenantRow struct {
 	ZernioProfiles int                   `json:"zernioProfiles"`
 	R2Bytes        int64                 `json:"r2Bytes"`
 	Spend          analytics.VendorSpend `json:"spend"`
+	// Classification (CON-208), read from the Ogen DB. Tier is nil when the
+	// classification tables are absent; Groups is always non-nil (possibly empty).
+	Tier   *ogen.Tier   `json:"tier"`
+	Groups []ogen.Group `json:"groups"`
 }
 
 // rowFromMetrics builds a table row from a tenant's Ogen-side metrics and its
@@ -78,6 +93,7 @@ func rowFromMetrics(m ogen.TenantMetrics, spend analytics.VendorSpend) tenantRow
 		ZernioProfiles: m.ZernioProfiles,
 		R2Bytes:        m.R2Bytes,
 		Spend:          spend,
+		Groups:         []ogen.Group{}, // never null, so the UI can map over it
 	}
 }
 
@@ -128,6 +144,28 @@ func (f tenantFilter) match(t tenantRow) bool {
 		default:
 			return t.ZernioProfiles > n
 		}
+	case "tier":
+		name := ""
+		if t.Tier != nil {
+			name = t.Tier.Name
+		}
+		has := strings.EqualFold(name, f.Value)
+		if f.Operator == "is not" {
+			return !has
+		}
+		return has
+	case "group":
+		has := false
+		for _, g := range t.Groups {
+			if strings.EqualFold(g.Name, f.Value) {
+				has = true
+				break
+			}
+		}
+		if f.Operator == "excludes" {
+			return !has
+		}
+		return has
 	}
 	return true
 }
@@ -174,6 +212,30 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 		rows[i] = rowFromMetrics(m, spend[m.ID])
 	}
 
+	// Tenant classification, read from the Ogen DB (writes go via gRPC). All
+	// best-effort: a failure leaves tier nil / groups empty and simply hides the
+	// chips + filters rather than failing the list. The catalogs feed the filter
+	// options and the row edit menu.
+	tierByTenant, _ := h.tenants.TenantTiers(c.Context())
+	groupsByTenant, _ := h.tenants.TenantGroups(c.Context())
+	tierCatalog, _ := h.tenants.ListTiers(c.Context())
+	groupCatalog, _ := h.tenants.ListGroups(c.Context())
+	for i := range rows {
+		if tier, ok := tierByTenant[rows[i].ID]; ok {
+			t := tier
+			rows[i].Tier = &t
+		}
+		if gs := groupsByTenant[rows[i].ID]; gs != nil {
+			rows[i].Groups = gs
+		}
+	}
+	if tierCatalog == nil {
+		tierCatalog = []ogen.Tier{}
+	}
+	if groupCatalog == nil {
+		groupCatalog = []ogen.Group{}
+	}
+
 	// Distinct statuses across all tenants, for the filter dropdown — computed
 	// before filtering so the option list never shrinks with the results.
 	statusSet := map[string]struct{}{}
@@ -210,6 +272,8 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 		"tenants":        rows,
 		"total":          total,
 		"statuses":       statuses,
+		"tiers":          tierCatalog,
+		"groups":         groupCatalog,
 		"available":      true,
 		"spendAvailable": spendAvailable,
 	})
@@ -244,12 +308,86 @@ func (h *TenantsHandler) Detail(c *fiber.Ctx) error {
 	spend, spendErr := h.spend.ByTenant(c.Context())
 	spendAvailable := spendErr == nil
 
+	row := rowFromMetrics(*metrics, spend[metrics.ID])
+	// Classification for this tenant (best-effort), so the detail page can show
+	// the tier + groups alongside the list.
+	if tierByTenant, err := h.tenants.TenantTiers(c.Context()); err == nil {
+		if tier, ok := tierByTenant[row.ID]; ok {
+			t := tier
+			row.Tier = &t
+		}
+	}
+	if groupsByTenant, err := h.tenants.TenantGroups(c.Context()); err == nil {
+		if gs := groupsByTenant[row.ID]; gs != nil {
+			row.Groups = gs
+		}
+	}
+
 	return c.JSON(fiber.Map{
 		"available":      true,
 		"found":          true,
-		"tenant":         rowFromMetrics(*metrics, spend[metrics.ID]),
+		"tenant":         row,
 		"spendAvailable": spendAvailable,
 	})
+}
+
+// setTierRequest is the body of PUT /api/tenants/:id/tier.
+type setTierRequest struct {
+	TierID string `json:"tierId"`
+}
+
+// SetTier assigns (or reassigns) a tenant's tier via the gRPC surface. Tier is
+// required, so this always sets a valid tier — there is no unassign.
+//
+// SetTier godoc
+// @Summary  Set a tenant's tier
+// @Tags     tenants
+// @Accept   json
+// @Param    id    path  string          true  "Tenant ID"
+// @Param    body  body  setTierRequest  true  "Target tier id"
+// @Success  204
+// @Router   /api/tenants/{id}/tier [put]
+func (h *TenantsHandler) SetTier(c *fiber.Ctx) error {
+	var req setTierRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	if err := h.admin.SetTenantTier(c.Context(), c.Params("id"), req.TierID); err != nil {
+		return mapTierGroupError(err, "tenant")
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// AddGroup adds a tenant to a group (idempotent) via the gRPC surface.
+//
+// AddGroup godoc
+// @Summary  Add a tenant to a group
+// @Tags     tenants
+// @Param    id       path  string  true  "Tenant ID"
+// @Param    groupId  path  string  true  "Group ID"
+// @Success  204
+// @Router   /api/tenants/{id}/groups/{groupId} [post]
+func (h *TenantsHandler) AddGroup(c *fiber.Ctx) error {
+	if err := h.admin.AddTenantToGroup(c.Context(), c.Params("id"), c.Params("groupId")); err != nil {
+		return mapTierGroupError(err, "")
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// RemoveGroup removes a tenant from a group (idempotent) via the gRPC surface.
+//
+// RemoveGroup godoc
+// @Summary  Remove a tenant from a group
+// @Tags     tenants
+// @Param    id       path  string  true  "Tenant ID"
+// @Param    groupId  path  string  true  "Group ID"
+// @Success  204
+// @Router   /api/tenants/{id}/groups/{groupId} [delete]
+func (h *TenantsHandler) RemoveGroup(c *fiber.Ctx) error {
+	if err := h.admin.RemoveTenantFromGroup(c.Context(), c.Params("id"), c.Params("groupId")); err != nil {
+		return mapTierGroupError(err, "")
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 // regDay is one day in the registrations chart: an ISO date, the number of

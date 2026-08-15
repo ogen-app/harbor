@@ -43,6 +43,22 @@ type Registration struct {
 	Name string `bun:"name"`
 }
 
+// Tier and Group are the operator-owned classification catalog entries (CON-208,
+// global tables). Only the display fields are read here — the full catalog CRUD
+// lives on the /tiers-and-groups page over gRPC. Harbor READS classification
+// from the Ogen DB (fast, join-friendly) and WRITES it over gRPC.
+type Tier struct {
+	ID    string `bun:"id"    json:"id"`
+	Name  string `bun:"name"  json:"name"`
+	Color string `bun:"color" json:"color"`
+}
+
+type Group struct {
+	ID    string `bun:"id"    json:"id"`
+	Name  string `bun:"name"  json:"name"`
+	Color string `bun:"color" json:"color"`
+}
+
 // User is one member of a tenant, from the Ogen users table. Its JSON shape is
 // served directly to the tenant detail page.
 type User struct {
@@ -90,6 +106,18 @@ type TenantRepository interface {
 	// ZernioAccounts returns a tenant's connected social profiles with per-account
 	// post throughput (scheduled / published / failed / total), newest first.
 	ZernioAccounts(ctx context.Context, tenantID string) ([]ZernioAccount, error)
+
+	// ── tenant classification (CON-208; read-only here, writes go via gRPC) ──
+	// All four degrade to empty (no error) when the classification tables are
+	// absent, so an un-migrated Ogen never breaks the tenants list.
+	//
+	// ListTiers / ListGroups return the full catalogs (for filters + the edit
+	// menu). TenantTiers / TenantGroups return per-tenant assignments keyed by
+	// tenant id, for merging into the tenant rows.
+	ListTiers(ctx context.Context) ([]Tier, error)
+	ListGroups(ctx context.Context) ([]Group, error)
+	TenantTiers(ctx context.Context) (map[string]Tier, error)
+	TenantGroups(ctx context.Context) (map[string][]Group, error)
 
 	// ── overview aggregates ──────────────────────────────────────────────
 	Headline(ctx context.Context) (OverviewHeadline, error)
@@ -329,6 +357,109 @@ func (r *tenantRepository) tableColumns(ctx context.Context, table string) map[s
 		set[n] = true
 	}
 	return set
+}
+
+// classificationEnabled reports whether the FULL CON-208 schema is present in the
+// live Ogen DB: all three tables (tenant_tiers, tenant_groups,
+// tenant_group_assignments) AND the tenants.tier_id column. The four
+// classification reads guard on it and degrade to empty, so a partially- or
+// un-migrated Ogen never breaks the tenants list. Checked in one round trip;
+// count(DISTINCT ...) avoids over-counting a name that exists in several schemas.
+func (r *tenantRepository) classificationEnabled(ctx context.Context) bool {
+	if r.db == nil {
+		return false
+	}
+	var present int
+	err := r.db.NewRaw(`
+		SELECT
+			(SELECT count(DISTINCT table_name) FROM information_schema.tables
+				WHERE table_name IN ('tenant_tiers', 'tenant_groups', 'tenant_group_assignments'))
+			+
+			(SELECT count(DISTINCT table_name) FROM information_schema.columns
+				WHERE table_name = 'tenants' AND column_name = 'tier_id')`).Scan(ctx, &present)
+	return err == nil && present == 4 // 3 tables + the tier_id column
+}
+
+func (r *tenantRepository) ListTiers(ctx context.Context) ([]Tier, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	if !r.classificationEnabled(ctx) {
+		return []Tier{}, nil
+	}
+	var rows []Tier
+	if err := r.db.NewRaw(`SELECT id, name, color FROM tenant_tiers ORDER BY name`).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *tenantRepository) ListGroups(ctx context.Context) ([]Group, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	if !r.classificationEnabled(ctx) {
+		return []Group{}, nil
+	}
+	var rows []Group
+	if err := r.db.NewRaw(`SELECT id, name, color FROM tenant_groups ORDER BY name`).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// tenantTierRow / tenantGroupRow carry a tenant id alongside the catalog entry
+// so the assignment reads can be indexed by tenant.
+type tenantTierRow struct {
+	TenantID string `bun:"tenant_id"`
+	ID       string `bun:"id"`
+	Name     string `bun:"name"`
+	Color    string `bun:"color"`
+}
+
+func (r *tenantRepository) TenantTiers(ctx context.Context) (map[string]Tier, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	if !r.classificationEnabled(ctx) {
+		return map[string]Tier{}, nil
+	}
+	var rows []tenantTierRow
+	err := r.db.NewRaw(`
+		SELECT t.id AS tenant_id, tt.id, tt.name, tt.color
+		FROM tenants t
+		JOIN tenant_tiers tt ON tt.id = t.tier_id`).Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Tier, len(rows))
+	for _, row := range rows {
+		out[row.TenantID] = Tier{ID: row.ID, Name: row.Name, Color: row.Color}
+	}
+	return out, nil
+}
+
+func (r *tenantRepository) TenantGroups(ctx context.Context) (map[string][]Group, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	if !r.classificationEnabled(ctx) {
+		return map[string][]Group{}, nil
+	}
+	var rows []tenantTierRow // same shape: tenant_id + id/name/color
+	err := r.db.NewRaw(`
+		SELECT tga.tenant_id, g.id, g.name, g.color
+		FROM tenant_group_assignments tga
+		JOIN tenant_groups g ON g.id = tga.group_id
+		ORDER BY g.name`).Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]Group, len(rows))
+	for _, row := range rows {
+		out[row.TenantID] = append(out[row.TenantID], Group{ID: row.ID, Name: row.Name, Color: row.Color})
+	}
+	return out, nil
 }
 
 func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, error) {
