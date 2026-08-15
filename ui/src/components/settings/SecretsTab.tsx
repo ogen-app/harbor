@@ -41,9 +41,13 @@ const SECRET_DESCRIPTIONS: Record<string, string> = {
 };
 
 // Shared grid template so the header and every row align — columns:
-// name · last updated · actions. Mirrors the /tenants table layout.
+// name · last updated · actions. The actions column is a FIXED width (not
+// `auto`): each row is its own grid, so an auto track would size to its own
+// content (0 for the sr-only header, a button for rows) and the 1fr "Last
+// updated" column would start at a different x per row. Fixed keeps the tracks —
+// and the left edge of "Last updated" — identical everywhere. Mirrors /tenants.
 const GRID =
-  "grid grid-cols-[minmax(220px,2fr)_minmax(140px,1fr)_auto] items-center gap-4";
+  "grid grid-cols-[minmax(220px,2fr)_minmax(140px,1fr)_5rem] items-center gap-4";
 
 // A small padlock, matching GitHub's secrets list. The shared Icon set has no
 // lock glyph, so it's inlined here rather than expanding the global icon map.
