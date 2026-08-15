@@ -29,6 +29,7 @@ import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
 import {
   type Tenant,
+  type ClassificationLabel,
   type ActivityEvent,
   type ActivityDay,
   type ActivityState,
@@ -115,6 +116,33 @@ function MetricCell({
       <p className="mt-2 font-display text-2xl font-semibold text-foreground font-mono">
         {value}
       </p>
+    </div>
+  );
+}
+
+// GroupChips renders the header's "Groups:" list. It caps the number of chips
+// shown with a "+N" indicator (and a title listing all) so a tenant with many
+// groups never clips silently in the fixed-height header.
+function GroupChips({ groups }: { groups: ClassificationLabel[] }) {
+  const MAX = 6;
+  const shown = groups.slice(0, MAX);
+  const extra = groups.length - shown.length;
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0 text-xs text-tertiary-foreground">Groups:</span>
+      <div className="flex min-w-0 items-center gap-1">
+        {shown.map((g) => (
+          <LabelChip key={g.id} label={g.name} color={g.color} />
+        ))}
+        {extra > 0 && (
+          <span
+            className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-medium leading-none text-tertiary-foreground"
+            title={groups.map((g) => g.name).join(", ")}
+          >
+            +{extra}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -623,16 +651,7 @@ export function TenantDetail() {
           )}
 
           {t.groups && t.groups.length > 0 && (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <span className="shrink-0 text-xs text-tertiary-foreground">
-                Groups:
-              </span>
-              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                {t.groups.map((g) => (
-                  <LabelChip key={g.id} label={g.name} color={g.color} />
-                ))}
-              </div>
-            </div>
+            <GroupChips groups={t.groups} />
           )}
         </div>
         <div className="ml-auto shrink-0">

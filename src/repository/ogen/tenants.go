@@ -359,11 +359,25 @@ func (r *tenantRepository) tableColumns(ctx context.Context, table string) map[s
 	return set
 }
 
-// classificationEnabled reports whether the CON-208 tables exist in the live
-// Ogen schema. The four classification reads guard on it and degrade to empty so
-// the tenants list keeps working against an Ogen that hasn't run the migration.
+// classificationEnabled reports whether the FULL CON-208 schema is present in the
+// live Ogen DB: all three tables (tenant_tiers, tenant_groups,
+// tenant_group_assignments) AND the tenants.tier_id column. The four
+// classification reads guard on it and degrade to empty, so a partially- or
+// un-migrated Ogen never breaks the tenants list. Checked in one round trip;
+// count(DISTINCT ...) avoids over-counting a name that exists in several schemas.
 func (r *tenantRepository) classificationEnabled(ctx context.Context) bool {
-	return r.db != nil && len(r.tableColumns(ctx, "tenant_tiers")) > 0
+	if r.db == nil {
+		return false
+	}
+	var present int
+	err := r.db.NewRaw(`
+		SELECT
+			(SELECT count(DISTINCT table_name) FROM information_schema.tables
+				WHERE table_name IN ('tenant_tiers', 'tenant_groups', 'tenant_group_assignments'))
+			+
+			(SELECT count(DISTINCT table_name) FROM information_schema.columns
+				WHERE table_name = 'tenants' AND column_name = 'tier_id')`).Scan(ctx, &present)
+	return err == nil && present == 4 // 3 tables + the tier_id column
 }
 
 func (r *tenantRepository) ListTiers(ctx context.Context) ([]Tier, error) {

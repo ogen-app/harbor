@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // A nil *ogentenants.Client models an unconfigured tenant-admin service; its
@@ -72,6 +75,66 @@ func TestTiersGroups_WriteUnavailableIs503(t *testing.T) {
 		}
 		if resp.StatusCode != fiber.StatusServiceUnavailable {
 			t.Errorf("%s %s status = %d, want 503", tc.method, tc.path, resp.StatusCode)
+		}
+	}
+}
+
+// The tenant-assignment writes live on TenantsHandler but share the ogentenants
+// client; a nil client must likewise degrade to 503.
+func TestTenantAssignment_WriteUnavailableIs503(t *testing.T) {
+	cases := []struct {
+		method, path string
+	}{
+		{"PUT", "/api/tenants/t1/tier"},
+		{"POST", "/api/tenants/t1/groups/g1"},
+		{"DELETE", "/api/tenants/t1/groups/g1"},
+	}
+	for _, tc := range cases {
+		app := fiber.New()
+		// Only the admin client is exercised by these routes; the repos are unused.
+		NewTenantsHandler(nil, nil, nil, nil).Register(app, passAuth)
+
+		var body io.Reader
+		if tc.method == "PUT" {
+			body = strings.NewReader(`{"tierId":"x"}`)
+		}
+		req := httptest.NewRequest(tc.method, tc.path, body)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("%s %s request: %v", tc.method, tc.path, err)
+		}
+		if resp.StatusCode != fiber.StatusServiceUnavailable {
+			t.Errorf("%s %s status = %d, want 503", tc.method, tc.path, resp.StatusCode)
+		}
+	}
+}
+
+// TestMapTierGroupError pins the gRPC-code → HTTP-status contract.
+func TestMapTierGroupError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"already exists", status.Error(codes.AlreadyExists, "dup"), fiber.StatusConflict},
+		{"failed precondition", status.Error(codes.FailedPrecondition, "in use"), fiber.StatusConflict},
+		{"not found", status.Error(codes.NotFound, "missing"), fiber.StatusNotFound},
+		{"invalid argument", status.Error(codes.InvalidArgument, "bad"), fiber.StatusBadRequest},
+		{"unauthenticated", status.Error(codes.Unauthenticated, "token"), fiber.StatusBadGateway},
+		{"unavailable", status.Error(codes.Unavailable, "down"), fiber.StatusServiceUnavailable},
+		{"deadline", status.Error(codes.DeadlineExceeded, "slow"), fiber.StatusServiceUnavailable},
+		{"internal", status.Error(codes.Internal, "boom"), fiber.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		var fe *fiber.Error
+		if !errors.As(mapTierGroupError(tc.err, "tier"), &fe) {
+			t.Fatalf("%s: mapTierGroupError did not return a *fiber.Error", tc.name)
+		}
+		if fe.Code != tc.want {
+			t.Errorf("%s: code = %d, want %d", tc.name, fe.Code, tc.want)
 		}
 	}
 }

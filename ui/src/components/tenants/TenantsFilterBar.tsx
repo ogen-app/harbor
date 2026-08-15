@@ -182,9 +182,14 @@ export function TenantsFilterBar({
       v && commit({ field: f.key, operator: draft.operator!, value: v });
 
     if (f.options && f.options.length) {
+      // Status is a lowercase enum, so it reads better capitalized; tier/group
+      // names are proper catalog labels — show them verbatim.
       return f.options
         .filter((o) => o.toLowerCase().includes(q))
-        .map((o) => ({ label: cap(o), apply: () => commitValue(o) }));
+        .map((o) => ({
+          label: f.key === "status" ? cap(o) : o,
+          apply: () => commitValue(o),
+        }));
     }
     const raw = text.trim();
     if (!raw) return [];

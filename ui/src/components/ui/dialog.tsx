@@ -36,28 +36,33 @@ function DialogContent({
             />
             {/* Center with flexbox rather than `top-1/2 left-1/2
                 -translate-1/2`: a 50% transform lands the content on a
-                half-pixel boundary, which rasterizes the text blurry. The
-                wrapper is click-through (pointer-events-none) so outside-clicks
-                still reach the overlay and dismiss the dialog. */}
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 pointer-events-none">
-                <DialogPrimitive.Content
-                    data-slot="dialog-content"
-                    className={cn(
-                        "pointer-events-auto relative grid w-full max-w-lg gap-4 " +
-                            "rounded-lg border border-border bg-primary p-6 text-foreground shadow-xl outline-none " +
-                            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-                        className,
-                    )}
-                    {...props}
-                >
-                    {children}
-                    <DialogPrimitive.Close
-                        aria-label="Close"
-                        className="absolute right-4 top-4 rounded-xs text-tertiary-foreground outline-none transition-colors hover:text-foreground focus-visible:inset-ring-[2px] focus-visible:inset-ring-ring"
+                half-pixel boundary, which rasterizes the text blurry. The outer
+                layer scrolls (overflow-y-auto) and the inner `min-h-full` flex
+                keeps the dialog centered when it fits but lets the top stay
+                reachable when it's taller than the viewport. pointer-events is
+                inherited, so the click-through wrapper still lets outside-clicks
+                reach the overlay and dismiss — only Content re-enables events. */}
+            <div className="fixed inset-0 z-[200] overflow-y-auto pointer-events-none">
+                <div className="flex min-h-full items-center justify-center p-4">
+                    <DialogPrimitive.Content
+                        data-slot="dialog-content"
+                        className={cn(
+                            "pointer-events-auto relative grid w-full max-w-lg gap-4 " +
+                                "rounded-lg border border-border bg-primary p-6 text-foreground shadow-xl outline-none " +
+                                "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                            className,
+                        )}
+                        {...props}
                     >
-                        <Icon name="x_mark" className="size-4" />
-                    </DialogPrimitive.Close>
-                </DialogPrimitive.Content>
+                        {children}
+                        <DialogPrimitive.Close
+                            aria-label="Close"
+                            className="absolute right-4 top-4 rounded-xs text-tertiary-foreground outline-none transition-colors hover:text-foreground focus-visible:inset-ring-[2px] focus-visible:inset-ring-ring"
+                        >
+                            <Icon name="x_mark" className="size-4" />
+                        </DialogPrimitive.Close>
+                    </DialogPrimitive.Content>
+                </div>
             </div>
         </DialogPrimitive.Portal>
     );

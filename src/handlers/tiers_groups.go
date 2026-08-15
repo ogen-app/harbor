@@ -187,7 +187,13 @@ func parseEntryBody(c *fiber.Ctx) (entryWriteRequest, error) {
 }
 
 func isTierGroupUnavailable(err error) bool {
-	return errors.Is(err, ogentenants.ErrUnavailable) || status.Code(err) == codes.Unavailable
+	// status.Code classifies a raw context deadline as DeadlineExceeded too, so
+	// this covers both a gRPC deadline and a local context timeout.
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	}
+	return errors.Is(err, ogentenants.ErrUnavailable)
 }
 
 // mapTierGroupError translates client/gRPC errors to HTTP statuses. The gRPC
@@ -198,6 +204,13 @@ func isTierGroupUnavailable(err error) bool {
 // ("tier"/"group") tailors the NotFound message; "" falls back to a generic one.
 func mapTierGroupError(err error, kind string) error {
 	if errors.Is(err, ogentenants.ErrUnavailable) {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "tenant-admin service unavailable")
+	}
+	// A deadline — a gRPC DeadlineExceeded or a raw context timeout — is an
+	// availability problem, not a server fault, so map it to 503. status.Code
+	// classifies context.DeadlineExceeded, but status.FromError reports ok=false
+	// for it, so handle it before the ok check below (which would return raw 500).
+	if status.Code(err) == codes.DeadlineExceeded {
 		return fiber.NewError(fiber.StatusServiceUnavailable, "tenant-admin service unavailable")
 	}
 	st, ok := status.FromError(err)

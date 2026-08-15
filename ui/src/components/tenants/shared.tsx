@@ -2,6 +2,7 @@
 // the Tenants table and the per-tenant detail page (/tenants/[id]).
 
 import { cn } from "@/lib/utils";
+import { HEX_RE, readableOn } from "@/lib/color";
 import { Loader } from "@/components/ui/loader";
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -168,19 +169,6 @@ export function StatusLabel({ status }: { status: string }) {
 }
 
 // ── classification chips (tiers & groups) ──────────────────────────────────────
-
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-
-// readableOn returns black or white — whichever reads better on the given hex
-// background — so chip text stays legible across the palette.
-export function readableOn(hex: string): string {
-  if (!HEX_RE.test(hex)) return "#111827";
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.6 ? "#111827" : "#ffffff";
-}
 
 // ColorDot is the small round swatch used in the tier/group edit menus.
 export function ColorDot({ color }: { color: string }) {

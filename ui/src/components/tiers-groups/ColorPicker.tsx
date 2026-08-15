@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { HEX_RE, isHexColor, readableOn } from "@/lib/color";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react";
 
 // A curated default palette: eight hues, a bold row and a pastel row, matching
@@ -29,22 +30,9 @@ const DEFAULT_COLORS: string[] = [
   "#c6acde",
 ];
 
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-
+// A color is valid when empty (none) or a #RRGGBB hex.
 export function isValidColor(value: string): boolean {
-  return value === "" || HEX_RE.test(value);
-}
-
-// readableOn returns black or white — whichever reads better on the given hex
-// background — so the icon on a swatch stays legible across the palette.
-function readableOn(hex: string): string {
-  if (!HEX_RE.test(hex)) return "#111827";
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  // Perceived luminance (sRGB weights).
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.6 ? "#111827" : "#ffffff";
+  return value === "" || isHexColor(value);
 }
 
 interface ColorPickerProps {
