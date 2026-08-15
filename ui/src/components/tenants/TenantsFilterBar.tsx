@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 // ── model ─────────────────────────────────────────────────────────────────────
 
-export type FieldKey = "name" | "status" | "spend" | "zernio";
+export type FieldKey = "name" | "status" | "spend" | "zernio" | "tier" | "group";
 
 interface FilterField {
   key: FieldKey;
@@ -41,6 +41,20 @@ const FIELDS: FilterField[] = [
     options: [],
   },
   {
+    key: "tier",
+    label: "Tier",
+    type: "enum",
+    operators: ["is", "is not"],
+    options: [],
+  },
+  {
+    key: "group",
+    label: "Group",
+    type: "enum",
+    operators: ["includes", "excludes"],
+    options: [],
+  },
+  {
     key: "spend",
     label: "AI spend",
     type: "number",
@@ -62,6 +76,8 @@ const FIELD_LABEL: Record<FieldKey, string> = {
   status: "Status",
   spend: "AI spend",
   zernio: "Zernio profiles",
+  tier: "Tier",
+  group: "Group",
 };
 
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -85,10 +101,14 @@ export function TenantsFilterBar({
   tokens,
   onTokensChange,
   statusOptions,
+  tierOptions = [],
+  groupOptions = [],
 }: {
   tokens: FilterToken[];
   onTokensChange: (t: FilterToken[]) => void;
   statusOptions: string[];
+  tierOptions?: string[];
+  groupOptions?: string[];
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [text, setText] = useState("");
@@ -115,13 +135,16 @@ export function TenantsFilterBar({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Inject live status options into the Status field.
+  // Inject live options into the enum fields (status / tier / group).
   const fields = useMemo(
     () =>
-      FIELDS.map((f) =>
-        f.key === "status" ? { ...f, options: statusOptions } : f,
-      ),
-    [statusOptions],
+      FIELDS.map((f) => {
+        if (f.key === "status") return { ...f, options: statusOptions };
+        if (f.key === "tier") return { ...f, options: tierOptions };
+        if (f.key === "group") return { ...f, options: groupOptions };
+        return f;
+      }),
+    [statusOptions, tierOptions, groupOptions],
   );
 
   const stage: "field" | "operator" | "value" = !draft
@@ -216,7 +239,7 @@ export function TenantsFilterBar({
     stage === "field"
       ? tokens.length
         ? "Add filter…"
-        : "Filter by name, status, AI spend, Zernio…"
+        : "Filter by name, status, tier, group, AI spend…"
       : stage === "operator"
         ? "Operator…"
         : draft?.field.options?.length

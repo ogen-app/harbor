@@ -13,6 +13,14 @@ export interface VendorSpend {
   totalMicros: number;
 }
 
+// A tier (1 per tenant) or group (many) classification label. color is an
+// optional "#RRGGBB" hex ("" = none). Read from the Ogen DB; edited over gRPC.
+export interface ClassificationLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -23,6 +31,10 @@ export interface Tenant {
   zernioProfiles: number;
   r2Bytes: number;
   spend: VendorSpend;
+  // Classification (CON-208). tier is null when unassigned/unavailable; groups
+  // is always an array (possibly empty).
+  tier?: ClassificationLabel | null;
+  groups?: ClassificationLabel[];
 }
 
 export interface ActivityEvent {
@@ -151,6 +163,64 @@ export function StatusLabel({ status }: { status: string }) {
         )}
       />
       <span className="capitalize text-secondary-foreground">{status}</span>
+    </span>
+  );
+}
+
+// ── classification chips (tiers & groups) ──────────────────────────────────────
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+// readableOn returns black or white — whichever reads better on the given hex
+// background — so chip text stays legible across the palette.
+export function readableOn(hex: string): string {
+  if (!HEX_RE.test(hex)) return "#111827";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "#111827" : "#ffffff";
+}
+
+// ColorDot is the small round swatch used in the tier/group edit menus.
+export function ColorDot({ color }: { color: string }) {
+  const has = HEX_RE.test(color);
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-2.5 shrink-0 rounded-full border",
+        has ? "border-black/10" : "border-quaternary",
+      )}
+      style={has ? { backgroundColor: color } : undefined}
+    />
+  );
+}
+
+// LabelChip is the all-rounded, color-branded pill for a tier or group. A valid
+// hex fills the chip (with a readable text color); no color falls back to a
+// neutral chip.
+export function LabelChip({
+  label,
+  color,
+  className,
+}: {
+  label: string;
+  color: string;
+  className?: string;
+}) {
+  const styled = HEX_RE.test(color);
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-40 items-center truncate rounded-lg px-1.5 py-1 text-[11px] font-semibold leading-none whitespace-nowrap",
+        !styled && "bg-secondary text-secondary-foreground",
+        className,
+      )}
+      style={styled ? { backgroundColor: color, color: readableOn(color) } : undefined}
+      title={label}
+    >
+      {label}
     </span>
   );
 }

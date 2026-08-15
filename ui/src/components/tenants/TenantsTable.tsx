@@ -6,10 +6,9 @@ import {
   CaretUpIcon,
   CaretDownIcon,
   DotsThreeOutlineVerticalIcon,
-  NotePencilIcon,
-  ArrowClockwiseIcon,
   ArrowSquareOutIcon,
-  TrashIcon,
+  StackIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -24,6 +23,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import {
   TenantsFilterBar,
@@ -34,11 +39,14 @@ import {
   type VendorSpend,
   type ActivityEvent,
   type ActivityState,
+  type ClassificationLabel,
   formatDate,
   formatUSD,
   formatBytes,
   spendSegments,
   StatusLabel,
+  LabelChip,
+  ColorDot,
   DetailRow,
   RecentActivity,
 } from "@/components/tenants/shared";
@@ -51,6 +59,10 @@ interface TenantsResponse {
   spendAvailable?: boolean;
   total?: number;
   statuses?: string[];
+  // Classification catalogs (CON-208) — feed the filter options and the row
+  // edit menu. Empty when Ogen's classification tables aren't present.
+  tiers?: ClassificationLabel[];
+  groups?: ClassificationLabel[];
   error?: string;
 }
 
@@ -114,12 +126,21 @@ function loadSort(): Sort {
 // ── layout ────────────────────────────────────────────────────────────────────
 
 // Shared grid template so the header and every row align. Columns:
-// chevron · name · registered · status ‖ users · AI spend · Zernio · R2 · actions.
-// The middle four (metrics) are the visually distinctive set.
+// chevron · name · registered · status · groups ‖ users · AI spend · Zernio · R2 · actions.
+// The four metric columns after the divider are the visually distinctive set.
 const GRID =
-  "grid grid-cols-[2rem_minmax(140px,1.6fr)_1fr_0.9fr_0.7fr_minmax(120px,1.4fr)_0.8fr_0.9fr_2.5rem] items-center gap-4";
+  "grid grid-cols-[2rem_minmax(150px,1.6fr)_1fr_0.9fr_minmax(120px,1.3fr)_0.7fr_minmax(120px,1.4fr)_0.8fr_0.9fr_2.5rem] items-center gap-4";
 
 const METRIC_START = "border-l border-border pl-4"; // divider before the metric group
+
+// errorText pulls the server's { error } message from a failed response, falling
+// back to the status code.
+async function errorText(res: Response): Promise<string> {
+  const detail = (await res.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  return detail?.error || `Request failed (${res.status})`;
+}
 
 // ── column headers ────────────────────────────────────────────────────────────
 
@@ -177,11 +198,54 @@ function SortHeader({
 
 // ── per-row actions menu ──────────────────────────────────────────────────────
 
-// stopPropagation keeps the trigger / menu from toggling row expansion (the row
-// is a role="button", and portaled menu clicks still bubble through the React
-// tree). "View details" navigates to the tenant page; the rest are placeholders
-// — disabled until wired up.
-function ActionsMenu({ tenantId }: { tenantId: string }) {
+// GroupsCell renders a tenant's group chips (up to three) with a "+N" overflow.
+function GroupsCell({ groups }: { groups: ClassificationLabel[] }) {
+  if (groups.length === 0) {
+    return <span className="text-xs text-tertiary-foreground">—</span>;
+  }
+  const shown = groups.slice(0, 3);
+  const extra = groups.length - shown.length;
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
+      {shown.map((g) => (
+        <LabelChip key={g.id} label={g.name} color={g.color} />
+      ))}
+      {extra > 0 && (
+        <span
+          className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-medium leading-none text-tertiary-foreground"
+          title={groups.map((g) => g.name).join(", ")}
+        >
+          +{extra}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ActionsMenu is the per-row "⋮" menu. "View details" navigates to the tenant
+// page; the Tier and Groups submenus edit the tenant's classification — a radio
+// list (tier is 1-per-tenant) and a checkbox list (groups are many). Toggles
+// write over gRPC via the parent's optimistic handlers. stopPropagation keeps
+// the trigger / portaled menu clicks from toggling row expansion (the row is a
+// role="button" and portal clicks bubble through the React tree).
+function ActionsMenu({
+  tenant,
+  allTiers,
+  allGroups,
+  onSetTier,
+  onToggleGroup,
+}: {
+  tenant: Tenant;
+  allTiers: ClassificationLabel[];
+  allGroups: ClassificationLabel[];
+  onSetTier: (tenant: Tenant, tierId: string) => void;
+  onToggleGroup: (
+    tenant: Tenant,
+    group: ClassificationLabel,
+    add: boolean,
+  ) => void;
+}) {
+  const memberIds = new Set((tenant.groups ?? []).map((g) => g.id));
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -204,35 +268,72 @@ function ActionsMenu({ tenantId }: { tenantId: string }) {
         className="min-w-48 rounded-none border border-border py-1 shadow-xl"
       >
         <DropdownMenuItem asChild className="gap-3 px-4 py-2.5">
-          <Link href={`/tenants/${encodeURIComponent(tenantId)}`}>
+          <Link href={`/tenants/${encodeURIComponent(tenant.id)}`}>
             <ArrowSquareOutIcon className="size-4" />
             View details
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuSeparator className="my-1 h-px bg-border" />
-        <DropdownMenuItem
-          disabled
-          className="gap-3 px-4 py-2.5 data-[disabled]:opacity-100"
-        >
-          <NotePencilIcon className="size-4" />
-          Edit cluster
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled
-          className="gap-3 px-4 py-2.5 data-[disabled]:opacity-100"
-        >
-          <ArrowClockwiseIcon className="size-4" />
-          Update version
-        </DropdownMenuItem>
-        <DropdownMenuSeparator className="my-1 h-px bg-border" />
-        <DropdownMenuItem
-          disabled
-          variant="destructive"
-          className="gap-3 px-4 py-2.5 data-[disabled]:opacity-100"
-        >
-          <TrashIcon className="size-4" />
-          Delete
-        </DropdownMenuItem>
+
+        {(allTiers.length > 0 || allGroups.length > 0) && (
+          <DropdownMenuSeparator className="my-1 h-px bg-border" />
+        )}
+
+        {allTiers.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+              <StackIcon className="size-4" />
+              Tier
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-72 min-w-44 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+            >
+              <DropdownMenuRadioGroup
+                value={tenant.tier?.id ?? ""}
+                onValueChange={(id) => onSetTier(tenant, id)}
+              >
+                {allTiers.map((t) => (
+                  <DropdownMenuRadioItem
+                    key={t.id}
+                    value={t.id}
+                    className="gap-2 pr-3"
+                  >
+                    <ColorDot color={t.color} />
+                    {t.name}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+
+        {allGroups.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+              <UsersThreeIcon className="size-4" />
+              Groups
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-72 min-w-44 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+            >
+              {allGroups.map((g) => (
+                <DropdownMenuCheckboxItem
+                  key={g.id}
+                  checked={memberIds.has(g.id)}
+                  onCheckedChange={(checked) =>
+                    onToggleGroup(tenant, g, checked === true)
+                  }
+                  onSelect={(e) => e.preventDefault()}
+                  className="gap-2"
+                >
+                  <ColorDot color={g.color} />
+                  {g.name}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -343,6 +444,7 @@ function SkeletonRows() {
           </div>
           <div className="h-3 w-20 animate-pulse rounded bg-secondary" />
           <div className="h-3 w-14 animate-pulse rounded bg-secondary" />
+          <div className="h-4 w-16 animate-pulse rounded-full bg-secondary" />
           <div className="h-3 w-8 animate-pulse rounded bg-secondary justify-self-end" />
           <div className="h-3 w-full animate-pulse rounded bg-secondary" />
           <div className="h-3 w-10 animate-pulse rounded bg-secondary justify-self-end" />
@@ -364,6 +466,9 @@ export function TenantsTable() {
   const [filters, setFilters] = useState<FilterToken[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [activity, setActivity] = useState<Record<string, ActivityState>>({});
+  const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
+    null,
+  );
 
   // Filtering runs server-side: re-fetch whenever the filter tokens change,
   // passing them as a JSON query param. Previous results stay visible during a
@@ -427,6 +532,81 @@ export function TenantsTable() {
   }, [data, sort]);
 
   const spendAvailable = data?.spendAvailable ?? false;
+
+  // Classification catalogs for the filter options and the row edit menu.
+  const allTiers = data?.tiers ?? [];
+  const allGroups = data?.groups ?? [];
+
+  const flash = (msg: string, isError = false) => {
+    setToast({ msg, error: isError });
+    window.setTimeout(() => setToast(null), 3000);
+  };
+
+  // mutateTenant patches one tenant in-place in the current result set — used for
+  // optimistic tier/group edits so the row (and open menu) update instantly.
+  const mutateTenant = (id: string, fn: (t: Tenant) => Tenant) =>
+    setData((prev) =>
+      prev
+        ? { ...prev, tenants: prev.tenants.map((t) => (t.id === id ? fn(t) : t)) }
+        : prev,
+    );
+
+  // setTier reassigns a tenant's (single) tier via gRPC. Optimistic: apply, then
+  // revert on failure.
+  const setTier = async (tenant: Tenant, tierId: string) => {
+    if (tenant.tier?.id === tierId) return;
+    const tier = allTiers.find((t) => t.id === tierId);
+    if (!tier) return;
+    const previous = tenant.tier ?? null;
+    mutateTenant(tenant.id, (t) => ({ ...t, tier }));
+    try {
+      const res = await fetch(
+        `/api/tenants/${encodeURIComponent(tenant.id)}/tier`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tierId }),
+        },
+      );
+      if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
+      flash(`${tenant.name}: tier set to ${tier.name}`);
+    } catch (e) {
+      mutateTenant(tenant.id, (t) => ({ ...t, tier: previous }));
+      flash(e instanceof Error ? e.message : "Failed to set tier", true);
+    }
+  };
+
+  // toggleGroup attaches/detaches a tenant to a group via gRPC (idempotent).
+  // Optimistic with revert; the local list stays name-sorted to match the server.
+  const toggleGroup = async (
+    tenant: Tenant,
+    group: ClassificationLabel,
+    add: boolean,
+  ) => {
+    const withGroup = (gs: ClassificationLabel[]) =>
+      [...gs.filter((g) => g.id !== group.id), group].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+    const withoutGroup = (gs: ClassificationLabel[]) =>
+      gs.filter((g) => g.id !== group.id);
+    mutateTenant(tenant.id, (t) => ({
+      ...t,
+      groups: add ? withGroup(t.groups ?? []) : withoutGroup(t.groups ?? []),
+    }));
+    try {
+      const res = await fetch(
+        `/api/tenants/${encodeURIComponent(tenant.id)}/groups/${encodeURIComponent(group.id)}`,
+        { method: add ? "POST" : "DELETE" },
+      );
+      if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
+    } catch (e) {
+      mutateTenant(tenant.id, (t) => ({
+        ...t,
+        groups: add ? withoutGroup(t.groups ?? []) : withGroup(t.groups ?? []),
+      }));
+      flash(e instanceof Error ? e.message : "Failed to update groups", true);
+    }
+  };
 
   // Keyboard row navigation (page-level, no click needed): j/k or ↓/↑ move the
   // highlighted row, o opens it. A row's "main link" is its tenant detail page.
@@ -515,6 +695,8 @@ export function TenantsTable() {
             tokens={filters}
             onTokensChange={setFilters}
             statusOptions={statusOptions}
+            tierOptions={allTiers.map((t) => t.name)}
+            groupOptions={allGroups.map((g) => g.name)}
           />
         </div>
       )}
@@ -551,6 +733,9 @@ export function TenantsTable() {
                 sort={sort}
                 onSort={onSort}
               />
+              <span className="flex items-center text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+                Groups
+              </span>
               <SortHeader
                 label="Users"
                 col="users"
@@ -630,14 +815,24 @@ export function TenantsTable() {
                     />
                     <span className="min-w-0">
                       {/* The name links to the tenant detail page; stopPropagation
-                          keeps the click from also toggling row expansion. */}
-                      <Link
-                        href={`/tenants/${encodeURIComponent(t.id)}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="block truncate font-medium text-foreground hover:underline"
-                      >
-                        {t.name}
-                      </Link>
+                          keeps the click from also toggling row expansion. The
+                          tier chip sits inline, right of the name. */}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Link
+                          href={`/tenants/${encodeURIComponent(t.id)}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="truncate font-medium text-foreground hover:underline"
+                        >
+                          {t.name}
+                        </Link>
+                        {t.tier && (
+                          <LabelChip
+                            label={t.tier.name}
+                            color={t.tier.color}
+                            className="shrink-0"
+                          />
+                        )}
+                      </span>
                       <span className="block truncate font-mono text-xs text-tertiary-foreground">
                         {t.slug}
                       </span>
@@ -647,6 +842,8 @@ export function TenantsTable() {
                     </span>
 
                     <StatusLabel status={t.status} />
+
+                    <GroupsCell groups={t.groups ?? []} />
 
                     <span
                       className={cn("text-right text-foreground font-mono", METRIC_START)}
@@ -660,7 +857,13 @@ export function TenantsTable() {
                     <span className="text-right font-mono text-foreground">
                       {formatBytes(t.r2Bytes)}
                     </span>
-                    <ActionsMenu tenantId={t.id} />
+                    <ActionsMenu
+                      tenant={t}
+                      allTiers={allTiers}
+                      allGroups={allGroups}
+                      onSetTier={setTier}
+                      onToggleGroup={toggleGroup}
+                    />
                   </div>
                   {open && <ExpandedPanel t={t} activity={activity[t.id]} />}
                 </div>
@@ -669,6 +872,21 @@ export function TenantsTable() {
           </div>
         )}
       </div>
+
+      {/* Transient feedback for tier/group edits. */}
+      {toast && (
+        <div
+          role="status"
+          className={cn(
+            "fixed bottom-6 right-6 z-[200] rounded-md border bg-primary px-4 py-2 text-sm shadow-xl",
+            toast.error
+              ? "border-destructive/30 text-destructive"
+              : "border-border text-foreground",
+          )}
+        >
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }

@@ -46,6 +46,14 @@ func (f *fakeTenantRepo) StuckRiverJobs(context.Context) (int, error)     { retu
 func (f *fakeTenantRepo) TenantNames(context.Context) (map[string]string, error) {
 	return f.names, nil
 }
+func (f *fakeTenantRepo) ListTiers(context.Context) ([]ogen.Tier, error)   { return nil, nil }
+func (f *fakeTenantRepo) ListGroups(context.Context) ([]ogen.Group, error) { return nil, nil }
+func (f *fakeTenantRepo) TenantTiers(context.Context) (map[string]ogen.Tier, error) {
+	return nil, nil
+}
+func (f *fakeTenantRepo) TenantGroups(context.Context) (map[string][]ogen.Group, error) {
+	return nil, nil
+}
 
 type fakeSpendRepo struct {
 	available bool

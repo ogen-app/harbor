@@ -196,6 +196,48 @@ func (c *Client) DeleteGroup(ctx context.Context, id string) error {
 	return err
 }
 
+// ── Tenant assignment ────────────────────────────────────────────────────────
+// These mutate a single tenant's classification. Reads of the same data go
+// straight to the Ogen DB (see repository/ogen); writes go through gRPC so
+// Ogen enforces the invariants (tier required, membership idempotent).
+
+// SetTenantTier assigns (or reassigns) the tenant's single tier. Tier is
+// required, so there is no "unassign" — this always sets a valid tier id.
+func (c *Client) SetTenantTier(ctx context.Context, tenantID, tierID string) error {
+	if c == nil {
+		return ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.rpc.SetTenantTier(ctx, &tenantsv1.SetTenantTierRequest{TenantId: tenantID, TierId: tierID})
+	return err
+}
+
+// AddTenantToGroup adds the tenant to a group (idempotent).
+func (c *Client) AddTenantToGroup(ctx context.Context, tenantID, groupID string) error {
+	if c == nil {
+		return ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.rpc.AddTenantToGroup(ctx, &tenantsv1.AddTenantToGroupRequest{TenantId: tenantID, GroupId: groupID})
+	return err
+}
+
+// RemoveTenantFromGroup removes the tenant from a group (idempotent).
+func (c *Client) RemoveTenantFromGroup(ctx context.Context, tenantID, groupID string) error {
+	if c == nil {
+		return ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.rpc.RemoveTenantFromGroup(ctx, &tenantsv1.RemoveTenantFromGroupRequest{TenantId: tenantID, GroupId: groupID})
+	return err
+}
+
 func entryFromTier(t *tenantsv1.Tier) Entry {
 	if t == nil {
 		return Entry{}

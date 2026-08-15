@@ -82,7 +82,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 		cfg.GoogleClientID, cfg.SessionCookieName,
 	).Register(app, requireAuth)
 	handlers.NewStatusHandler(ogenDB, analyticsDB).Register(app, requireAuth)
-	handlers.NewTenantsHandler(tenantRepo, spendRepo, activityRepo).Register(app, requireAuth)
+	handlers.NewTenantsHandler(tenantRepo, spendRepo, activityRepo, tenantsAdminClient).Register(app, requireAuth)
 	handlers.NewAnalyticsHandler(spendRepo).Register(app, requireAuth)
 	handlers.NewEmailTemplatesHandler(emailTemplateRepo).Register(app, requireAuth)
 	handlers.NewSecretsHandler(secretsClient).Register(app, requireAuth)
