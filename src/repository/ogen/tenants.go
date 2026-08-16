@@ -31,6 +31,12 @@ type TenantMetrics struct {
 	Name           string    `bun:"name"`
 	Slug           string    `bun:"slug"`
 	CreatedAt      time.Time `bun:"created_at"`
+	// Status / StatusReason are the tenant lifecycle fields (CON-190):
+	// active | suspended | deleted, plus an operator note (set on suspend). Read
+	// from the Ogen DB; written over gRPC. Both fall back to 'active'/'' when the
+	// live Ogen is un-migrated (no status column) — see metricsSelectSQL.
+	Status         string    `bun:"status"`
+	StatusReason   string    `bun:"status_reason"`
 	Users          int       `bun:"users"`
 	ZernioProfiles int       `bun:"zernio_profiles"`
 	R2Bytes        int64     `bun:"r2_bytes"`
@@ -135,12 +141,25 @@ func NewTenantRepository(db *bun.DB) TenantRepository { return &tenantRepository
 
 func (r *tenantRepository) Available() bool { return r.db != nil }
 
-// metricsSelect is the shared identity + per-tenant metric projection. Correlated
-// subqueries keep it a single round trip and avoid fan-out from LEFT JOINs
-// multiplying rows. Callers append their own WHERE/ORDER BY.
-const metricsSelect = `
+// metricsSelectSQL is the shared identity + per-tenant metric projection.
+// Correlated subqueries keep it a single round trip and avoid fan-out from LEFT
+// JOINs multiplying rows. Callers append their own WHERE/ORDER BY.
+//
+// The lifecycle status columns (CON-190) are adapted to the live Ogen schema:
+// when tenants.status is absent (un-migrated Ogen) the projection falls back to
+// a constant 'active'/'' so the tenants list never breaks — mirroring the
+// column-adaptive reads elsewhere in this package (ZernioAccounts,
+// classificationEnabled).
+func (r *tenantRepository) metricsSelectSQL(ctx context.Context) string {
+	statusExpr, reasonExpr := "'active'", "''"
+	if r.tableColumns(ctx, "tenants")["status"] {
+		statusExpr, reasonExpr = "COALESCE(t.status, 'active')", "COALESCE(t.status_reason, '')"
+	}
+	return fmt.Sprintf(`
 	SELECT
 		t.id, t.name, t.slug, t.created_at,
+		%s AS status,
+		%s AS status_reason,
 		(SELECT count(*) FROM users u
 			WHERE u.tenant_id = t.id) AS users,
 		(SELECT count(*) FROM social_accounts sa
@@ -155,14 +174,15 @@ const metricsSelect = `
 			(SELECT COALESCE(sum(pa.size_bytes), 0) FROM post_attachments pa
 				WHERE pa.tenant_id = t.id)
 		) AS r2_bytes
-	FROM tenants t`
+	FROM tenants t`, statusExpr, reasonExpr)
+}
 
 func (r *tenantRepository) ListMetrics(ctx context.Context) ([]TenantMetrics, error) {
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
 	var rows []TenantMetrics
-	if err := r.db.NewRaw(metricsSelect+` ORDER BY t.created_at`).Scan(ctx, &rows); err != nil {
+	if err := r.db.NewRaw(r.metricsSelectSQL(ctx)+` ORDER BY t.created_at`).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -173,7 +193,7 @@ func (r *tenantRepository) GetMetrics(ctx context.Context, id string) (*TenantMe
 		return nil, ErrUnavailable
 	}
 	m := new(TenantMetrics)
-	if err := r.db.NewRaw(metricsSelect+` WHERE t.id = ?`, id).Scan(ctx, m); err != nil {
+	if err := r.db.NewRaw(r.metricsSelectSQL(ctx)+` WHERE t.id = ?`, id).Scan(ctx, m); err != nil {
 		return nil, err
 	}
 	return m, nil

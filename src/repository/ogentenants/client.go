@@ -238,6 +238,25 @@ func (c *Client) RemoveTenantFromGroup(ctx context.Context, tenantID, groupID st
 	return err
 }
 
+// ── tenant lifecycle status (CON-190) ────────────────────────────────────────
+
+// SetTenantStatus drives the whole tenant lifecycle through a single RPC:
+// suspend, reactivate, soft-delete, and restore (deleted -> active). status is
+// one of active | suspended | deleted; reason is recorded for 'suspended' and
+// ignored/cleared otherwise. Idempotent — setting the current status is a
+// success no-op. Ogen rejects suspending/deleting the 'default' tenant with
+// FailedPrecondition (surfaced to the operator as 409).
+func (c *Client) SetTenantStatus(ctx context.Context, tenantID, status, reason string) error {
+	if c == nil {
+		return ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.rpc.SetTenantStatus(ctx, &tenantsv1.SetTenantStatusRequest{TenantId: tenantID, Status: status, Reason: reason})
+	return err
+}
+
 func entryFromTier(t *tenantsv1.Tier) Entry {
 	if t == nil {
 		return Entry{}
