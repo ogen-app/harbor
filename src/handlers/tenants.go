@@ -53,6 +53,7 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	// go through the gRPC surface, unlike the DB-backed reads above. Distinct
 	// path shapes, so they never collide with the :id detail route below.
 	app.Put("/api/tenants/:id/tier", requireAuth, h.SetTier)
+	app.Put("/api/tenants/:id/status", requireAuth, h.SetStatus)
 	app.Post("/api/tenants/:id/groups/:groupId", requireAuth, h.AddGroup)
 	app.Delete("/api/tenants/:id/groups/:groupId", requireAuth, h.RemoveGroup)
 	// Registered after the static /overview and /registrations paths so those
@@ -69,6 +70,7 @@ type tenantRow struct {
 	Slug           string                `json:"slug"`
 	CreatedAt      time.Time             `json:"createdAt"`
 	Status         string                `json:"status"`
+	StatusReason   string                `json:"statusReason"`
 	Users          int                   `json:"users"`
 	ZernioProfiles int                   `json:"zernioProfiles"`
 	R2Bytes        int64                 `json:"r2Bytes"`
@@ -80,15 +82,20 @@ type tenantRow struct {
 }
 
 // rowFromMetrics builds a table row from a tenant's Ogen-side metrics and its
-// (possibly zero) AI spend. Ogen has no lifecycle column yet, so status is
-// always "active".
+// (possibly zero) AI spend. Status/StatusReason are the CON-190 lifecycle fields,
+// read from the Ogen DB (falling back to "active" for an un-migrated Ogen).
 func rowFromMetrics(m ogen.TenantMetrics, spend analytics.VendorSpend) tenantRow {
+	status := m.Status
+	if status == "" {
+		status = "active"
+	}
 	return tenantRow{
 		ID:             m.ID,
 		Name:           m.Name,
 		Slug:           m.Slug,
 		CreatedAt:      m.CreatedAt,
-		Status:         "active",
+		Status:         status,
+		StatusReason:   m.StatusReason,
 		Users:          m.Users,
 		ZernioProfiles: m.ZernioProfiles,
 		R2Bytes:        m.R2Bytes,
@@ -353,6 +360,37 @@ func (h *TenantsHandler) SetTier(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
 	if err := h.admin.SetTenantTier(c.Context(), c.Params("id"), req.TierID); err != nil {
+		return mapTierGroupError(err, "tenant")
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// setStatusRequest is the body of PUT /api/tenants/:id/status.
+type setStatusRequest struct {
+	Status string `json:"status"`
+	Reason string `json:"reason"`
+}
+
+// SetStatus drives a tenant's lifecycle — suspend, reactivate, soft-delete, or
+// restore — via the gRPC surface. It maps to Ogen's single SetTenantStatus RPC:
+// reason is recorded on suspend and cleared/ignored otherwise, and the call is
+// idempotent. Ogen rejects suspending/deleting the 'default' tenant with
+// FailedPrecondition, surfaced here as 409.
+//
+// SetStatus godoc
+// @Summary  Set a tenant's lifecycle status
+// @Tags     tenants
+// @Accept   json
+// @Param    id    path  string            true  "Tenant ID"
+// @Param    body  body  setStatusRequest  true  "Target status + optional reason"
+// @Success  204
+// @Router   /api/tenants/{id}/status [put]
+func (h *TenantsHandler) SetStatus(c *fiber.Ctx) error {
+	var req setStatusRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	if err := h.admin.SetTenantStatus(c.Context(), c.Params("id"), req.Status, req.Reason); err != nil {
 		return mapTierGroupError(err, "tenant")
 	}
 	return c.SendStatus(fiber.StatusNoContent)

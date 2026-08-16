@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CaretRightIcon,
   CaretUpIcon,
@@ -9,6 +9,11 @@ import {
   ArrowSquareOutIcon,
   StackIcon,
   UsersThreeIcon,
+  PulseIcon,
+  PauseIcon,
+  PlayIcon,
+  ArrowCounterClockwiseIcon,
+  TrashIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,6 +35,16 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   TenantsFilterBar,
   type FilterToken,
@@ -65,6 +80,9 @@ interface TenantsResponse {
   groups?: ClassificationLabel[];
   error?: string;
 }
+
+// The tenant lifecycle enum (CON-190). SetTenantStatus drives every transition.
+type TenantStatus = "active" | "suspended" | "deleted";
 
 // ── sorting ───────────────────────────────────────────────────────────────────
 
@@ -234,6 +252,7 @@ function ActionsMenu({
   allGroups,
   onSetTier,
   onToggleGroup,
+  onStatusAction,
 }: {
   tenant: Tenant;
   allTiers: ClassificationLabel[];
@@ -244,8 +263,13 @@ function ActionsMenu({
     group: ClassificationLabel,
     add: boolean,
   ) => void;
+  onStatusAction: (tenant: Tenant, target: TenantStatus) => void;
 }) {
   const memberIds = new Set((tenant.groups ?? []).map((g) => g.id));
+  // The 'default' tenant is suspend/delete-protected server-side (Ogen returns
+  // 409); hide those actions for it. Its slug is the stable identifier here.
+  const protectedTenant = tenant.slug === "default";
+  const status = tenant.status;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -273,6 +297,75 @@ function ActionsMenu({
             View details
           </Link>
         </DropdownMenuItem>
+
+        <DropdownMenuSeparator className="my-1 h-px bg-border" />
+
+        {/* Lifecycle status (CON-190): suspend / reactivate / soft-delete /
+            restore. Which transitions are offered depends on the current status;
+            each opens a confirm dialog (suspend also captures a reason). */}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+            <PulseIcon className="size-4" />
+            Status
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent
+            onClick={(e) => e.stopPropagation()}
+            className="min-w-48 rounded-none border border-border py-1 shadow-xl"
+          >
+            <div className="flex items-center gap-2 px-4 py-2">
+              <span className="text-[11px] uppercase tracking-wide text-tertiary-foreground">
+                Current
+              </span>
+              <StatusLabel status={status} reason={tenant.statusReason} />
+            </div>
+            <DropdownMenuSeparator className="my-1 h-px bg-border" />
+
+            {status !== "active" && (
+              <DropdownMenuItem
+                onSelect={() => onStatusAction(tenant, "active")}
+                className="gap-3 px-4 py-2.5"
+              >
+                {status === "deleted" ? (
+                  <>
+                    <ArrowCounterClockwiseIcon className="size-4" />
+                    Restore
+                  </>
+                ) : (
+                  <>
+                    <PlayIcon className="size-4" />
+                    Reactivate
+                  </>
+                )}
+              </DropdownMenuItem>
+            )}
+
+            {status === "active" && !protectedTenant && (
+              <DropdownMenuItem
+                onSelect={() => onStatusAction(tenant, "suspended")}
+                className="gap-3 px-4 py-2.5"
+              >
+                <PauseIcon className="size-4" />
+                Suspend…
+              </DropdownMenuItem>
+            )}
+
+            {status !== "deleted" && !protectedTenant && (
+              <DropdownMenuItem
+                onSelect={() => onStatusAction(tenant, "deleted")}
+                className="gap-3 px-4 py-2.5 text-destructive focus:text-destructive"
+              >
+                <TrashIcon className="size-4" />
+                Delete…
+              </DropdownMenuItem>
+            )}
+
+            {protectedTenant && status === "active" && (
+              <div className="px-4 py-2 text-xs text-tertiary-foreground">
+                Protected tenant
+              </div>
+            )}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
 
         {(allTiers.length > 0 || allGroups.length > 0) && (
           <DropdownMenuSeparator className="my-1 h-px bg-border" />
@@ -336,6 +429,123 @@ function ActionsMenu({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+// StatusDialog confirms a lifecycle transition and, for suspend, captures the
+// reason. It renders nothing until an action is requested; the body is mounted
+// fresh each open (Radix), so its reason field seeds empty with no effect.
+function StatusDialog({
+  action,
+  onClose,
+  onConfirm,
+}: {
+  action: { tenant: Tenant; target: TenantStatus } | null;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  return (
+    <Dialog
+      open={!!action}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent>
+        {action && (
+          <StatusDialogBody
+            action={action}
+            onCancel={onClose}
+            onConfirm={onConfirm}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StatusDialogBody({
+  action,
+  onCancel,
+  onConfirm,
+}: {
+  action: { tenant: Tenant; target: TenantStatus };
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const { tenant, target } = action;
+  const isSuspend = target === "suspended";
+  const isDelete = target === "deleted";
+  const isRestore = target === "active" && tenant.status === "deleted";
+  const [reason, setReason] = useState("");
+
+  const title = isSuspend
+    ? `Suspend ${tenant.name}`
+    : isDelete
+      ? `Delete ${tenant.name}`
+      : isRestore
+        ? `Restore ${tenant.name}`
+        : `Reactivate ${tenant.name}`;
+
+  const description = isSuspend
+    ? "Users are locked out immediately and scheduled posts pause. Published posts stay live. Reversible."
+    : isDelete
+      ? "The workspace becomes unreachable and its automated work stops. Published posts stay live; data is retained and can be restored later."
+      : isRestore
+        ? "Re-enables login, resumes scheduled posts, and makes the workspace reachable again."
+        : "Re-enables login and resumes the tenant's automated work.";
+
+  const confirmLabel = isSuspend
+    ? "Suspend"
+    : isDelete
+      ? "Delete"
+      : isRestore
+        ? "Restore"
+        : "Reactivate";
+
+  // A suspend must carry a reason; the others don't.
+  const canConfirm = !isSuspend || reason.trim().length > 0;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canConfirm) return;
+    onConfirm(reason.trim());
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="grid gap-4">
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+
+      {isSuspend && (
+        <div className="grid gap-1.5">
+          <Label htmlFor="suspend-reason">Reason</Label>
+          <Input
+            id="suspend-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. non-payment"
+            autoFocus
+            autoComplete="off"
+          />
+        </div>
+      )}
+
+      <DialogFooter>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant={isDelete ? "destructiveInverted" : "default"}
+          disabled={!canConfirm}
+        >
+          {confirmLabel}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 
@@ -469,6 +679,11 @@ export function TenantsTable() {
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
     null,
   );
+  // The pending lifecycle change awaiting confirmation in the status dialog.
+  const [statusAction, setStatusAction] = useState<{
+    tenant: Tenant;
+    target: TenantStatus;
+  } | null>(null);
 
   // Filtering runs server-side: re-fetch whenever the filter tokens change,
   // passing them as a JSON query param. Previous results stay visible during a
@@ -605,6 +820,67 @@ export function TenantsTable() {
         groups: add ? withoutGroup(t.groups ?? []) : withGroup(t.groups ?? []),
       }));
       flash(e instanceof Error ? e.message : "Failed to update groups", true);
+    }
+  };
+
+  // Per-tenant lifecycle serialization: each changeStatus call claims a
+  // monotonically increasing token for the tenant. Only the most recent call may
+  // revert or toast on completion, so a stale in-flight failure from a superseded
+  // action can't clobber a newer optimistic update.
+  const statusSeqRef = useRef<Map<string, number>>(new Map());
+
+  // changeStatus drives a tenant's lifecycle (suspend / reactivate / soft-delete
+  // / restore) via the gRPC-backed PUT. Optimistic with revert on failure —
+  // e.g. Ogen rejects suspending/deleting the 'default' tenant with 409.
+  const changeStatus = async (
+    tenant: Tenant,
+    target: TenantStatus,
+    reason: string,
+  ) => {
+    const prevStatus = tenant.status;
+    const prevReason = tenant.statusReason ?? "";
+    const nextReason = target === "suspended" ? reason : "";
+    // Past-tense verb for the toast, distinguishing reactivate vs restore.
+    const verb =
+      target === "suspended"
+        ? "suspended"
+        : target === "deleted"
+          ? "deleted"
+          : prevStatus === "deleted"
+            ? "restored"
+            : "reactivated";
+    // Claim this tenant's latest-action token; isCurrent() stays true only while
+    // no later status action has superseded this one.
+    const token = (statusSeqRef.current.get(tenant.id) ?? 0) + 1;
+    statusSeqRef.current.set(tenant.id, token);
+    const isCurrent = () => statusSeqRef.current.get(tenant.id) === token;
+    mutateTenant(tenant.id, (t) => ({
+      ...t,
+      status: target,
+      statusReason: nextReason,
+    }));
+    try {
+      const res = await fetch(
+        `/api/tenants/${encodeURIComponent(tenant.id)}/status`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: target, reason: nextReason }),
+        },
+      );
+      if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
+      if (isCurrent()) flash(`${tenant.name} ${verb}`);
+    } catch (e) {
+      // Only the latest action reverts, so a superseded failure can't undo a
+      // newer optimistic update.
+      if (isCurrent()) {
+        mutateTenant(tenant.id, (t) => ({
+          ...t,
+          status: prevStatus,
+          statusReason: prevReason,
+        }));
+        flash(e instanceof Error ? e.message : "Failed to change status", true);
+      }
     }
   };
 
@@ -841,7 +1117,7 @@ export function TenantsTable() {
                       {formatDate(t.createdAt)}
                     </span>
 
-                    <StatusLabel status={t.status} />
+                    <StatusLabel status={t.status} reason={t.statusReason} />
 
                     <GroupsCell groups={t.groups ?? []} />
 
@@ -863,6 +1139,9 @@ export function TenantsTable() {
                       allGroups={allGroups}
                       onSetTier={setTier}
                       onToggleGroup={toggleGroup}
+                      onStatusAction={(tenant, target) =>
+                        setStatusAction({ tenant, target })
+                      }
                     />
                   </div>
                   {open && <ExpandedPanel t={t} activity={activity[t.id]} />}
@@ -873,7 +1152,19 @@ export function TenantsTable() {
         )}
       </div>
 
-      {/* Transient feedback for tier/group edits. */}
+      {/* Lifecycle confirm/reason dialog, driven by the row Status submenu. */}
+      <StatusDialog
+        action={statusAction}
+        onClose={() => setStatusAction(null)}
+        onConfirm={(reason) => {
+          if (statusAction) {
+            void changeStatus(statusAction.tenant, statusAction.target, reason);
+          }
+          setStatusAction(null);
+        }}
+      />
+
+      {/* Transient feedback for tier/group/status edits. */}
       {toast && (
         <div
           role="status"

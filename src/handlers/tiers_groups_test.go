@@ -86,6 +86,7 @@ func TestTenantAssignment_WriteUnavailableIs503(t *testing.T) {
 		method, path string
 	}{
 		{"PUT", "/api/tenants/t1/tier"},
+		{"PUT", "/api/tenants/t1/status"},
 		{"POST", "/api/tenants/t1/groups/g1"},
 		{"DELETE", "/api/tenants/t1/groups/g1"},
 	}
