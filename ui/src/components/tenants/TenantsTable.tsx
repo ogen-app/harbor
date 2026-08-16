@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CaretRightIcon,
   CaretUpIcon,
@@ -823,6 +823,12 @@ export function TenantsTable() {
     }
   };
 
+  // Per-tenant lifecycle serialization: each changeStatus call claims a
+  // monotonically increasing token for the tenant. Only the most recent call may
+  // revert or toast on completion, so a stale in-flight failure from a superseded
+  // action can't clobber a newer optimistic update.
+  const statusSeqRef = useRef<Map<string, number>>(new Map());
+
   // changeStatus drives a tenant's lifecycle (suspend / reactivate / soft-delete
   // / restore) via the gRPC-backed PUT. Optimistic with revert on failure —
   // e.g. Ogen rejects suspending/deleting the 'default' tenant with 409.
@@ -843,6 +849,11 @@ export function TenantsTable() {
           : prevStatus === "deleted"
             ? "restored"
             : "reactivated";
+    // Claim this tenant's latest-action token; isCurrent() stays true only while
+    // no later status action has superseded this one.
+    const token = (statusSeqRef.current.get(tenant.id) ?? 0) + 1;
+    statusSeqRef.current.set(tenant.id, token);
+    const isCurrent = () => statusSeqRef.current.get(tenant.id) === token;
     mutateTenant(tenant.id, (t) => ({
       ...t,
       status: target,
@@ -858,14 +869,18 @@ export function TenantsTable() {
         },
       );
       if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
-      flash(`${tenant.name} ${verb}`);
+      if (isCurrent()) flash(`${tenant.name} ${verb}`);
     } catch (e) {
-      mutateTenant(tenant.id, (t) => ({
-        ...t,
-        status: prevStatus,
-        statusReason: prevReason,
-      }));
-      flash(e instanceof Error ? e.message : "Failed to change status", true);
+      // Only the latest action reverts, so a superseded failure can't undo a
+      // newer optimistic update.
+      if (isCurrent()) {
+        mutateTenant(tenant.id, (t) => ({
+          ...t,
+          status: prevStatus,
+          statusReason: prevReason,
+        }));
+        flash(e instanceof Error ? e.message : "Failed to change status", true);
+      }
     }
   };
 
