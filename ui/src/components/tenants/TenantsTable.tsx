@@ -1102,7 +1102,7 @@ export function TenantsTable() {
                       {formatDate(t.createdAt)}
                     </span>
 
-                    <StatusLabel status={t.status} />
+                    <StatusLabel status={t.status} reason={t.statusReason} />
 
                     <GroupsCell groups={t.groups ?? []} />
 
