@@ -30,6 +30,9 @@ func (f *fakeTenantRepo) GetMetrics(context.Context, string) (*ogen.TenantMetric
 func (f *fakeTenantRepo) Registrations(context.Context, int) ([]ogen.Registration, error) {
 	return nil, nil
 }
+func (f *fakeTenantRepo) DailyPublishesByPlatform(context.Context, int) ([]ogen.PublishingDayStat, error) {
+	return nil, nil
+}
 func (f *fakeTenantRepo) Users(context.Context, string, int) ([]ogen.User, error) {
 	return nil, nil
 }
