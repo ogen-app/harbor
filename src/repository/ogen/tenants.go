@@ -229,9 +229,14 @@ func (r *tenantRepository) DailyPublishesByPlatform(ctx context.Context, windowD
 	if cols["published_at"] {
 		dateExpr = "COALESCE(po.published_at, po.created_at)"
 	}
-	publishedFilter := "po.published_at IS NOT NULL"
+	// On the oldest schema (no status, no published_at) count every post, keyed
+	// by created_at — the only column guaranteed present — so the fallback never
+	// references a missing column.
+	publishedFilter := "po.created_at IS NOT NULL"
 	if cols["status"] {
 		publishedFilter = "po.status = 'published'"
+	} else if cols["published_at"] {
+		publishedFilter = "po.published_at IS NOT NULL"
 	}
 	query := fmt.Sprintf(`
 		SELECT to_char((%[1]s AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
