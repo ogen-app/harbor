@@ -1,6 +1,7 @@
 import { DatabaseTeaser } from "@/components/dashboard/DatabaseTeaser";
 import { TenantsSection } from "@/components/dashboard/TenantsSection";
 import { DailyTokenCostChart } from "@/components/dashboard/DailyTokenCostChart";
+import { PublishingStatsChart } from "@/components/dashboard/PublishingStatsChart";
 import { GreetingMessage } from "@/components/dashboard/GreetingMessage";
 
 export default function DashboardPage() {
@@ -14,6 +15,7 @@ export default function DashboardPage() {
             <div className="dashboard-numeric p-6 space-y-6">
                 <TenantsSection />
                 <DailyTokenCostChart />
+                <PublishingStatsChart />
                 <DatabaseTeaser />
             </div>
         </main>

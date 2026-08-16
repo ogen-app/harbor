@@ -40,6 +40,7 @@ func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/tenants", requireAuth, h.List)
 	app.Get("/api/tenants/overview", requireAuth, h.Overview)
 	app.Get("/api/tenants/registrations", requireAuth, h.Registrations)
+	app.Get("/api/tenants/daily-publishes", requireAuth, h.DailyPublishes)
 	// Cross-tenant activity feed for the global Activity page (?tenant= narrows
 	// it to one tenant); the per-tenant feed below is the same payload scoped by
 	// path param.
@@ -437,6 +438,102 @@ func (h *TenantsHandler) Registrations(c *fiber.Ctx) error {
 		days = append(days, regDay{Date: date, Count: len(names), Names: names})
 	}
 	return c.JSON(fiber.Map{"days": days, "available": true})
+}
+
+// publishingDay is one day of the daily-publishing chart: the ISO date, the day
+// total, and the per-platform published-post counts (only platforms with posts
+// that day are present) — the count twin of costDay.
+type publishingDay struct {
+	Date   string         `json:"date"`
+	Total  int            `json:"total"`
+	Counts map[string]int `json:"counts"`
+}
+
+// platformTotal is one platform's summed published-post count over the window.
+// Ordered by count desc, it drives the chart's legend order and colour choice.
+type platformTotal struct {
+	Platform string `json:"platform"`
+	Count    int    `json:"count"`
+}
+
+// DailyPublishes godoc
+// @Summary      Daily publishes by platform
+// @Description  Per-day published-post counts across all tenants for the last N
+// @Description  days (default 30, max 90), split by platform, as a dense
+// @Description  zero-filled series for the daily-publishing chart, plus per-platform
+// @Description  totals for the legend. Sourced from the Ogen control-plane posts.
+// @Tags         tenants
+// @Produce      json
+// @Param        days  query     int  false  "Window size in days (1-90)"
+// @Success      200   {object}  map[string]any
+// @Router       /api/tenants/daily-publishes [get]
+func (h *TenantsHandler) DailyPublishes(c *fiber.Ctx) error {
+	if !h.tenants.Available() {
+		return c.JSON(fiber.Map{"available": false, "error": "ogen database not configured"})
+	}
+	days := dailyCostWindow(c) // same [1, 90] clamp as the daily-cost charts
+	rows, err := h.tenants.DailyPublishesByPlatform(c.Context(), days)
+	if err != nil {
+		return c.JSON(fiber.Map{"available": false, "error": err.Error()})
+	}
+	return c.JSON(buildDailyPublishes(rows, days))
+}
+
+// buildDailyPublishes turns raw (day, platform) publish counts into the daily
+// publishing chart response: a dense zero-filled day series, per-platform totals
+// ordered for the legend, and the grand total — the count analogue of
+// buildDailyCost.
+func buildDailyPublishes(rows []ogen.PublishingDayStat, days int) fiber.Map {
+	byDay := make(map[string]map[string]int, len(rows))
+	platformTotals := make(map[string]int)
+	var grand int
+	for _, r := range rows {
+		if byDay[r.Date] == nil {
+			byDay[r.Date] = make(map[string]int)
+		}
+		byDay[r.Date][r.Platform] += r.Count
+		platformTotals[r.Platform] += r.Count
+		grand += r.Count
+	}
+
+	// Dense zero-filled day series (oldest → newest) over UTC calendar days, so the
+	// chart always has one column per day even when nothing was published.
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	series := make([]publishingDay, 0, days)
+	for i := days - 1; i >= 0; i-- {
+		date := today.AddDate(0, 0, -i).Format("2006-01-02")
+		counts := byDay[date]
+		if counts == nil {
+			counts = map[string]int{}
+		}
+		total := 0
+		for _, v := range counts {
+			total += v
+		}
+		series = append(series, publishingDay{Date: date, Total: total, Counts: counts})
+	}
+
+	// Platforms ordered by total count desc (stable legend + colour order); ties
+	// broken by name for determinism.
+	platforms := make([]platformTotal, 0, len(platformTotals))
+	for p, t := range platformTotals {
+		platforms = append(platforms, platformTotal{Platform: p, Count: t})
+	}
+	sort.Slice(platforms, func(a, b int) bool {
+		if platforms[a].Count != platforms[b].Count {
+			return platforms[a].Count > platforms[b].Count
+		}
+		return platforms[a].Platform < platforms[b].Platform
+	})
+
+	return fiber.Map{
+		"available":  true,
+		"windowDays": days,
+		"total":      grand,
+		"platforms":  platforms,
+		"days":       series,
+	}
 }
 
 // recentActivityLimit is the default cap on a tenant's activity feed (the

@@ -43,6 +43,15 @@ type Registration struct {
 	Name string `bun:"name"`
 }
 
+// PublishingDayStat is one (UTC day, platform) bucket: the number of posts
+// published on that day for that platform, across all tenants. Feeds the daily
+// publishing chart's per-platform stack.
+type PublishingDayStat struct {
+	Date     string `bun:"date"`
+	Platform string `bun:"platform"`
+	Count    int    `bun:"count"`
+}
+
 // Tier and Group are the operator-owned classification catalog entries (CON-208,
 // global tables). Only the display fields are read here — the full catalog CRUD
 // lives on the /tiers-and-groups page over gRPC. Harbor READS classification
@@ -101,6 +110,10 @@ type TenantRepository interface {
 	GetMetrics(ctx context.Context, id string) (*TenantMetrics, error)
 	// Registrations returns tenant creations within the last windowDays days.
 	Registrations(ctx context.Context, windowDays int) ([]Registration, error)
+	// DailyPublishesByPlatform returns per-day published-post counts split by
+	// platform, across all tenants, over the last windowDays days (bucketed by the
+	// UTC publish day). Degrades to empty when the posts schema is absent.
+	DailyPublishesByPlatform(ctx context.Context, windowDays int) ([]PublishingDayStat, error)
 	// Users returns a tenant's members (newest first), capped at limit.
 	Users(ctx context.Context, tenantID string, limit int) ([]User, error)
 	// ZernioAccounts returns a tenant's connected social profiles with per-account
@@ -190,6 +203,50 @@ func (r *tenantRepository) Registrations(ctx context.Context, windowDays int) ([
 		WHERE (created_at AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date - ?
 		ORDER BY created_at`, windowDays-1).Scan(ctx, &rows)
 	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// DailyPublishesByPlatform counts published posts per UTC day, split by platform,
+// across all tenants over the last windowDays days. Bucketed by the actual
+// publish day (published_at) when that column exists, else creation day, mirroring
+// the daily-cost series' UTC-midnight lower bound so the handler's dense fill lines
+// up. Adaptive to the live Ogen schema (like postStatsByPlatform): if posts has no
+// platform_id it degrades to empty rather than failing the dashboard.
+func (r *tenantRepository) DailyPublishesByPlatform(ctx context.Context, windowDays int) ([]PublishingDayStat, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	cols := r.tableColumns(ctx, "posts")
+	if !cols["platform_id"] {
+		return []PublishingDayStat{}, nil
+	}
+	// Prefer the actual publish timestamp for both the "is published" filter and the
+	// day bucket; fall back to created_at / published_at-presence on older schemas.
+	// These %s fragments are allowlisted column expressions, never user input.
+	dateExpr := "po.created_at"
+	if cols["published_at"] {
+		dateExpr = "COALESCE(po.published_at, po.created_at)"
+	}
+	publishedFilter := "po.published_at IS NOT NULL"
+	if cols["status"] {
+		publishedFilter = "po.status = 'published'"
+	}
+	query := fmt.Sprintf(`
+		SELECT to_char((%[1]s AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
+		       COALESCE(NULLIF(pl.name, ''), 'unknown') AS platform,
+		       count(*) AS count
+		FROM posts po
+		JOIN platforms pl ON pl.id = po.platform_id
+		WHERE %[2]s
+		  AND %[1]s >= (date_trunc('day', now() AT TIME ZONE 'UTC')
+		                - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
+		GROUP BY date, platform
+		ORDER BY date, platform`, dateExpr, publishedFilter)
+
+	var rows []PublishingDayStat
+	if err := r.db.NewRaw(query, windowDays).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
 	return rows, nil
