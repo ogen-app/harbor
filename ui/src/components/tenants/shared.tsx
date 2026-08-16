@@ -28,6 +28,8 @@ export interface Tenant {
   slug: string;
   createdAt: string;
   status: string;
+  // Operator note recorded when a tenant is suspended (CON-190); "" otherwise.
+  statusReason?: string;
   users: number;
   zernioProfiles: number;
   r2Bytes: number;
@@ -147,16 +149,29 @@ export function spendSegments(s: VendorSpend) {
 
 // ── status ────────────────────────────────────────────────────────────────────
 
+// The tenant lifecycle enum (CON-190): active (green), suspended (amber),
+// deleted (grey). Unknown values fall back to neutral.
 export const STATUS_COLOR: Record<string, string> = {
   active: "bg-emerald-500",
-  trialing: "bg-blue-400",
   suspended: "bg-amber-500",
-  churned: "bg-red-500",
+  deleted: "bg-neutral-400",
 };
 
-export function StatusLabel({ status }: { status: string }) {
+// StatusLabel is the dot + status name. When a reason is given (a suspended
+// tenant's status_reason), it surfaces as a hover title so operators can see
+// why without opening the row.
+export function StatusLabel({
+  status,
+  reason,
+}: {
+  status: string;
+  reason?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
+    <span
+      className="inline-flex items-center gap-1.5 text-xs"
+      title={reason || undefined}
+    >
       <span
         className={cn(
           "size-2 rounded-full",
