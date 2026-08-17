@@ -41,16 +41,9 @@ const (
 //
 // TenantAdminService is Ogen's internal, operator-facing surface for READING and
 // MANAGING tenant classification — a required tier (1 per tenant) and optional
-// groups (many-to-many) (CON-208). Harbor is the CLIENT of this service. It
+// groups (many-to-many) (CON-208). Harbor is the client of this service; it
 // shares the listener and the shared-bearer-token gate with SecretsService
-// (../ogen src/grpcserver), so Harbor reaches it over the SAME OGEN_GRPC_ADDR /
-// OGEN_GRPC_TOKEN it uses for secrets.
-//
-// CANONICAL HOME of this contract is the ogen-app/ogen repo
-// (proto/tenants/v1/tenants.proto); this is a pinned mirror so Harbor's Go
-// module stays independent of Ogen's (matching proto/secrets/v1). Keep the two
-// byte-compatible (field numbers especially). Consolidate to a shared BSR
-// module later.
+// (implemented in the ogen repo, src/grpcserver).
 //
 // Cross-tenant by design: tenants, tenant_tiers and tenant_groups are global
 // tables, so no per-tenant scoping applies. Tier is required, so there is no
@@ -243,16 +236,9 @@ func (c *tenantAdminServiceClient) SetTenantStatus(ctx context.Context, in *SetT
 //
 // TenantAdminService is Ogen's internal, operator-facing surface for READING and
 // MANAGING tenant classification — a required tier (1 per tenant) and optional
-// groups (many-to-many) (CON-208). Harbor is the CLIENT of this service. It
+// groups (many-to-many) (CON-208). Harbor is the client of this service; it
 // shares the listener and the shared-bearer-token gate with SecretsService
-// (../ogen src/grpcserver), so Harbor reaches it over the SAME OGEN_GRPC_ADDR /
-// OGEN_GRPC_TOKEN it uses for secrets.
-//
-// CANONICAL HOME of this contract is the ogen-app/ogen repo
-// (proto/tenants/v1/tenants.proto); this is a pinned mirror so Harbor's Go
-// module stays independent of Ogen's (matching proto/secrets/v1). Keep the two
-// byte-compatible (field numbers especially). Consolidate to a shared BSR
-// module later.
+// (implemented in the ogen repo, src/grpcserver).
 //
 // Cross-tenant by design: tenants, tenant_tiers and tenant_groups are global
 // tables, so no per-tenant scoping applies. Tier is required, so there is no

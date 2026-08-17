@@ -29,29 +29,27 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // SecretsService is Ogen's internal, operator-facing surface over its
-// envelope-encrypted `secret` table. Harbor is the CLIENT of this service — it
-// lists / rotates / clears Ogen's third-party API keys through the SAME
-// secrets.Store the rest of Ogen uses, so it reuses the KEK envelope crypto,
-// the name allowlist, and the hot-reload subscription hooks with zero
-// duplication.
+// envelope-encrypted `secret` table. It exists so Harbor (Ogen's operations
+// dashboard) can list / rotate / clear the third-party API keys WITHOUT
+// re-implementing the KEK envelope crypto, the name allowlist, or the
+// hot-reload subscription hooks — all of which live behind secrets.Store in the
+// ogen repo (src/secrets/store.go).
 //
-// CANONICAL HOME of this contract is the ogen-app/ogen repo
-// (proto/secrets/v1/secrets.proto); this is a pinned mirror so Harbor's Go
-// module stays independent of Ogen's. Keep the two byte-compatible (field
-// numbers especially). Consolidate to a shared BSR module later.
-//
-// The service is internal-only, reached over the private network and gated by
-// a shared bearer token. Plaintext travels ONE WAY: it is accepted on Set and
-// is never returned by any RPC.
+// The service is internal-only, reached over the private network and gated by a
+// shared bearer token (ogen's src/grpcserver). Plaintext travels ONE WAY: it is
+// accepted on Set and is never returned by any RPC. List / Set expose metadata
+// only, mirroring the existing REST handler (ogen's src/handlers/secrets.go).
 type SecretsServiceClient interface {
-	// List returns one entry PER ALLOWLISTED NAME, whether or not a value is
-	// stored — the allowlist stays authoritative in Ogen. `set` distinguishes a
+	// List returns one entry PER ALLOWLISTED NAME (secrets.AllowedNames),
+	// whether or not a value is stored — so the caller renders the full set of
+	// known slots without duplicating the allowlist. `set` distinguishes a
 	// stored secret (with metadata) from an empty slot.
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
 	// Set upserts (creates or rotates) the encrypted value for an allowlisted
 	// name. The plaintext value is write-only and never echoed back.
 	Set(ctx context.Context, in *SetRequest, opts ...grpc.CallOption) (*SetResponse, error)
-	// Delete removes a stored secret.
+	// Delete removes a stored secret. Features depending on the deleted key
+	// degrade on next use (no restart / no boot failure).
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 }
 
@@ -98,29 +96,27 @@ func (c *secretsServiceClient) Delete(ctx context.Context, in *DeleteRequest, op
 // for forward compatibility.
 //
 // SecretsService is Ogen's internal, operator-facing surface over its
-// envelope-encrypted `secret` table. Harbor is the CLIENT of this service — it
-// lists / rotates / clears Ogen's third-party API keys through the SAME
-// secrets.Store the rest of Ogen uses, so it reuses the KEK envelope crypto,
-// the name allowlist, and the hot-reload subscription hooks with zero
-// duplication.
+// envelope-encrypted `secret` table. It exists so Harbor (Ogen's operations
+// dashboard) can list / rotate / clear the third-party API keys WITHOUT
+// re-implementing the KEK envelope crypto, the name allowlist, or the
+// hot-reload subscription hooks — all of which live behind secrets.Store in the
+// ogen repo (src/secrets/store.go).
 //
-// CANONICAL HOME of this contract is the ogen-app/ogen repo
-// (proto/secrets/v1/secrets.proto); this is a pinned mirror so Harbor's Go
-// module stays independent of Ogen's. Keep the two byte-compatible (field
-// numbers especially). Consolidate to a shared BSR module later.
-//
-// The service is internal-only, reached over the private network and gated by
-// a shared bearer token. Plaintext travels ONE WAY: it is accepted on Set and
-// is never returned by any RPC.
+// The service is internal-only, reached over the private network and gated by a
+// shared bearer token (ogen's src/grpcserver). Plaintext travels ONE WAY: it is
+// accepted on Set and is never returned by any RPC. List / Set expose metadata
+// only, mirroring the existing REST handler (ogen's src/handlers/secrets.go).
 type SecretsServiceServer interface {
-	// List returns one entry PER ALLOWLISTED NAME, whether or not a value is
-	// stored — the allowlist stays authoritative in Ogen. `set` distinguishes a
+	// List returns one entry PER ALLOWLISTED NAME (secrets.AllowedNames),
+	// whether or not a value is stored — so the caller renders the full set of
+	// known slots without duplicating the allowlist. `set` distinguishes a
 	// stored secret (with metadata) from an empty slot.
 	List(context.Context, *ListRequest) (*ListResponse, error)
 	// Set upserts (creates or rotates) the encrypted value for an allowlisted
 	// name. The plaintext value is write-only and never echoed back.
 	Set(context.Context, *SetRequest) (*SetResponse, error)
-	// Delete removes a stored secret.
+	// Delete removes a stored secret. Features depending on the deleted key
+	// degrade on next use (no restart / no boot failure).
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	mustEmbedUnimplementedSecretsServiceServer()
 }

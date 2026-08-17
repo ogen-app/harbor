@@ -26,14 +26,16 @@ const (
 // carries ciphertext, nonces, wrapped DEKs, or plaintext. When `set` is false
 // the slot is empty and the remaining fields are zero-valued.
 type SecretMetadata struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Set           bool                   `protobuf:"varint,2,opt,name=set,proto3" json:"set,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	KekVersion    int32                  `protobuf:"varint,5,opt,name=kek_version,json=kekVersion,proto3" json:"kek_version,omitempty"`
-	Algorithm     string                 `protobuf:"bytes,6,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
-	Decryptable   bool                   `protobuf:"varint,7,opt,name=decryptable,proto3" json:"decryptable,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Name       string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Set        bool                   `protobuf:"varint,2,opt,name=set,proto3" json:"set,omitempty"` // whether a value is currently stored for this name
+	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	KekVersion int32                  `protobuf:"varint,5,opt,name=kek_version,json=kekVersion,proto3" json:"kek_version,omitempty"`
+	Algorithm  string                 `protobuf:"bytes,6,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	// decryptable reports whether the loaded KEK can still unwrap this row — a
+	// false here surfaces a KEK mismatch to the operator without exposing why.
+	Decryptable   bool `protobuf:"varint,7,opt,name=decryptable,proto3" json:"decryptable,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -154,8 +156,9 @@ func (*ListRequest) Descriptor() ([]byte, []int) {
 }
 
 type ListResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Secrets       []*SecretMetadata      `protobuf:"bytes,1,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// One entry per allowlisted name, in allowlist order.
+	Secrets       []*SecretMetadata `protobuf:"bytes,1,rep,name=secrets,proto3" json:"secrets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -252,7 +255,7 @@ func (x *SetRequest) GetValue() string {
 type SetResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Secret        *SecretMetadata        `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
-	Created       bool                   `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	Created       bool                   `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"` // true = fresh insert, false = rotation of an existing value
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
