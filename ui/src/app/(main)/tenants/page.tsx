@@ -3,7 +3,7 @@ import { TenantRegistrationsChart } from "@/components/tenants/TenantRegistratio
 
 export default function TenantsPage() {
     return (
-        <main className="flex-1 overflow-auto flex flex-col">
+        <main className="flex-1 min-w-0 overflow-auto flex flex-col">
             <header className="h-20 border-b border-border flex items-center justify-between px-6 shrink-0">
                 <h1 className="text-2xl font-medium">Tenants</h1>
             </header>

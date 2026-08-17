@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ColumnsIcon,
+  SquareSplitHorizontalIcon,
   CaretUpIcon,
   CaretDownIcon,
   CheckIcon,
@@ -179,7 +179,7 @@ const TIER_TRACK = "8rem";
 const TIER_LEFT = "left-[12rem]"; // must equal NAME_TRACK
 // A soft right-edge shadow on the last frozen column, shown only while scrolled,
 // so the freeze boundary reads like the content is sliding underneath.
-const FROZEN_SHADOW = "shadow-[8px_0_10px_-8px_rgba(0,0,0,0.25)]";
+const FROZEN_SHADOW = "shadow-[6px_0_8px_-4px_rgba(0,0,0,0.18)]";
 
 // Toggleable, reorderable columns in default order (left→right). Name and Tier
 // are static, always-on, frozen columns (rendered separately); the row actions
@@ -359,7 +359,7 @@ function ColumnSelector({
           aria-label="Choose columns"
           className="h-[42px] shrink-0 gap-2 text-tertiary-foreground"
         >
-          <ColumnsIcon className="size-4" />
+          <SquareSplitHorizontalIcon className="size-4" />
           <span className="hidden sm:inline">Columns</span>
         </Button>
       </PopoverTrigger>
