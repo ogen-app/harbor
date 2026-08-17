@@ -163,23 +163,30 @@ function loadSort(): Sort {
 
 // ── layout & columns ────────────────────────────────────────────────────────────
 
-// Every cell (header + body) carries its own horizontal padding rather than the
-// grid using a `gap`: contiguous tracks let the frozen Name/Tier columns hide
-// the scrolling content cleanly (a grid gap would leave a see-through sliver at
-// the freeze edge). All columns are left-aligned.
+// Every cell (header + body) carries its own padding rather than the grid using
+// a `gap` (contiguous tracks let the frozen Name/Tier columns hide scrolling
+// content cleanly — a gap leaves a see-through sliver) and its own *vertical*
+// padding rather than the row (so each cell fills the full row height and the
+// frozen backgrounds cover the whole cell). All columns are left-aligned.
 const CELL_X = "px-3";
+const ROW_PY = "py-3.5"; // body cell vertical padding
+const HEAD_PY = "py-2.5"; // header cell vertical padding
 // Card inset on the outer edges — on the (sticky) Name cell and the last cell.
 const EDGE_L = "pl-6";
 const EDGE_R = "pr-6";
 
-// The two frozen columns are pinned during horizontal scroll. Their fixed widths
-// make the pin offsets deterministic: Tier sits exactly NAME_TRACK from the left.
-const NAME_TRACK = "12rem";
-const TIER_TRACK = "8rem";
-const TIER_LEFT = "left-[12rem]"; // must equal NAME_TRACK
-// A soft right-edge shadow on the last frozen column so the freeze boundary
-// always reads as an edge and content clearly slides underneath on scroll.
-const FROZEN_SHADOW = "shadow-[6px_0_8px_-4px_rgba(0,0,0,0.18)]";
+// The two frozen columns are pinned during horizontal scroll and stay a fixed
+// width so the pin offsets are deterministic: Tier sits exactly NAME_TRACK from
+// the left. Their widths also feed the table's computed min-width.
+const NAME_MIN = 12; // rem
+const TIER_MIN = 8; // rem
+const NAME_TRACK = `${NAME_MIN}rem`;
+const TIER_TRACK = `${TIER_MIN}rem`;
+// Literal (not a template) so Tailwind's JIT can see the class; keep == NAME_MIN.
+const TIER_LEFT = "left-[12rem]";
+// A soft right-edge shadow on the last frozen column, shown only while the table
+// is scrolled, so content clearly reads as sliding underneath Name/Tier.
+const FROZEN_SHADOW = "shadow-[6px_0_12px_-2px_rgba(0,0,0,0.18)]";
 
 // Toggleable, reorderable columns in default order (left→right). Name and Tier
 // are static, always-on, frozen columns (rendered separately); the row actions
@@ -217,16 +224,31 @@ const COLUMN_LABEL: Record<ColumnKey, string> = {
   r2: "R2",
 };
 
-const ACTIONS_TRACK = "3.75rem"; // action button + right card inset
+const ACTIONS_MIN = 3.75; // rem — action button + right card inset
+const ACTIONS_TRACK = `${ACTIONS_MIN}rem`;
+
+// Content columns grow to fill the table width (1fr) but never shrink below a
+// comfortable min. COLUMN_MIN (rem) also feeds the table's computed min-width so
+// the row backgrounds still span the full width once the table has to scroll.
+const COLUMN_MIN: Record<ColumnKey, number> = {
+  registered: 9,
+  status: 8,
+  groups: 13,
+  activity: 9,
+  users: 7,
+  spend: 8,
+  zernio: 7,
+  r2: 7,
+};
 const COLUMN_TRACK: Record<ColumnKey, string> = {
-  registered: "9rem",
-  status: "8rem",
-  groups: "13rem",
-  activity: "9rem",
-  users: "7rem",
-  spend: "8rem",
-  zernio: "7rem",
-  r2: "7rem",
+  registered: "minmax(9rem, 1fr)",
+  status: "minmax(8rem, 1fr)",
+  groups: "minmax(13rem, 1fr)",
+  activity: "minmax(9rem, 1fr)",
+  users: "minmax(7rem, 1fr)",
+  spend: "minmax(8rem, 1fr)",
+  zernio: "minmax(7rem, 1fr)",
+  r2: "minmax(7rem, 1fr)",
 };
 
 // A column's persisted preference. Its position in the array is its display
@@ -866,15 +888,15 @@ function SkeletonRows({
   cols: number;
 }) {
   return (
-    <div className="w-max divide-y divide-border">
+    <div className="w-full divide-y divide-border">
       {Array.from({ length: 6 }).map((_, r) => (
         <div
           key={r}
-          className="grid items-center py-3.5"
+          className="grid items-center"
           style={{ gridTemplateColumns: gridTemplate }}
         >
           {Array.from({ length: cols }).map((_unused, c) => (
-            <div key={c} className={cn(CELL_X, "min-w-0")}>
+            <div key={c} className={cn(CELL_X, ROW_PY, "min-w-0")}>
               <div className="h-3 w-full max-w-24 animate-pulse rounded bg-secondary" />
             </div>
           ))}
@@ -894,6 +916,9 @@ export function TenantsTable() {
   const [filters, setFilters] = useState<FilterToken[]>([]);
   const [columnPrefs, setColumnPrefs] =
     useState<ColumnPref[]>(loadColumnPrefs);
+  // True once the table is scrolled off its left edge — shows the frozen-column
+  // edge shadow only while content is actually sliding under Name/Tier.
+  const [scrolled, setScrolled] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
     null,
   );
@@ -964,6 +989,15 @@ export function TenantsTable() {
     ...orderedColumns.map((k) => COLUMN_TRACK[k]),
     ACTIONS_TRACK,
   ].join(" ");
+  // The content columns are 1fr so they fill the table on wide screens; this
+  // min-width (sum of every visible column's min) keeps the row backgrounds
+  // spanning the full width once the table is narrow enough to scroll.
+  const tableMinWidth = `${
+    NAME_MIN +
+    TIER_MIN +
+    ACTIONS_MIN +
+    orderedColumns.reduce((sum, k) => sum + COLUMN_MIN[k], 0)
+  }rem`;
 
   const onSort = (key: SortKey) =>
     setSort((s) =>
@@ -1214,7 +1248,7 @@ export function TenantsTable() {
       }
     })();
     return (
-      <div key={key} className={cn(CELL_X, "flex min-w-0 items-center")}>
+      <div key={key} className={cn(CELL_X, HEAD_PY, "flex min-w-0 items-center")}>
         {inner}
       </div>
     );
@@ -1252,7 +1286,7 @@ export function TenantsTable() {
       }
     })();
     return (
-      <div key={key} className={cn(CELL_X, "flex min-w-0 items-center")}>
+      <div key={key} className={cn(CELL_X, ROW_PY, "flex min-w-0 items-center")}>
         {inner}
       </div>
     );
@@ -1291,9 +1325,12 @@ export function TenantsTable() {
       )}
 
       {/* overflow-x-auto lets the table scroll sideways when its columns are
-          wider than the viewport; the frozen Name/Tier block stays pinned with a
-          standing right-edge shadow. */}
-      <div className="overflow-x-auto rounded-b-xl">
+          wider than the viewport; the frozen Name/Tier block stays pinned, and
+          its right-edge shadow shows only while the content is scrolled. */}
+      <div
+        className="overflow-x-auto rounded-b-xl"
+        onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 0)}
+      >
         {error || (data && !data.available) ? (
           <p className="p-6 text-sm text-tertiary-foreground">
             Tenants unavailable —{" "}
@@ -1311,16 +1348,19 @@ export function TenantsTable() {
             No tenants match the current filters.
           </p>
         ) : (
-          // w-max sizes the body to the sum of its (fixed) column widths so each
-          // row's background spans the full scroll width, not just the viewport.
-          // Narrower viewport → the whole block scrolls; wider → it sits at its
-          // natural width (the card's matching bg fills any slack seamlessly).
-          <div ref={containerRef} className="w-max divide-y divide-border">
+          // w-full fills the card so the content columns (1fr) spread to the
+          // full width; minWidth keeps the row backgrounds spanning everything
+          // once the viewport is narrow enough that the table has to scroll.
+          <div
+            ref={containerRef}
+            className="w-full divide-y divide-border"
+            style={{ minWidth: tableMinWidth }}
+          >
             {/* header — Name and Tier are frozen (sticky) at the left. Cells
                 stretch to the full row height (grid default) so the frozen
                 backgrounds + shadow cover the whole cell, not just the text. */}
             <div
-              className="grid py-2.5"
+              className="grid w-full"
               style={{ gridTemplateColumns: gridTemplate }}
             >
               <div
@@ -1328,6 +1368,7 @@ export function TenantsTable() {
                   "sticky left-0 z-20 flex min-w-0 items-center bg-primary",
                   EDGE_L,
                   "pr-3",
+                  HEAD_PY,
                 )}
               >
                 <SortHeader label="Name" col="name" sort={sort} onSort={onSort} />
@@ -1337,7 +1378,8 @@ export function TenantsTable() {
                   "sticky z-20 flex min-w-0 items-center bg-primary",
                   TIER_LEFT,
                   CELL_X,
-                  FROZEN_SHADOW,
+                  HEAD_PY,
+                  scrolled && FROZEN_SHADOW,
                 )}
               >
                 <SortHeader label="Tier" col="tier" sort={sort} onSort={onSort} />
@@ -1369,7 +1411,7 @@ export function TenantsTable() {
                     }
                   }}
                   className={cn(
-                    "group grid w-full cursor-pointer py-3.5 text-left text-sm transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none",
+                    "group grid w-full cursor-pointer text-left text-sm transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none",
                     isActive && "bg-secondary",
                   )}
                   style={{ gridTemplateColumns: gridTemplate }}
@@ -1384,6 +1426,7 @@ export function TenantsTable() {
                       "sticky left-0 z-10 flex min-w-0 flex-col justify-center bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
                       EDGE_L,
                       "pr-3",
+                      ROW_PY,
                       isActive &&
                         "bg-secondary shadow-[inset_2px_0_0_0_var(--foreground)]",
                     )}
@@ -1405,8 +1448,9 @@ export function TenantsTable() {
                       "sticky z-10 flex min-w-0 items-center bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
                       TIER_LEFT,
                       CELL_X,
+                      ROW_PY,
                       isActive && "bg-secondary",
-                      FROZEN_SHADOW,
+                      scrolled && FROZEN_SHADOW,
                     )}
                   >
                     {t.tier ? (
@@ -1418,7 +1462,9 @@ export function TenantsTable() {
 
                   {orderedColumns.map((k) => cellFor(k, t))}
 
-                  <div className={cn("flex items-center justify-end", EDGE_R)}>
+                  <div
+                    className={cn("flex items-center justify-end", EDGE_R, ROW_PY)}
+                  >
                     <ActionsMenu
                       tenant={t}
                       allTiers={allTiers}
