@@ -5,6 +5,8 @@ import {
   ColumnsIcon,
   CaretUpIcon,
   CaretDownIcon,
+  CheckIcon,
+  DotsSixVerticalIcon,
   DotsThreeOutlineVerticalIcon,
   ArrowSquareOutIcon,
   StackIcon,
@@ -45,6 +47,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import {
   TenantsFilterBar,
   type FilterToken,
@@ -219,55 +226,129 @@ const METRIC_KEYS: ColumnKey[] = ["users", "spend", "zernio", "r2"];
 // scrolls horizontally on narrow screens instead of squishing.
 const MIN_TABLE_W = "min-w-[56rem]";
 
-type ColumnVisibility = Record<ColumnKey, boolean>;
-const DEFAULT_COLUMNS: ColumnVisibility = {
-  tier: true,
-  registered: true,
-  status: true,
-  groups: true,
-  activity: true,
-  users: true,
-  spend: true,
-  zernio: true,
-  r2: true,
-};
+// A column's persisted preference. Its position in the array is its display
+// order (drag-to-reorder), and `visible` toggles it. Order and visibility
+// persist together so both survive reloads / route changes.
+interface ColumnPref {
+  key: ColumnKey;
+  visible: boolean;
+}
 
-// Column visibility persists across reloads / route changes via localStorage.
-const COLUMNS_STORAGE_KEY = "harbor.tenants.columns";
+const DEFAULT_COLUMN_PREFS: ColumnPref[] = COLUMN_KEYS.map((key) => ({
+  key,
+  visible: true,
+}));
 
-function loadColumns(): ColumnVisibility {
-  if (typeof window === "undefined") return DEFAULT_COLUMNS;
+const COLUMN_PREFS_STORAGE_KEY = "harbor.tenants.columnPrefs";
+
+// loadColumnPrefs reads the stored order + visibility, tolerating stale shapes:
+// unknown/duplicate keys are dropped and any column missing from storage (e.g. a
+// newly added one) is appended visible, so the set always covers COLUMN_KEYS.
+function loadColumnPrefs(): ColumnPref[] {
+  if (typeof window === "undefined") return DEFAULT_COLUMN_PREFS;
   try {
-    const raw = window.localStorage.getItem(COLUMNS_STORAGE_KEY);
-    if (!raw) return DEFAULT_COLUMNS;
-    const parsed = JSON.parse(raw) as Partial<Record<ColumnKey, unknown>>;
-    // Merge onto the defaults so a newly added column defaults to visible rather
-    // than undefined when reading an older stored shape.
-    const next = { ...DEFAULT_COLUMNS };
-    for (const k of COLUMN_KEYS) {
-      if (typeof parsed[k] === "boolean") next[k] = parsed[k] as boolean;
+    const raw = window.localStorage.getItem(COLUMN_PREFS_STORAGE_KEY);
+    if (!raw) return DEFAULT_COLUMN_PREFS;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return DEFAULT_COLUMN_PREFS;
+    const valid = new Set<ColumnKey>(COLUMN_KEYS);
+    const seen = new Set<ColumnKey>();
+    const prefs: ColumnPref[] = [];
+    for (const entry of parsed) {
+      const key = (entry as { key?: unknown })?.key;
+      if (typeof key !== "string" || !valid.has(key as ColumnKey)) continue;
+      if (seen.has(key as ColumnKey)) continue;
+      seen.add(key as ColumnKey);
+      prefs.push({
+        key: key as ColumnKey,
+        visible: (entry as { visible?: unknown })?.visible !== false,
+      });
     }
-    return next;
+    for (const key of COLUMN_KEYS) {
+      if (!seen.has(key)) prefs.push({ key, visible: true });
+    }
+    return prefs;
   } catch {
-    return DEFAULT_COLUMNS;
+    return DEFAULT_COLUMN_PREFS;
   }
 }
 
-// ColumnSelector is the "Columns" dropdown that shows/hides table columns; the
-// choice is persisted by the parent to localStorage. At least one column must
-// stay visible, so the last remaining toggle is disabled. Toggling keeps the
-// menu open (onSelect preventDefault) so several columns can be flipped at once.
+// ColumnSwitch is a small accessible on/off toggle (no external dependency),
+// styled to the app tokens: black track when on, beige when off, white knob with
+// a check when on.
+function ColumnSwitch({
+  checked,
+  onChange,
+  disabled,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-foreground/30 disabled:cursor-not-allowed disabled:opacity-50",
+        checked ? "bg-foreground" : "bg-quaternary",
+      )}
+    >
+      <span
+        className={cn(
+          "inline-flex size-4 items-center justify-center rounded-full bg-primary shadow-sm transition-transform",
+          checked ? "translate-x-[18px]" : "translate-x-0.5",
+        )}
+      >
+        {checked && (
+          <CheckIcon className="size-2.5 text-foreground" weight="bold" />
+        )}
+      </span>
+    </button>
+  );
+}
+
+// ColumnSelector is the "Edit columns" popover: a drag-to-reorder list of the
+// table columns, each with an on/off switch. Order + visibility persist via the
+// parent. At least one column must stay visible, so the last-on switch is locked.
+// A Popover (not a menu) is used so native drag-and-drop isn't fighting the
+// menu's keyboard/pointer semantics.
 function ColumnSelector({
-  columns,
+  prefs,
   onChange,
 }: {
-  columns: ColumnVisibility;
-  onChange: (next: ColumnVisibility) => void;
+  prefs: ColumnPref[];
+  onChange: (next: ColumnPref[]) => void;
 }) {
-  const shownCount = COLUMN_KEYS.filter((k) => columns[k]).length;
+  const [dragKey, setDragKey] = useState<ColumnKey | null>(null);
+  const visibleCount = prefs.filter((p) => p.visible).length;
+
+  const setVisible = (key: ColumnKey, visible: boolean) =>
+    onChange(prefs.map((p) => (p.key === key ? { ...p, visible } : p)));
+
+  // Move `from` into `to`'s slot. Driven by drag-enter (fires once per row
+  // entered) rather than drag-over, so the list reorders live without the
+  // per-frame thrash a drag-over handler would cause.
+  const move = (from: ColumnKey, to: ColumnKey) => {
+    if (from === to) return;
+    const fromIdx = prefs.findIndex((p) => p.key === from);
+    const toIdx = prefs.findIndex((p) => p.key === to);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const next = [...prefs];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    onChange(next);
+  };
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <Button
           type="button"
           variant="ghost"
@@ -278,34 +359,49 @@ function ColumnSelector({
           <ColumnsIcon className="size-4" />
           <span className="hidden sm:inline">Columns</span>
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        sideOffset={6}
-        className="min-w-52 rounded-none border border-border py-1 shadow-xl"
-      >
-        <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
-          Columns
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className="w-64 p-2">
+        <div className="px-1.5 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
+          Edit columns
         </div>
-        <DropdownMenuSeparator className="my-1 h-px bg-border" />
-        {COLUMN_KEYS.map((k) => {
-          const checked = columns[k];
-          const lastVisible = checked && shownCount === 1;
-          return (
-            <DropdownMenuCheckboxItem
-              key={k}
-              checked={checked}
-              disabled={lastVisible}
-              onCheckedChange={(v) => onChange({ ...columns, [k]: v === true })}
-              onSelect={(e) => e.preventDefault()}
-              className="gap-2 pr-3"
-            >
-              {COLUMN_LABEL[k]}
-            </DropdownMenuCheckboxItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        <div className="space-y-1">
+          {prefs.map((p) => {
+            const locked = p.visible && visibleCount === 1;
+            return (
+              <div
+                key={p.key}
+                draggable
+                onDragStart={(e) => {
+                  setDragKey(p.key);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragEnter={() => dragKey && move(dragKey, p.key)}
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnd={() => setDragKey(null)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md bg-secondary py-2 pl-1.5 pr-2.5 transition-opacity",
+                  dragKey === p.key && "opacity-40",
+                )}
+              >
+                <DotsSixVerticalIcon
+                  weight="bold"
+                  className="size-4 shrink-0 cursor-grab text-tertiary-foreground active:cursor-grabbing"
+                />
+                <span className="flex-1 truncate text-sm text-foreground">
+                  {COLUMN_LABEL[p.key]}
+                </span>
+                <ColumnSwitch
+                  checked={p.visible}
+                  disabled={locked}
+                  onChange={(v) => setVisible(p.key, v)}
+                  label={`Toggle ${COLUMN_LABEL[p.key]} column`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -798,7 +894,8 @@ export function TenantsTable() {
   const [refreshing, setRefreshing] = useState(false);
   const [sort, setSort] = useState<Sort>(loadSort);
   const [filters, setFilters] = useState<FilterToken[]>([]);
-  const [columns, setColumns] = useState<ColumnVisibility>(loadColumns);
+  const [columnPrefs, setColumnPrefs] =
+    useState<ColumnPref[]>(loadColumnPrefs);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
     null,
   );
@@ -847,23 +944,27 @@ export function TenantsTable() {
     }
   }, [sort]);
 
-  // Persist the column visibility choice the same way.
+  // Persist the column order + visibility choice the same way.
   useEffect(() => {
     try {
-      window.localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columns));
+      window.localStorage.setItem(
+        COLUMN_PREFS_STORAGE_KEY,
+        JSON.stringify(columnPrefs),
+      );
     } catch {
       // storage unavailable — best-effort
     }
-  }, [columns]);
+  }, [columnPrefs]);
 
-  // Visible columns drive the grid template: Name and Actions bookend the
-  // toggleable middle set. The metric divider sits before the first visible
-  // metric column, whichever it is after hiding.
-  const visibleColumns = COLUMN_KEYS.filter((k) => columns[k]);
-  const firstMetric = METRIC_KEYS.find((k) => columns[k]);
+  // The persisted order (filtered to visible) drives the grid template: Name and
+  // Actions bookend the toggleable middle set. The metric divider sits before the
+  // first visible metric column in display order, wherever it lands after a
+  // reorder/hide.
+  const orderedColumns = columnPrefs.filter((p) => p.visible).map((p) => p.key);
+  const firstMetric = orderedColumns.find((k) => METRIC_KEYS.includes(k));
   const gridTemplate = [
     NAME_TRACK,
-    ...visibleColumns.map((k) => COLUMN_TRACK[k]),
+    ...orderedColumns.map((k) => COLUMN_TRACK[k]),
     ACTIONS_TRACK,
   ].join(" ");
 
@@ -1044,6 +1145,174 @@ export function TenantsTable() {
   const openTenant = (t: Tenant) =>
     router.push(`/tenants/${encodeURIComponent(t.id)}`);
 
+  // Per-column header / cell renderers, so both the header row and the body rows
+  // can map over the (reorderable) visible-column list from one source of truth.
+  const metricClass = (key: ColumnKey) =>
+    cn("text-right font-mono text-foreground", firstMetric === key && METRIC_START);
+
+  const headerFor = (key: ColumnKey) => {
+    switch (key) {
+      case "tier":
+        return (
+          <SortHeader key={key} label="Tier" col="tier" sort={sort} onSort={onSort} />
+        );
+      case "registered":
+        return (
+          <SortHeader
+            key={key}
+            label="Registered"
+            col="createdAt"
+            sort={sort}
+            onSort={onSort}
+          />
+        );
+      case "status":
+        return (
+          <SortHeader
+            key={key}
+            label="Status"
+            col="status"
+            sort={sort}
+            onSort={onSort}
+          />
+        );
+      case "groups":
+        return (
+          <span
+            key={key}
+            className="flex items-center text-xs font-semibold uppercase tracking-wide text-tertiary-foreground"
+          >
+            Groups
+          </span>
+        );
+      case "activity":
+        return (
+          <SortHeader
+            key={key}
+            label="Activity"
+            col="activity"
+            sort={sort}
+            onSort={onSort}
+            info="Daily tenant actions over the last 30 days, from the analytics activity events. Higher, spikier lines mean more recent activity."
+          />
+        );
+      case "users":
+        return (
+          <SortHeader
+            key={key}
+            label="Users"
+            col="users"
+            sort={sort}
+            onSort={onSort}
+            align="right"
+            accent
+            className={cn(firstMetric === "users" && METRIC_START)}
+            info="People with a user account in this tenant, from the Ogen control-plane database."
+          />
+        );
+      case "spend":
+        return (
+          <SortHeader
+            key={key}
+            label="AI spend"
+            col="spend"
+            sort={sort}
+            onSort={onSort}
+            align="right"
+            accent
+            className={cn(firstMetric === "spend" && METRIC_START)}
+            info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups."
+          />
+        );
+      case "zernio":
+        return (
+          <SortHeader
+            key={key}
+            label="Zernio"
+            col="zernio"
+            sort={sort}
+            onSort={onSort}
+            align="right"
+            accent
+            className={cn(firstMetric === "zernio" && METRIC_START)}
+            info="Active social profiles this tenant has connected through Zernio."
+          />
+        );
+      case "r2":
+        return (
+          <SortHeader
+            key={key}
+            label="R2"
+            col="r2"
+            sort={sort}
+            onSort={onSort}
+            align="right"
+            accent
+            className={cn(firstMetric === "r2" && METRIC_START)}
+            info="Total size of this tenant's files stored in Cloudflare R2 object storage."
+          />
+        );
+    }
+  };
+
+  const cellFor = (key: ColumnKey, t: Tenant) => {
+    switch (key) {
+      case "tier":
+        return (
+          <span key={key} className="min-w-0">
+            {t.tier ? (
+              <LabelChip label={t.tier.name} color={t.tier.color} />
+            ) : (
+              <span className="text-xs text-tertiary-foreground">—</span>
+            )}
+          </span>
+        );
+      case "registered":
+        return (
+          <span key={key} className="text-secondary-foreground">
+            {formatDate(t.createdAt)}
+          </span>
+        );
+      case "status":
+        return (
+          <StatusLabel key={key} status={t.status} reason={t.statusReason} />
+        );
+      case "groups":
+        return <GroupsCell key={key} groups={t.groups ?? []} />;
+      case "activity":
+        return (
+          <SparkCell key={key} data={t.activity} available={activityAvailable} />
+        );
+      case "users":
+        return (
+          <span key={key} className={metricClass("users")}>
+            {t.users}
+          </span>
+        );
+      case "spend":
+        return (
+          <SpendCell
+            key={key}
+            spend={t.spend}
+            available={spendAvailable}
+            className={cn(firstMetric === "spend" && METRIC_START)}
+          />
+        );
+      case "zernio":
+        return (
+          <span key={key} className={metricClass("zernio")}>
+            {t.zernioProfiles}
+          </span>
+        );
+      case "r2":
+        return (
+          <span key={key} className={metricClass("r2")}>
+            {formatBytes(t.r2Bytes)}
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="rounded-xl bg-primary">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-3">
@@ -1072,7 +1341,7 @@ export function TenantsTable() {
               groupOptions={allGroups.map((g) => g.name)}
             />
           </div>
-          <ColumnSelector columns={columns} onChange={setColumns} />
+          <ColumnSelector prefs={columnPrefs} onChange={setColumnPrefs} />
         </div>
       )}
 
@@ -1087,7 +1356,7 @@ export function TenantsTable() {
         ) : !data ? (
           <SkeletonRows
             gridTemplate={gridTemplate}
-            cols={visibleColumns.length + 2}
+            cols={orderedColumns.length + 2}
           />
         ) : (data.total ?? data.tenants.length) === 0 ? (
           <p className="p-6 text-sm text-tertiary-foreground">No tenants</p>
@@ -1106,87 +1375,7 @@ export function TenantsTable() {
               style={{ gridTemplateColumns: gridTemplate }}
             >
               <SortHeader label="Name" col="name" sort={sort} onSort={onSort} />
-              {columns.tier && (
-                <SortHeader label="Tier" col="tier" sort={sort} onSort={onSort} />
-              )}
-              {columns.registered && (
-                <SortHeader
-                  label="Registered"
-                  col="createdAt"
-                  sort={sort}
-                  onSort={onSort}
-                />
-              )}
-              {columns.status && (
-                <SortHeader
-                  label="Status"
-                  col="status"
-                  sort={sort}
-                  onSort={onSort}
-                />
-              )}
-              {columns.groups && (
-                <span className="flex items-center text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-                  Groups
-                </span>
-              )}
-              {columns.activity && (
-                <SortHeader
-                  label="Activity"
-                  col="activity"
-                  sort={sort}
-                  onSort={onSort}
-                  info="Daily tenant actions over the last 30 days, from the analytics activity events. Higher, spikier lines mean more recent activity."
-                />
-              )}
-              {columns.users && (
-                <SortHeader
-                  label="Users"
-                  col="users"
-                  sort={sort}
-                  onSort={onSort}
-                  align="right"
-                  accent
-                  className={cn(firstMetric === "users" && METRIC_START)}
-                  info="People with a user account in this tenant, from the Ogen control-plane database."
-                />
-              )}
-              {columns.spend && (
-                <SortHeader
-                  label="AI spend"
-                  col="spend"
-                  sort={sort}
-                  onSort={onSort}
-                  align="right"
-                  accent
-                  className={cn(firstMetric === "spend" && METRIC_START)}
-                  info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups."
-                />
-              )}
-              {columns.zernio && (
-                <SortHeader
-                  label="Zernio"
-                  col="zernio"
-                  sort={sort}
-                  onSort={onSort}
-                  align="right"
-                  accent
-                  className={cn(firstMetric === "zernio" && METRIC_START)}
-                  info="Active social profiles this tenant has connected through Zernio."
-                />
-              )}
-              {columns.r2 && (
-                <SortHeader
-                  label="R2"
-                  col="r2"
-                  sort={sort}
-                  onSort={onSort}
-                  align="right"
-                  accent
-                  className={cn(firstMetric === "r2" && METRIC_START)}
-                  info="Total size of this tenant's files stored in Cloudflare R2 object storage."
-                />
-              )}
+              {orderedColumns.map((k) => headerFor(k))}
               <span className="sr-only">Actions</span>
             </div>
 
@@ -1234,74 +1423,7 @@ export function TenantsTable() {
                     </span>
                   </span>
 
-                  {columns.tier && (
-                    <span className="min-w-0">
-                      {t.tier ? (
-                        <LabelChip label={t.tier.name} color={t.tier.color} />
-                      ) : (
-                        <span className="text-xs text-tertiary-foreground">
-                          —
-                        </span>
-                      )}
-                    </span>
-                  )}
-
-                  {columns.registered && (
-                    <span className="text-secondary-foreground">
-                      {formatDate(t.createdAt)}
-                    </span>
-                  )}
-
-                  {columns.status && (
-                    <StatusLabel status={t.status} reason={t.statusReason} />
-                  )}
-
-                  {columns.groups && <GroupsCell groups={t.groups ?? []} />}
-
-                  {columns.activity && (
-                    <SparkCell data={t.activity} available={activityAvailable} />
-                  )}
-
-                  {columns.users && (
-                    <span
-                      className={cn(
-                        "text-right font-mono text-foreground",
-                        firstMetric === "users" && METRIC_START,
-                      )}
-                    >
-                      {t.users}
-                    </span>
-                  )}
-
-                  {columns.spend && (
-                    <SpendCell
-                      spend={t.spend}
-                      available={spendAvailable}
-                      className={cn(firstMetric === "spend" && METRIC_START)}
-                    />
-                  )}
-
-                  {columns.zernio && (
-                    <span
-                      className={cn(
-                        "text-right font-mono text-foreground",
-                        firstMetric === "zernio" && METRIC_START,
-                      )}
-                    >
-                      {t.zernioProfiles}
-                    </span>
-                  )}
-
-                  {columns.r2 && (
-                    <span
-                      className={cn(
-                        "text-right font-mono text-foreground",
-                        firstMetric === "r2" && METRIC_START,
-                      )}
-                    >
-                      {formatBytes(t.r2Bytes)}
-                    </span>
-                  )}
+                  {orderedColumns.map((k) => cellFor(k, t))}
 
                   <ActionsMenu
                     tenant={t}
