@@ -928,10 +928,17 @@ export function TenantsTable() {
   const [data, setData] = useState<TenantsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [sort, setSort] = useState<Sort>(loadSort);
+  // Preferences start as the server-rendered defaults and are hydrated from
+  // localStorage in a mount effect below. Reading storage in the initializer
+  // would diverge from the SSR markup (window is undefined on the server) and
+  // trip a hydration mismatch whenever a saved preference isn't the default.
+  const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
   const [filters, setFilters] = useState<FilterToken[]>([]);
   const [columnPrefs, setColumnPrefs] =
-    useState<ColumnPref[]>(loadColumnPrefs);
+    useState<ColumnPref[]>(DEFAULT_COLUMN_PREFS);
+  // Gates the persistence effects so the initial defaults don't overwrite the
+  // stored preferences before the mount effect has loaded them.
+  const [prefsHydrated, setPrefsHydrated] = useState(false);
   // True once the table is scrolled off its left edge — shows the frozen-column
   // edge shadow only while content is actually sliding under Name/Tier.
   const [scrolled, setScrolled] = useState(false);
@@ -974,17 +981,29 @@ export function TenantsTable() {
     return () => controller.abort();
   }, [filters]);
 
-  // Persist the sort preference so it survives reloads / route changes.
+  // Load the persisted preferences once on the client, after hydration, so the
+  // first render still matches the server (defaults) and no mismatch is logged.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSort(loadSort());
+    setColumnPrefs(loadColumnPrefs());
+    setPrefsHydrated(true);
+  }, []);
+
+  // Persist the sort preference so it survives reloads / route changes. Held
+  // back until the stored value has been loaded (see prefsHydrated above).
+  useEffect(() => {
+    if (!prefsHydrated) return;
     try {
       window.localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort));
     } catch {
       // storage unavailable (private mode / quota) — preference is best-effort
     }
-  }, [sort]);
+  }, [sort, prefsHydrated]);
 
   // Persist the column order + visibility choice the same way.
   useEffect(() => {
+    if (!prefsHydrated) return;
     try {
       window.localStorage.setItem(
         COLUMN_PREFS_STORAGE_KEY,
@@ -993,7 +1012,7 @@ export function TenantsTable() {
     } catch {
       // storage unavailable — best-effort
     }
-  }, [columnPrefs]);
+  }, [columnPrefs, prefsHydrated]);
 
   // The persisted order (filtered to visible) drives the grid template. The two
   // frozen columns (Name, Tier) lead; the toggleable middle set follows in its
