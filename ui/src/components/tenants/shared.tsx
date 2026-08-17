@@ -38,6 +38,10 @@ export interface Tenant {
   // is always an array (possibly empty).
   tier?: ClassificationLabel | null;
   groups?: ClassificationLabel[];
+  // Trailing 30-day daily activity-event counts (oldest→newest) for the row
+  // sparkline (CON-223). null/undefined when analytics is unavailable; a
+  // zero-filled array when the tenant simply had no events.
+  activity?: number[] | null;
 }
 
 export interface ActivityEvent {
@@ -138,15 +142,6 @@ export function formatBytes(bytes: number): string {
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
-export function spendSegments(s: VendorSpend) {
-  const total = s.totalMicros || 1;
-  return [
-    { pct: (s.anthropicMicros / total) * 100, className: "bg-orange-500" },
-    { pct: (s.googleMicros / total) * 100, className: "bg-blue-500" },
-    { pct: (s.otherMicros / total) * 100, className: "bg-neutral-400" },
-  ];
-}
-
 // ── status ────────────────────────────────────────────────────────────────────
 
 // The tenant lifecycle enum (CON-190): active (green), suspended (amber),
@@ -225,6 +220,70 @@ export function LabelChip({
     >
       {label}
     </span>
+  );
+}
+
+// ── activity sparkline ──────────────────────────────────────────────────────────
+
+// splinePath builds a smooth Catmull-Rom (tension 1/6) cubic-Bézier path through
+// the points — the spline the activity sparkline draws. Endpoints duplicate their
+// neighbour so the curve stays anchored at the first/last sample.
+function splinePath(pts: [number, number][]): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M ${pts[0][0]},${pts[0][1]}`;
+  const d = [`M ${pts[0][0]},${pts[0][1]}`];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d.push(`C ${c1x},${c1y} ${c2x},${c2y} ${p2[0]},${p2[1]}`);
+  }
+  return d.join(" ");
+}
+
+// Sparkline draws a tenant's recent daily-activity counts as a compact green
+// spline. An all-zero series still renders a flat baseline (so the column reads
+// as "no activity" rather than empty). The viewBox is unitless and stretched to
+// fill the cell; non-scaling strokes keep the line an even width when stretched.
+export function Sparkline({
+  data,
+  className,
+}: {
+  data: number[];
+  className?: string;
+}) {
+  const W = 100;
+  const H = 28;
+  const PAD = 3; // vertical breathing room so peaks/baseline aren't clipped
+  const n = data.length;
+  const max = Math.max(1, ...data);
+  const stepX = n > 1 ? W / (n - 1) : 0;
+  const pts: [number, number][] = data.map((v, i) => [
+    i * stepX,
+    H - PAD - (v / max) * (H - PAD * 2),
+  ]);
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className={cn("h-7 w-full text-emerald-500", className)}
+      aria-hidden
+    >
+      <path
+        d={splinePath(pts)}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
   );
 }
 

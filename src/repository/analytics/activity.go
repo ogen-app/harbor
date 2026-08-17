@@ -51,6 +51,15 @@ type ActivityCategoryCount struct {
 	Count    int    `bun:"count"`
 }
 
+// TenantDayCount is one (tenant, UTC calendar day) event-count bucket. A single
+// grouped scan yields these across every tenant at once, which the Tenants table
+// folds into a per-tenant activity sparkline (CON-223).
+type TenantDayCount struct {
+	TenantID string `bun:"tenant_id"`
+	Date     string `bun:"date"`
+	Count    int    `bun:"count"`
+}
+
 // ActivityQuery selects a page of activity events for the detail-page table.
 // TenantID scopes to one tenant; an empty TenantID spans all tenants (the
 // global Activity page). Beyond the tenant, every field is optional:
@@ -93,6 +102,12 @@ type ActivityRepository interface {
 	// events), scoped to tenantID or — when it is empty — across all tenants.
 	// Returns ErrUnavailable if the pool is nil.
 	ActivitySeries(ctx context.Context, tenantID string, windowDays int) ([]ActivityCategoryCount, error)
+	// ActivityByTenantDaily returns per-tenant, per-day event counts over the last
+	// windowDays UTC calendar days across every tenant (sparse — only (tenant, day)
+	// pairs with events), for the Tenants-table activity sparklines. One grouped
+	// scan covers the whole table, so a 50–100 tenant list stays cheap. Returns
+	// ErrUnavailable if the pool is nil.
+	ActivityByTenantDaily(ctx context.Context, windowDays int) ([]TenantDayCount, error)
 }
 
 type activityRepository struct{ db *bun.DB }
@@ -250,6 +265,32 @@ func (r *activityRepository) ActivitySeries(ctx context.Context, tenantID string
 	err := r.db.NewRaw(query, args...).Scan(ctx, &rows)
 	if err != nil {
 		logFail("activity.series", err)
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *activityRepository) ActivityByTenantDaily(ctx context.Context, windowDays int) ([]TenantDayCount, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	// One grouped scan for the whole table: bucket by tenant and UTC calendar day
+	// over the trailing window. The WHERE compares the bare occurred_at against a
+	// UTC-midnight lower bound rather than casting the partitioning column, so
+	// chunk exclusion on the TimescaleDB hypertable is preserved (mirrors
+	// ActivitySeries). The result is sparse — at most tenants×windowDays rows — so
+	// the caller folds it into dense per-tenant series in Go.
+	var rows []TenantDayCount
+	err := r.db.NewRaw(`
+		SELECT tenant_id,
+		       to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
+		       count(*) AS count
+		FROM tenant_activity_events
+		WHERE occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC')
+		                      - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
+		GROUP BY tenant_id, date`, windowDays).Scan(ctx, &rows)
+	if err != nil {
+		logFail("activity.byTenantDaily", err)
 		return nil, err
 	}
 	return rows, nil

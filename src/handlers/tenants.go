@@ -80,6 +80,10 @@ type tenantRow struct {
 	// classification tables are absent; Groups is always non-nil (possibly empty).
 	Tier   *ogen.Tier   `json:"tier"`
 	Groups []ogen.Group `json:"groups"`
+	// Activity (CON-223) is the trailing activitySparkWindowDays daily
+	// activity-event counts (oldest→newest) for this tenant's sparkline. Nil when
+	// analytics is unavailable; a zero-filled slice when the tenant had no events.
+	Activity []int `json:"activity"`
 }
 
 // rowFromMetrics builds a table row from a tenant's Ogen-side metrics and its
@@ -191,6 +195,39 @@ func parseFilters(raw string) []tenantFilter {
 	return filters
 }
 
+// activitySparkWindowDays is the trailing window for the Tenants-table activity
+// sparkline (CON-223): one month of daily action counts per tenant.
+const activitySparkWindowDays = 30
+
+// buildActivitySparklines folds sparse per-tenant daily counts into a dense,
+// zero-filled slice per tenant of length windowDays (oldest→newest UTC calendar
+// days), keyed by tenant id — the fixed-length series each row's sparkline plots.
+// Counts falling outside the window (clock skew at the boundary) are dropped.
+func buildActivitySparklines(rows []analytics.TenantDayCount, windowDays int) map[string][]int {
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// UTC date "YYYY-MM-DD" → slot index in [0, windowDays).
+	slot := make(map[string]int, windowDays)
+	for i := 0; i < windowDays; i++ {
+		date := today.AddDate(0, 0, -(windowDays-1-i)).Format("2006-01-02")
+		slot[date] = i
+	}
+	byTenant := make(map[string][]int, len(rows))
+	for _, r := range rows {
+		i, ok := slot[r.Date]
+		if !ok {
+			continue
+		}
+		series := byTenant[r.TenantID]
+		if series == nil {
+			series = make([]int, windowDays)
+			byTenant[r.TenantID] = series
+		}
+		series[i] += r.Count
+	}
+	return byTenant
+}
+
 // List godoc
 // @Summary      Ogen tenants
 // @Description  Tenants in the Ogen control-plane database with per-tenant
@@ -244,6 +281,27 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 		groupCatalog = []ogen.Group{}
 	}
 
+	// Per-tenant activity sparklines (CON-223): a single grouped scan of the
+	// analytics activity hypertable, folded into a dense 30-day daily-count series
+	// per tenant. Best-effort — a failure just drops the column
+	// (activityAvailable=false) rather than failing the list. A tenant with no
+	// events gets a zero-filled series (a flat baseline), so the column always has
+	// one point per day.
+	activityAvailable := false
+	if h.activity.Available() {
+		if daily, err := h.activity.ActivityByTenantDaily(c.Context(), activitySparkWindowDays); err == nil {
+			activityAvailable = true
+			spark := buildActivitySparklines(daily, activitySparkWindowDays)
+			for i := range rows {
+				if series, ok := spark[rows[i].ID]; ok {
+					rows[i].Activity = series
+				} else {
+					rows[i].Activity = make([]int, activitySparkWindowDays)
+				}
+			}
+		}
+	}
+
 	// Distinct statuses across all tenants, for the filter dropdown — computed
 	// before filtering so the option list never shrinks with the results.
 	statusSet := map[string]struct{}{}
@@ -277,13 +335,14 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"tenants":        rows,
-		"total":          total,
-		"statuses":       statuses,
-		"tiers":          tierCatalog,
-		"groups":         groupCatalog,
-		"available":      true,
-		"spendAvailable": spendAvailable,
+		"tenants":           rows,
+		"total":             total,
+		"statuses":          statuses,
+		"tiers":             tierCatalog,
+		"groups":            groupCatalog,
+		"available":         true,
+		"spendAvailable":    spendAvailable,
+		"activityAvailable": activityAvailable,
 	})
 }
 
