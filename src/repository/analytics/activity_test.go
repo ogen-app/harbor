@@ -22,4 +22,7 @@ func TestActivityRepositoryUnavailable(t *testing.T) {
 	if _, err := r.ActivitySeries(context.Background(), "t1", 90); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("ActivitySeries err = %v, want ErrUnavailable", err)
 	}
+	if _, err := r.ActivityByTenantDaily(context.Background(), 30); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("ActivityByTenantDaily err = %v, want ErrUnavailable", err)
+	}
 }

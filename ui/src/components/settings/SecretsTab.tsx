@@ -35,6 +35,8 @@ const SECRET_DESCRIPTIONS: Record<string, string> = {
     "Zernio API key for publishing posts and syncing social accounts.",
   gemini_api_key:
     "Google Gemini key for the embeddings behind semantic search.",
+  firecrawl_api_key:
+    "Firecrawl API key for scraping and crawling web pages into clean content.",
   resend_api_key: "Resend API key for sending transactional & marketing email.",
   resend_webhook_secret: "Signing secret that verifies inbound Resend webhooks.",
   email_link_secret: "HMAC key that signs one-click email unsubscribe links.",

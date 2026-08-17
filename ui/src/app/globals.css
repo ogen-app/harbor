@@ -204,6 +204,11 @@
         @apply bg-background text-foreground font-sans;
     }
 
+    html, body {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
     #root {
         @apply bg-background min-h-screen;
     }
