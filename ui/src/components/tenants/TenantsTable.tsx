@@ -163,13 +163,29 @@ function loadSort(): Sort {
 
 // ── layout & columns ────────────────────────────────────────────────────────────
 
-const METRIC_START = "border-l border-border pl-4"; // divider before the metric group
+// Every cell (header + body) carries its own horizontal padding rather than the
+// grid using a `gap`: contiguous tracks let the frozen Name/Tier columns hide
+// the scrolling content cleanly (a grid gap would leave a see-through sliver at
+// the freeze edge). All columns are left-aligned.
+const CELL_X = "px-3";
+// Card inset on the outer edges — on the (sticky) Name cell and the last cell.
+const EDGE_L = "pl-6";
+const EDGE_R = "pr-6";
 
-// Toggleable columns, in render order (left→right). The Name column and the row
-// actions menu bookend every row and are always shown, so they aren't listed
-// here. The right-hand metric group (right-aligned, accent headers) is the tail.
+// The two frozen columns are pinned during horizontal scroll. Their fixed widths
+// make the pin offsets deterministic: Tier sits exactly NAME_TRACK from the left.
+const NAME_TRACK = "12rem";
+const TIER_TRACK = "8rem";
+const TIER_LEFT = "left-[12rem]"; // must equal NAME_TRACK
+// A soft right-edge shadow on the last frozen column, shown only while scrolled,
+// so the freeze boundary reads like the content is sliding underneath.
+const FROZEN_SHADOW = "shadow-[8px_0_10px_-8px_rgba(0,0,0,0.25)]";
+
+// Toggleable, reorderable columns in default order (left→right). Name and Tier
+// are static, always-on, frozen columns (rendered separately); the row actions
+// menu is the always-on tail. Comfortable fixed widths give the columns air and
+// make the table scroll horizontally rather than squish.
 type ColumnKey =
-  | "tier"
   | "registered"
   | "status"
   | "groups"
@@ -180,7 +196,6 @@ type ColumnKey =
   | "r2";
 
 const COLUMN_KEYS: ColumnKey[] = [
-  "tier",
   "registered",
   "status",
   "groups",
@@ -192,7 +207,6 @@ const COLUMN_KEYS: ColumnKey[] = [
 ];
 
 const COLUMN_LABEL: Record<ColumnKey, string> = {
-  tier: "Tier",
   registered: "Registered",
   status: "Status",
   groups: "Groups",
@@ -203,28 +217,17 @@ const COLUMN_LABEL: Record<ColumnKey, string> = {
   r2: "R2",
 };
 
-// Grid track width per column; Name and Actions bookend every row.
-const NAME_TRACK = "minmax(150px,1.6fr)";
-const ACTIONS_TRACK = "2.5rem";
+const ACTIONS_TRACK = "3.75rem"; // action button + right card inset
 const COLUMN_TRACK: Record<ColumnKey, string> = {
-  tier: "0.9fr",
-  registered: "1fr",
-  status: "0.9fr",
-  groups: "minmax(120px,1.3fr)",
-  activity: "minmax(96px,1.1fr)",
-  users: "0.7fr",
-  spend: "0.9fr",
-  zernio: "0.8fr",
-  r2: "0.9fr",
+  registered: "9rem",
+  status: "8rem",
+  groups: "13rem",
+  activity: "9rem",
+  users: "7rem",
+  spend: "8rem",
+  zernio: "7rem",
+  r2: "7rem",
 };
-
-// The right-hand metric group: right-aligned, accent headers, with a divider
-// before the first visible one.
-const METRIC_KEYS: ColumnKey[] = ["users", "spend", "zernio", "r2"];
-
-// Min width for the scrollable grid so columns stay readable and the table
-// scrolls horizontally on narrow screens instead of squishing.
-const MIN_TABLE_W = "min-w-[56rem]";
 
 // A column's persisted preference. Its position in the array is its display
 // order (drag-to-reorder), and `visible` toggles it. Order and visibility
@@ -805,29 +808,25 @@ function StatusDialogBody({
 
 // ── metric cells ──────────────────────────────────────────────────────────────
 
-// SpendCell shows the tenant's current-period AI spend as a right-aligned figure
-// (CON-223 dropped the per-vendor bar — numbers only). className carries the
-// metric-group divider when this is the first visible metric column.
+// SpendCell shows the tenant's current-period AI spend as a left-aligned mono
+// figure (CON-223 dropped the per-vendor bar — numbers only).
 function SpendCell({
   spend,
   available,
-  className,
 }: {
   spend: VendorSpend;
   available: boolean;
-  className?: string;
 }) {
-  const base = cn("text-right font-mono", className);
   if (!available) {
-    return <span className={cn(base, "text-xs text-tertiary-foreground")}>—</span>;
+    return <span className="font-mono text-xs text-tertiary-foreground">—</span>;
   }
   if (spend.totalMicros === 0) {
     return (
-      <span className={cn(base, "text-xs text-tertiary-foreground")}>$0.00</span>
+      <span className="font-mono text-xs text-tertiary-foreground">$0.00</span>
     );
   }
   return (
-    <span className={cn(base, "text-foreground")}>
+    <span className="font-mono text-foreground">
       {formatUSD(spend.totalMicros)}
     </span>
   );
@@ -867,18 +866,17 @@ function SkeletonRows({
   cols: number;
 }) {
   return (
-    <div className={cn("divide-y divide-border", MIN_TABLE_W)}>
+    <div className="w-max divide-y divide-border">
       {Array.from({ length: 6 }).map((_, r) => (
         <div
           key={r}
-          className="grid items-center gap-4 px-6 py-3.5"
+          className="grid items-center py-3.5"
           style={{ gridTemplateColumns: gridTemplate }}
         >
           {Array.from({ length: cols }).map((_unused, c) => (
-            <div
-              key={c}
-              className="h-3 w-full max-w-24 animate-pulse rounded bg-secondary"
-            />
+            <div key={c} className={cn(CELL_X, "min-w-0")}>
+              <div className="h-3 w-full max-w-24 animate-pulse rounded bg-secondary" />
+            </div>
           ))}
         </div>
       ))}
@@ -896,6 +894,9 @@ export function TenantsTable() {
   const [filters, setFilters] = useState<FilterToken[]>([]);
   const [columnPrefs, setColumnPrefs] =
     useState<ColumnPref[]>(loadColumnPrefs);
+  // Whether the table is scrolled off its left edge — toggles the frozen-column
+  // shadow so it only shows once Name/Tier are actually pinning content.
+  const [scrolled, setScrolled] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
     null,
   );
@@ -956,14 +957,13 @@ export function TenantsTable() {
     }
   }, [columnPrefs]);
 
-  // The persisted order (filtered to visible) drives the grid template: Name and
-  // Actions bookend the toggleable middle set. The metric divider sits before the
-  // first visible metric column in display order, wherever it lands after a
-  // reorder/hide.
+  // The persisted order (filtered to visible) drives the grid template. The two
+  // frozen columns (Name, Tier) lead; the toggleable middle set follows in its
+  // saved order; the actions menu is the tail.
   const orderedColumns = columnPrefs.filter((p) => p.visible).map((p) => p.key);
-  const firstMetric = orderedColumns.find((k) => METRIC_KEYS.includes(k));
   const gridTemplate = [
     NAME_TRACK,
+    TIER_TRACK,
     ...orderedColumns.map((k) => COLUMN_TRACK[k]),
     ACTIONS_TRACK,
   ].join(" ");
@@ -1146,171 +1146,119 @@ export function TenantsTable() {
     router.push(`/tenants/${encodeURIComponent(t.id)}`);
 
   // Per-column header / cell renderers, so both the header row and the body rows
-  // can map over the (reorderable) visible-column list from one source of truth.
-  const metricClass = (key: ColumnKey) =>
-    cn("text-right font-mono text-foreground", firstMetric === key && METRIC_START);
-
+  // map over the (reorderable) visible-column list from one source of truth. Each
+  // returns a padded, left-aligned grid item (CELL_X); numeric columns keep a
+  // mono figure but are no longer right-aligned.
   const headerFor = (key: ColumnKey) => {
-    switch (key) {
-      case "tier":
-        return (
-          <SortHeader key={key} label="Tier" col="tier" sort={sort} onSort={onSort} />
-        );
-      case "registered":
-        return (
-          <SortHeader
-            key={key}
-            label="Registered"
-            col="createdAt"
-            sort={sort}
-            onSort={onSort}
-          />
-        );
-      case "status":
-        return (
-          <SortHeader
-            key={key}
-            label="Status"
-            col="status"
-            sort={sort}
-            onSort={onSort}
-          />
-        );
-      case "groups":
-        return (
-          <span
-            key={key}
-            className="flex items-center text-xs font-semibold uppercase tracking-wide text-tertiary-foreground"
-          >
-            Groups
-          </span>
-        );
-      case "activity":
-        return (
-          <SortHeader
-            key={key}
-            label="Activity"
-            col="activity"
-            sort={sort}
-            onSort={onSort}
-            info="Daily tenant actions over the last 30 days, from the analytics activity events. Higher, spikier lines mean more recent activity."
-          />
-        );
-      case "users":
-        return (
-          <SortHeader
-            key={key}
-            label="Users"
-            col="users"
-            sort={sort}
-            onSort={onSort}
-            align="right"
-            accent
-            className={cn(firstMetric === "users" && METRIC_START)}
-            info="People with a user account in this tenant, from the Ogen control-plane database."
-          />
-        );
-      case "spend":
-        return (
-          <SortHeader
-            key={key}
-            label="AI spend"
-            col="spend"
-            sort={sort}
-            onSort={onSort}
-            align="right"
-            accent
-            className={cn(firstMetric === "spend" && METRIC_START)}
-            info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups."
-          />
-        );
-      case "zernio":
-        return (
-          <SortHeader
-            key={key}
-            label="Zernio"
-            col="zernio"
-            sort={sort}
-            onSort={onSort}
-            align="right"
-            accent
-            className={cn(firstMetric === "zernio" && METRIC_START)}
-            info="Active social profiles this tenant has connected through Zernio."
-          />
-        );
-      case "r2":
-        return (
-          <SortHeader
-            key={key}
-            label="R2"
-            col="r2"
-            sort={sort}
-            onSort={onSort}
-            align="right"
-            accent
-            className={cn(firstMetric === "r2" && METRIC_START)}
-            info="Total size of this tenant's files stored in Cloudflare R2 object storage."
-          />
-        );
-    }
+    const inner = (() => {
+      switch (key) {
+        case "registered":
+          return (
+            <SortHeader label="Registered" col="createdAt" sort={sort} onSort={onSort} />
+          );
+        case "status":
+          return <SortHeader label="Status" col="status" sort={sort} onSort={onSort} />;
+        case "groups":
+          return (
+            <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+              Groups
+            </span>
+          );
+        case "activity":
+          return (
+            <SortHeader
+              label="Activity"
+              col="activity"
+              sort={sort}
+              onSort={onSort}
+              info="Daily tenant actions over the last 30 days, from the analytics activity events. Higher, spikier lines mean more recent activity."
+            />
+          );
+        case "users":
+          return (
+            <SortHeader
+              label="Users"
+              col="users"
+              sort={sort}
+              onSort={onSort}
+              info="People with a user account in this tenant, from the Ogen control-plane database."
+            />
+          );
+        case "spend":
+          return (
+            <SortHeader
+              label="AI spend"
+              col="spend"
+              sort={sort}
+              onSort={onSort}
+              info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups."
+            />
+          );
+        case "zernio":
+          return (
+            <SortHeader
+              label="Zernio"
+              col="zernio"
+              sort={sort}
+              onSort={onSort}
+              info="Active social profiles this tenant has connected through Zernio."
+            />
+          );
+        case "r2":
+          return (
+            <SortHeader
+              label="R2"
+              col="r2"
+              sort={sort}
+              onSort={onSort}
+              info="Total size of this tenant's files stored in Cloudflare R2 object storage."
+            />
+          );
+      }
+    })();
+    return (
+      <div key={key} className={cn(CELL_X, "min-w-0")}>
+        {inner}
+      </div>
+    );
   };
 
   const cellFor = (key: ColumnKey, t: Tenant) => {
-    switch (key) {
-      case "tier":
-        return (
-          <span key={key} className="min-w-0">
-            {t.tier ? (
-              <LabelChip label={t.tier.name} color={t.tier.color} />
-            ) : (
-              <span className="text-xs text-tertiary-foreground">—</span>
-            )}
-          </span>
-        );
-      case "registered":
-        return (
-          <span key={key} className="text-secondary-foreground">
-            {formatDate(t.createdAt)}
-          </span>
-        );
-      case "status":
-        return (
-          <StatusLabel key={key} status={t.status} reason={t.statusReason} />
-        );
-      case "groups":
-        return <GroupsCell key={key} groups={t.groups ?? []} />;
-      case "activity":
-        return (
-          <SparkCell key={key} data={t.activity} available={activityAvailable} />
-        );
-      case "users":
-        return (
-          <span key={key} className={metricClass("users")}>
-            {t.users}
-          </span>
-        );
-      case "spend":
-        return (
-          <SpendCell
-            key={key}
-            spend={t.spend}
-            available={spendAvailable}
-            className={cn(firstMetric === "spend" && METRIC_START)}
-          />
-        );
-      case "zernio":
-        return (
-          <span key={key} className={metricClass("zernio")}>
-            {t.zernioProfiles}
-          </span>
-        );
-      case "r2":
-        return (
-          <span key={key} className={metricClass("r2")}>
-            {formatBytes(t.r2Bytes)}
-          </span>
-        );
-    }
+    const inner = (() => {
+      switch (key) {
+        case "registered":
+          return (
+            <span className="truncate text-secondary-foreground">
+              {formatDate(t.createdAt)}
+            </span>
+          );
+        case "status":
+          return <StatusLabel status={t.status} reason={t.statusReason} />;
+        case "groups":
+          return <GroupsCell groups={t.groups ?? []} />;
+        case "activity":
+          return <SparkCell data={t.activity} available={activityAvailable} />;
+        case "users":
+          return <span className="font-mono text-foreground">{t.users}</span>;
+        case "spend":
+          return <SpendCell spend={t.spend} available={spendAvailable} />;
+        case "zernio":
+          return (
+            <span className="font-mono text-foreground">{t.zernioProfiles}</span>
+          );
+        case "r2":
+          return (
+            <span className="font-mono text-foreground">
+              {formatBytes(t.r2Bytes)}
+            </span>
+          );
+      }
+    })();
+    return (
+      <div key={key} className={cn(CELL_X, "min-w-0")}>
+        {inner}
+      </div>
+    );
   };
 
   return (
@@ -1345,9 +1293,13 @@ export function TenantsTable() {
         </div>
       )}
 
-      {/* overflow-x-auto lets the table scroll sideways on narrow screens
-          instead of squishing columns (the inner grid keeps a min width). */}
-      <div className="overflow-x-auto rounded-b-xl">
+      {/* overflow-x-auto lets the table scroll sideways when its columns are
+          wider than the viewport; Name/Tier stay frozen. onScroll toggles the
+          freeze-edge shadow once the content is actually pinned. */}
+      <div
+        className="overflow-x-auto rounded-b-xl"
+        onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 0)}
+      >
         {error || (data && !data.available) ? (
           <p className="p-6 text-sm text-tertiary-foreground">
             Tenants unavailable —{" "}
@@ -1356,7 +1308,7 @@ export function TenantsTable() {
         ) : !data ? (
           <SkeletonRows
             gridTemplate={gridTemplate}
-            cols={orderedColumns.length + 2}
+            cols={orderedColumns.length + 3}
           />
         ) : (data.total ?? data.tenants.length) === 0 ? (
           <p className="p-6 text-sm text-tertiary-foreground">No tenants</p>
@@ -1365,16 +1317,29 @@ export function TenantsTable() {
             No tenants match the current filters.
           </p>
         ) : (
-          <div
-            ref={containerRef}
-            className={cn("divide-y divide-border", MIN_TABLE_W)}
-          >
-            {/* header */}
+          // w-max sizes the body to the sum of its (fixed) column widths so each
+          // row's background spans the full scroll width, not just the viewport.
+          // Narrower viewport → the whole block scrolls; wider → it sits at its
+          // natural width (the card's matching bg fills any slack seamlessly).
+          <div ref={containerRef} className="w-max divide-y divide-border">
+            {/* header — Name and Tier are frozen (sticky) at the left. */}
             <div
-              className="grid items-center gap-4 px-6 py-2.5"
+              className="grid items-center py-2.5"
               style={{ gridTemplateColumns: gridTemplate }}
             >
-              <SortHeader label="Name" col="name" sort={sort} onSort={onSort} />
+              <div className={cn("sticky left-0 z-20 min-w-0 bg-primary", EDGE_L, "pr-3")}>
+                <SortHeader label="Name" col="name" sort={sort} onSort={onSort} />
+              </div>
+              <div
+                className={cn(
+                  "sticky z-20 min-w-0 bg-primary",
+                  TIER_LEFT,
+                  CELL_X,
+                  scrolled && FROZEN_SHADOW,
+                )}
+              >
+                <SortHeader label="Tier" col="tier" sort={sort} onSort={onSort} />
+              </div>
               {orderedColumns.map((k) => headerFor(k))}
               <span className="sr-only">Actions</span>
             </div>
@@ -1402,15 +1367,24 @@ export function TenantsTable() {
                     }
                   }}
                   className={cn(
-                    "grid w-full cursor-pointer items-center gap-4 px-6 py-3.5 text-left text-sm transition-colors hover:bg-secondary/40 focus-visible:bg-secondary/40 focus-visible:outline-none",
-                    isActive &&
-                      "bg-secondary shadow-[inset_2px_0_0_0_var(--foreground)]",
+                    "group grid w-full cursor-pointer items-center py-3.5 text-left text-sm transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none",
+                    isActive && "bg-secondary",
                   )}
                   style={{ gridTemplateColumns: gridTemplate }}
                 >
-                  {/* name — the link stops propagation so it doesn't double up
-                      with the row's navigation (both go to the detail page). */}
-                  <span className="min-w-0">
+                  {/* Name + Tier are frozen (sticky) at the left; their opaque bg
+                      tracks the row state so scrolled content passes cleanly under.
+                      The Name link stops propagation so it doesn't double up with
+                      the row's navigation (both open the detail page). */}
+                  <div
+                    className={cn(
+                      "sticky left-0 z-10 min-w-0 bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
+                      EDGE_L,
+                      "pr-3",
+                      isActive &&
+                        "bg-secondary shadow-[inset_2px_0_0_0_var(--foreground)]",
+                    )}
+                  >
                     <Link
                       href={`/tenants/${encodeURIComponent(t.id)}`}
                       onClick={(e) => e.stopPropagation()}
@@ -1421,20 +1395,38 @@ export function TenantsTable() {
                     <span className="block truncate font-mono text-xs text-tertiary-foreground">
                       {t.slug}
                     </span>
-                  </span>
+                  </div>
+
+                  <div
+                    className={cn(
+                      "sticky z-10 min-w-0 bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
+                      TIER_LEFT,
+                      CELL_X,
+                      isActive && "bg-secondary",
+                      scrolled && FROZEN_SHADOW,
+                    )}
+                  >
+                    {t.tier ? (
+                      <LabelChip label={t.tier.name} color={t.tier.color} />
+                    ) : (
+                      <span className="text-xs text-tertiary-foreground">—</span>
+                    )}
+                  </div>
 
                   {orderedColumns.map((k) => cellFor(k, t))}
 
-                  <ActionsMenu
-                    tenant={t}
-                    allTiers={allTiers}
-                    allGroups={allGroups}
-                    onSetTier={setTier}
-                    onToggleGroup={toggleGroup}
-                    onStatusAction={(tenant, target) =>
-                      setStatusAction({ tenant, target })
-                    }
-                  />
+                  <div className={cn("flex items-center justify-end", EDGE_R)}>
+                    <ActionsMenu
+                      tenant={t}
+                      allTiers={allTiers}
+                      allGroups={allGroups}
+                      onSetTier={setTier}
+                      onToggleGroup={toggleGroup}
+                      onStatusAction={(tenant, target) =>
+                        setStatusAction({ tenant, target })
+                      }
+                    />
+                  </div>
                 </div>
               );
             })}
