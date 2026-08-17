@@ -177,8 +177,8 @@ const EDGE_R = "pr-6";
 const NAME_TRACK = "12rem";
 const TIER_TRACK = "8rem";
 const TIER_LEFT = "left-[12rem]"; // must equal NAME_TRACK
-// A soft right-edge shadow on the last frozen column, shown only while scrolled,
-// so the freeze boundary reads like the content is sliding underneath.
+// A soft right-edge shadow on the last frozen column so the freeze boundary
+// always reads as an edge and content clearly slides underneath on scroll.
 const FROZEN_SHADOW = "shadow-[6px_0_8px_-4px_rgba(0,0,0,0.18)]";
 
 // Toggleable, reorderable columns in default order (left→right). Name and Tier
@@ -894,9 +894,6 @@ export function TenantsTable() {
   const [filters, setFilters] = useState<FilterToken[]>([]);
   const [columnPrefs, setColumnPrefs] =
     useState<ColumnPref[]>(loadColumnPrefs);
-  // Whether the table is scrolled off its left edge — toggles the frozen-column
-  // shadow so it only shows once Name/Tier are actually pinning content.
-  const [scrolled, setScrolled] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
     null,
   );
@@ -1217,7 +1214,7 @@ export function TenantsTable() {
       }
     })();
     return (
-      <div key={key} className={cn(CELL_X, "min-w-0")}>
+      <div key={key} className={cn(CELL_X, "flex min-w-0 items-center")}>
         {inner}
       </div>
     );
@@ -1255,7 +1252,7 @@ export function TenantsTable() {
       }
     })();
     return (
-      <div key={key} className={cn(CELL_X, "min-w-0")}>
+      <div key={key} className={cn(CELL_X, "flex min-w-0 items-center")}>
         {inner}
       </div>
     );
@@ -1294,12 +1291,9 @@ export function TenantsTable() {
       )}
 
       {/* overflow-x-auto lets the table scroll sideways when its columns are
-          wider than the viewport; Name/Tier stay frozen. onScroll toggles the
-          freeze-edge shadow once the content is actually pinned. */}
-      <div
-        className="overflow-x-auto rounded-b-xl"
-        onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 0)}
-      >
+          wider than the viewport; the frozen Name/Tier block stays pinned with a
+          standing right-edge shadow. */}
+      <div className="overflow-x-auto rounded-b-xl">
         {error || (data && !data.available) ? (
           <p className="p-6 text-sm text-tertiary-foreground">
             Tenants unavailable —{" "}
@@ -1322,20 +1316,28 @@ export function TenantsTable() {
           // Narrower viewport → the whole block scrolls; wider → it sits at its
           // natural width (the card's matching bg fills any slack seamlessly).
           <div ref={containerRef} className="w-max divide-y divide-border">
-            {/* header — Name and Tier are frozen (sticky) at the left. */}
+            {/* header — Name and Tier are frozen (sticky) at the left. Cells
+                stretch to the full row height (grid default) so the frozen
+                backgrounds + shadow cover the whole cell, not just the text. */}
             <div
-              className="grid items-center py-2.5"
+              className="grid py-2.5"
               style={{ gridTemplateColumns: gridTemplate }}
             >
-              <div className={cn("sticky left-0 z-20 min-w-0 bg-primary", EDGE_L, "pr-3")}>
+              <div
+                className={cn(
+                  "sticky left-0 z-20 flex min-w-0 items-center bg-primary",
+                  EDGE_L,
+                  "pr-3",
+                )}
+              >
                 <SortHeader label="Name" col="name" sort={sort} onSort={onSort} />
               </div>
               <div
                 className={cn(
-                  "sticky z-20 min-w-0 bg-primary",
+                  "sticky z-20 flex min-w-0 items-center bg-primary",
                   TIER_LEFT,
                   CELL_X,
-                  scrolled && FROZEN_SHADOW,
+                  FROZEN_SHADOW,
                 )}
               >
                 <SortHeader label="Tier" col="tier" sort={sort} onSort={onSort} />
@@ -1367,18 +1369,19 @@ export function TenantsTable() {
                     }
                   }}
                   className={cn(
-                    "group grid w-full cursor-pointer items-center py-3.5 text-left text-sm transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none",
+                    "group grid w-full cursor-pointer py-3.5 text-left text-sm transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none",
                     isActive && "bg-secondary",
                   )}
                   style={{ gridTemplateColumns: gridTemplate }}
                 >
                   {/* Name + Tier are frozen (sticky) at the left; their opaque bg
-                      tracks the row state so scrolled content passes cleanly under.
-                      The Name link stops propagation so it doesn't double up with
-                      the row's navigation (both open the detail page). */}
+                      fills the whole cell (flex, full row height) so scrolled
+                      content passes cleanly under, and tracks the row state via
+                      group-hover. The Name link stops propagation so it doesn't
+                      double up with the row's navigation (both open the detail). */}
                   <div
                     className={cn(
-                      "sticky left-0 z-10 min-w-0 bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
+                      "sticky left-0 z-10 flex min-w-0 flex-col justify-center bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
                       EDGE_L,
                       "pr-3",
                       isActive &&
@@ -1399,11 +1402,11 @@ export function TenantsTable() {
 
                   <div
                     className={cn(
-                      "sticky z-10 min-w-0 bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
+                      "sticky z-10 flex min-w-0 items-center bg-primary transition-colors group-hover:bg-secondary group-focus-visible:bg-secondary",
                       TIER_LEFT,
                       CELL_X,
                       isActive && "bg-secondary",
-                      scrolled && FROZEN_SHADOW,
+                      FROZEN_SHADOW,
                     )}
                   >
                     {t.tier ? (
