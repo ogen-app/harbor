@@ -298,7 +298,7 @@ function ColumnSelector({
               disabled={lastVisible}
               onCheckedChange={(v) => onChange({ ...columns, [k]: v === true })}
               onSelect={(e) => e.preventDefault()}
-              className="gap-2 px-3 py-2"
+              className="gap-2 pr-3"
             >
               {COLUMN_LABEL[k]}
             </DropdownMenuCheckboxItem>
