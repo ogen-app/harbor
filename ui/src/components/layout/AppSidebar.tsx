@@ -28,6 +28,7 @@ import {
     PulseIcon,
     PaperPlaneRightIcon,
     CheckSquareOffsetIcon,
+    KeyIcon,
     type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -227,10 +228,7 @@ export function AppSidebar({
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
                     )}
                 >
-                    <Icon
-                        name="nav_settings"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
+                    <KeyIcon className="size-5 shrink-0" />
                     <span
                         className={cn(
                             "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
