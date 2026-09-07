@@ -651,6 +651,7 @@ export function ActivityCard({
   infoText = DEFAULT_INFO_TEXT,
   filters: controlledFilters,
   onFiltersChange,
+  className,
 }: {
   state: ActivityState;
   endpoint: string;
@@ -663,6 +664,10 @@ export function ActivityCard({
   // alongside the tenant list); uncontrolled otherwise (the detail page).
   filters?: ActivityFilterToken[];
   onFiltersChange?: (tokens: ActivityFilterToken[]) => void;
+  // Overrides the card's height. Unset (the detail page) it sizes to a viewport
+  // calc tuned for that page's chrome; the global /activity page passes a flex
+  // class so the card fills its full-height parent instead.
+  className?: string;
 }) {
   const [internalFilters, setInternalFilters] = useState<ActivityFilterToken[]>(
     [],
@@ -868,7 +873,12 @@ export function ActivityCard({
   }, [selection, scopeTenant]);
 
   return (
-    <section className="flex h-[calc(100vh-13rem)] min-h-[32rem] flex-col overflow-hidden rounded-lg bg-primary">
+    <section
+      className={cn(
+        "flex min-h-[32rem] flex-col overflow-hidden rounded-lg bg-primary",
+        className ?? "h-[calc(100vh-13rem)]",
+      )}
+    >
       <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
         <div className="flex items-center gap-1.5">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">

@@ -22,45 +22,32 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
+import { SidebarSimpleIcon, WavesIcon } from "@phosphor-icons/react";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
-    SidebarSimpleIcon,
-    WavesIcon,
-    PulseIcon,
-    PaperPlaneRightIcon,
-    CheckSquareOffsetIcon,
-    KeyIcon,
-    type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+    UserFullViewIcon,
+    Activity03Icon,
+    Database01Icon,
+    AuthorizedIcon,
+    UserGroupIcon,
+    MailSetting01Icon,
+} from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
 
-// A nav item's icon is either the name of a local SVG (rendered via <Icon/>) or a
-// Phosphor icon component (rendered directly), so items can mix both sources.
-type NavIconName =
-    | "nav_portfolios"
-    | "nav_ideas"
-    | "nav_settings"
-    | "nav_dashboard"
-    | "nav_journal"
-    | "nav_screening"
-    | "nav_strategy"
-    | "nav_watchlist"
-    | "layout"
-    | "tenants"
-    | "database";
-
+// Nav items render Hugeicons (https://hugeicons.com) via <HugeiconsIcon/>, taking
+// the icon's SVG data object from @hugeicons/core-free-icons.
 type NavItem = {
-    icon: NavIconName | PhosphorIcon;
+    icon: IconSvgElement;
     label: string;
     href: string;
     active?: boolean;
 };
 
 const navItems: NavItem[] = [
-    { icon: "tenants", label: "Tenants", href: "/tenants" },
-    { icon: PulseIcon, label: "Activity", href: "/activity" },
-    { icon: "database", label: "Databases", href: "/databases" },
-    { icon: "layout", label: "Design system", href: "/design-system" },
+    { icon: UserFullViewIcon, label: "Tenants", href: "/tenants" },
+    { icon: Activity03Icon, label: "Activity", href: "/activity" },
+    { icon: Database01Icon, label: "Databases", href: "/databases" },
 ];
 
 const STORAGE_KEY = "sidebar-collapsed";
@@ -183,14 +170,10 @@ export function AppSidebar({
                                     "bg-sidebar-secondary text-secondary-foreground icon-sidebar-active",
                             )}
                         >
-                            {typeof item.icon === "string" ? (
-                                <Icon
-                                    name={item.icon}
-                                    className="size-5 shrink-0 stroke-[1.5]"
-                                />
-                            ) : (
-                                <item.icon className="size-5 shrink-0" />
-                            )}
+                            <HugeiconsIcon
+                                icon={item.icon}
+                                className="size-5 shrink-0"
+                            />
                             <span
                                 className={cn(
                                     "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
@@ -228,7 +211,7 @@ export function AppSidebar({
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
                     )}
                 >
-                    <KeyIcon className="size-5 shrink-0" />
+                    <HugeiconsIcon icon={AuthorizedIcon} className="size-5 shrink-0" />
                     <span
                         className={cn(
                             "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
@@ -249,7 +232,7 @@ export function AppSidebar({
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
                     )}
                 >
-                    <CheckSquareOffsetIcon className="size-5 shrink-0" />
+                    <HugeiconsIcon icon={UserGroupIcon} className="size-5 shrink-0" />
                     <span
                         className={cn(
                             "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
@@ -270,7 +253,7 @@ export function AppSidebar({
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
                     )}
                 >
-                    <PaperPlaneRightIcon className="size-5 shrink-0" />
+                    <HugeiconsIcon icon={MailSetting01Icon} className="size-5 shrink-0" />
                     <span
                         className={cn(
                             "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
@@ -281,15 +264,12 @@ export function AppSidebar({
                     </span>
                 </Link>
 
-                {/* Services group */}
-                <div
-                    className={cn(
-                        "relative h-10 flex items-center overflow-hidden transition-all duration-200",
-                        collapsed
-                            ? "opacity-0 pointer-events-none"
-                            : "opacity-100",
-                    )}
-                >
+                {/* Services group — hidden entirely when the sidebar is
+                    collapsed; these are external links that only make sense
+                    with their labels shown. */}
+                {!collapsed && (
+                  <>
+                <div className="relative h-10 flex items-center overflow-hidden">
                     <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
                     <span className="absolute px-3 text-[11px] font-medium tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
                         SERVICES
@@ -460,6 +440,8 @@ export function AppSidebar({
                         GitHub
                     </span>
                 </a>
+                  </>
+                )}
             </nav>
 
             {/* Footer / User */}

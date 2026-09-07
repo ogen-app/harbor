@@ -99,11 +99,17 @@ type ZernioAccount struct {
 }
 
 // OverviewHeadline is the tenant total plus new-signup counts over recent
-// windows, gathered in a single pass over the tenants table.
+// windows and the lifecycle-status split (CON-190), gathered in a single pass
+// over the tenants table. On an un-migrated Ogen (no status column) every tenant
+// counts as active.
 type OverviewHeadline struct {
 	Total  int
 	New7d  int
 	New30d int
+	// Lifecycle-status counts (active + suspended + deleted == Total).
+	Active    int
+	Suspended int
+	Deleted   int
 }
 
 type TenantRepository interface {
@@ -549,12 +555,23 @@ func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, erro
 	if r.db == nil {
 		return h, ErrUnavailable
 	}
-	err := r.db.NewRaw(`
+	// Lifecycle split off the status column (CON-190). When it's absent (an
+	// un-migrated Ogen) every tenant reads as active, so Active == Total.
+	statusExpr := "'active'"
+	if r.tableColumns(ctx, "tenants")["status"] {
+		statusExpr = "COALESCE(status, 'active')"
+	}
+	query := fmt.Sprintf(`
 		SELECT
 			count(*),
 			count(*) FILTER (WHERE created_at >= now() - interval '7 days'),
-			count(*) FILTER (WHERE created_at >= now() - interval '30 days')
-		FROM tenants`).Scan(ctx, &h.Total, &h.New7d, &h.New30d)
+			count(*) FILTER (WHERE created_at >= now() - interval '30 days'),
+			count(*) FILTER (WHERE %[1]s = 'active'),
+			count(*) FILTER (WHERE %[1]s = 'suspended'),
+			count(*) FILTER (WHERE %[1]s = 'deleted')
+		FROM tenants`, statusExpr)
+	err := r.db.NewRaw(query).Scan(ctx,
+		&h.Total, &h.New7d, &h.New30d, &h.Active, &h.Suspended, &h.Deleted)
 	return h, err
 }
 

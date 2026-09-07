@@ -197,7 +197,10 @@ function SummaryCell({
 // covers all tenants (the home dashboard); pass tenantId to scope it to a single
 // tenant (the /tenants/[id] detail page) — the visuals are identical, only the
 // data source differs.
-export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
+export function DailyTokenCostChart({
+    tenantId,
+    className,
+}: { tenantId?: string; className?: string } = {}) {
     const [data, setData] = useState<DailyCostResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     // Model highlighted by hovering a bar segment, tooltip row, or legend entry;
@@ -248,7 +251,7 @@ export function DailyTokenCostChart({ tenantId }: { tenantId?: string } = {}) {
             .reduce((s, d) => s + d.totalMicros, 0);
 
     return (
-        <div className="overflow-hidden rounded-lg bg-primary">
+        <div className={cn("overflow-hidden rounded-lg bg-primary", className)}>
             {/* Header — compact uppercase style matching the sibling sections on
                 the tenant detail page; the full display title with icon on the
                 home dashboard (beside the Tenants/Databases cards). */}

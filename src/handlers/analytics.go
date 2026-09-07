@@ -91,6 +91,12 @@ func buildDailyCost(rows []analytics.DailyModelCost, days int) fiber.Map {
 	modelTotals := make(map[string]int64)
 	var grand int64
 	for _, r := range rows {
+		// Keep only real AI vendors (Claude*/Gemini*). Non-AI rows — e.g.
+		// social-platform usage that also lands in vendor_usage_events — must not
+		// pollute the "AI token cost" series, its totals, or its legend.
+		if !analytics.IsAIVendor(r.Model) {
+			continue
+		}
 		if byDay[r.Date] == nil {
 			byDay[r.Date] = make(map[string]int64)
 		}

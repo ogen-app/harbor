@@ -23,14 +23,14 @@ type Overview struct {
 	Exceptions Exceptions `json:"exceptions"`
 }
 
-// Headline is the tenant total split by lifecycle state. Ogen has no lifecycle
-// column yet, so every tenant counts as active.
+// Headline is the tenant total split by lifecycle status (CON-190): active,
+// suspended, and (soft-)deleted. On an un-migrated Ogen every tenant reads as
+// active.
 type Headline struct {
 	Total     int `json:"total"`
 	Active    int `json:"active"`
-	Trialing  int `json:"trialing"`
 	Suspended int `json:"suspended"`
-	Churned   int `json:"churned"`
+	Deleted   int `json:"deleted"`
 }
 
 // Movement is absolute signups/churns over recent windows (honest on a small
@@ -102,8 +102,11 @@ func Collect(ctx context.Context, tenants ogen.TenantRepository, spend analytics
 	o.Headline.Total = headline.Total
 	o.Movement.New7d = headline.New7d
 	o.Movement.New30d = headline.New30d
-	o.Headline.Active = o.Headline.Total // no lifecycle column yet
-	o.Activity.Total = o.Headline.Total
+	// Lifecycle split from the tenant status column (CON-190).
+	o.Headline.Active = headline.Active
+	o.Headline.Suspended = headline.Suspended
+	o.Headline.Deleted = headline.Deleted
+	o.Activity.Total = headline.Total
 
 	// Activity pulse: tenants that published/created a post or created an asset
 	// in the last 7 days.

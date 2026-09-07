@@ -188,9 +188,9 @@ const TIER_LEFT = "left-[12rem]";
 // is scrolled, so content clearly reads as sliding underneath Name/Tier.
 const FROZEN_SHADOW = "shadow-[6px_0_12px_-2px_rgba(0,0,0,0.18)]";
 
-// Heatmap wash for the numeric columns (Users, Zernio, R2): a green tint whose
-// alpha scales with the cell's value relative to that column's max across the
-// visible rows. All values are non-negative, so it's green-only and zero stays
+// Heatmap wash for the numeric columns (AI spend, Users, Zernio, R2): a green
+// tint whose alpha scales with the cell's value relative to that column's max
+// across the visible rows. All values are non-negative, so it's green-only and zero stays
 // white (no wash). sqrt spreads the low end so a single large outlier doesn't
 // flatten every other cell to near-white. A muted, slightly warm green with a
 // gentle max alpha keeps the wash soft rather than a vivid emerald block.
@@ -1056,18 +1056,20 @@ export function TenantsTable() {
     });
   }, [data, sort]);
 
-  // Column maxima for the numeric heatmap (Users / Zernio / R2), over the current
-  // result set so the shading reflects what's on screen.
+  // Column maxima for the numeric heatmap (AI spend / Users / Zernio / R2), over
+  // the current result set so the shading reflects what's on screen.
   const heatMax = useMemo(() => {
+    let spend = 0;
     let users = 0;
     let zernio = 0;
     let r2 = 0;
     for (const t of rows) {
+      if (t.spend.totalMicros > spend) spend = t.spend.totalMicros;
       if (t.users > users) users = t.users;
       if (t.zernioProfiles > zernio) zernio = t.zernioProfiles;
       if (t.r2Bytes > r2) r2 = t.r2Bytes;
     }
-    return { users, zernio, r2 };
+    return { spend, users, zernio, r2 };
   }, [rows]);
 
   const spendAvailable = data?.spendAvailable ?? false;
@@ -1304,7 +1306,8 @@ export function TenantsTable() {
   };
 
   const cellFor = (key: ColumnKey, t: Tenant) => {
-    // Users / Zernio / R2 get a green heatmap wash keyed to the column max.
+    // AI spend / Users / Zernio / R2 get a green heatmap wash keyed to the
+    // column max.
     let heat: CSSProperties | undefined;
     const inner = (() => {
       switch (key) {
@@ -1324,6 +1327,7 @@ export function TenantsTable() {
           heat = heatStyle(t.users, heatMax.users);
           return <span className="font-mono text-foreground">{t.users}</span>;
         case "spend":
+          if (spendAvailable) heat = heatStyle(t.spend.totalMicros, heatMax.spend);
           return <SpendCell spend={t.spend} available={spendAvailable} />;
         case "zernio":
           heat = heatStyle(t.zernioProfiles, heatMax.zernio);
