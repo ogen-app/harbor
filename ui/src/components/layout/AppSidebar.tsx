@@ -45,7 +45,6 @@ type NavIconName =
     | "nav_screening"
     | "nav_strategy"
     | "nav_watchlist"
-    | "layout"
     | "tenants"
     | "database";
 
@@ -60,7 +59,6 @@ const navItems: NavItem[] = [
     { icon: "tenants", label: "Tenants", href: "/tenants" },
     { icon: PulseIcon, label: "Activity", href: "/activity" },
     { icon: "database", label: "Databases", href: "/databases" },
-    { icon: "layout", label: "Design system", href: "/design-system" },
 ];
 
 const STORAGE_KEY = "sidebar-collapsed";
@@ -281,15 +279,12 @@ export function AppSidebar({
                     </span>
                 </Link>
 
-                {/* Services group */}
-                <div
-                    className={cn(
-                        "relative h-10 flex items-center overflow-hidden transition-all duration-200",
-                        collapsed
-                            ? "opacity-0 pointer-events-none"
-                            : "opacity-100",
-                    )}
-                >
+                {/* Services group — hidden entirely when the sidebar is
+                    collapsed; these are external links that only make sense
+                    with their labels shown. */}
+                {!collapsed && (
+                  <>
+                <div className="relative h-10 flex items-center overflow-hidden">
                     <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
                     <span className="absolute px-3 text-[11px] font-medium tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
                         SERVICES
@@ -460,6 +455,8 @@ export function AppSidebar({
                         GitHub
                     </span>
                 </a>
+                  </>
+                )}
             </nav>
 
             {/* Footer / User */}
