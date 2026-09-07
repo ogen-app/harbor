@@ -100,7 +100,10 @@ export function ActivityView() {
       <header className="h-20 border-b border-border flex items-center px-6 shrink-0">
         <h1 className="text-2xl font-display font-medium">Activity</h1>
       </header>
-      <div className="p-6">
+      {/* Fill the remaining height so the card reaches the bottom of the screen
+          (this page has no tabs above the card, unlike the tenant detail page —
+          so the card grows to fill rather than using that page's fixed calc). */}
+      <div className="flex min-h-0 flex-1 flex-col p-6">
         <ActivityCard
           state={activity}
           endpoint="/api/activity"
@@ -109,6 +112,7 @@ export function ActivityView() {
           filters={filters}
           onFiltersChange={setFilters}
           infoText={scope ? ONE_INFO : ALL_INFO}
+          className="flex-1"
         />
       </div>
     </main>
