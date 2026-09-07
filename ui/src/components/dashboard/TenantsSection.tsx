@@ -7,13 +7,13 @@ import { ArrowRightIcon } from "@phosphor-icons/react";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
 import { Tile, Bar, Dot, SectionTitle } from "@/components/dashboard/primitives";
+import { TenantRegistrationsChart } from "@/components/tenants/TenantRegistrationsChart";
 
 interface Headline {
     total: number;
     active: number;
-    trialing: number;
     suspended: number;
-    churned: number;
+    deleted: number;
 }
 interface Movement {
     new7d: number;
@@ -63,14 +63,6 @@ interface OverviewResponse {
 const REFRESH_SECONDS = 120;
 
 // ── formatters ──────────────────────────────────────────────────────────────
-
-function formatUSD(micros: number): string {
-    const d = micros / 1e6;
-    if (d === 0) return "$0.00";
-    if (d < 1) return `$${d.toFixed(3)}`;
-    if (d < 1000) return `$${d.toFixed(2)}`;
-    return `$${(d / 1000).toFixed(1)}k`;
-}
 
 const pct = (n: number, total: number) => (total > 0 ? (n / total) * 100 : 0);
 
@@ -148,16 +140,15 @@ function Donut({
 
 const LIFECYCLE = [
     { key: "active" as const, label: "Active", dot: "bg-emerald-500", stroke: "stroke-emerald-500" },
-    { key: "trialing" as const, label: "Trialing", dot: "bg-blue-400", stroke: "stroke-blue-400" },
     { key: "suspended" as const, label: "Suspended", dot: "bg-amber-500", stroke: "stroke-amber-500" },
-    { key: "churned" as const, label: "Churned", dot: "bg-red-500", stroke: "stroke-red-500" },
+    { key: "deleted" as const, label: "Deleted", dot: "bg-red-500", stroke: "stroke-red-500" },
 ];
 
 function LifecycleTile({ h }: { h: Headline }) {
     return (
         <Tile
             title="Lifecycle"
-            info="Total tenants split by lifecycle state. Ogen has no lifecycle states yet, so every tenant counts as active."
+            info="Total tenants split by lifecycle status (CON-190): active, suspended, and soft-deleted, from the Ogen control-plane database."
         >
             <div className="flex items-center gap-4">
                 <div className="relative shrink-0">
@@ -268,77 +259,6 @@ function QuotaTile() {
                 </div>
             </div>
             <p className="mt-2 text-xs text-tertiary-foreground">Placeholder</p>
-        </Tile>
-    );
-}
-
-function SpendTile({ s }: { s: Spend }) {
-    // top is null when analytics is unavailable; normalise before use so the
-    // metrics below never run against a null (the "unavailable" state renders).
-    const top = s.top ?? [];
-    const maxCost = Math.max(1, ...top.map((t) => t.costMicros));
-    const hasOther = top.some((t) => t.otherMicros > 0);
-    return (
-        <Tile
-            title="AI spend concentration"
-            info="Top tenants by token / image cost this billing period, straight from the Timescale analytics rollups."
-        >
-            {!s.available ? (
-                <p className="text-xs text-tertiary-foreground">
-                    Analytics database unavailable
-                </p>
-            ) : (
-                <>
-                    <p className="font-display text-2xl font-semibold ">
-                        <span className="inline font-mono">{formatUSD(s.totalMicros)}</span>
-                        <span className="text-sm font-normal text-tertiary-foreground pl-1">
-                            {" "}
-                            this month
-                        </span>
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary-foreground">
-                        <Dot color="bg-orange-500" label="Anthropic" />
-                        <Dot color="bg-blue-500" label="Google" />
-                        {hasOther && <Dot color="bg-neutral-400" label="Other" />}
-                    </div>
-                    <div className="mt-3 space-y-2">
-                        {top.length === 0 && (
-                            <p className="text-xs text-tertiary-foreground">
-                                No spend yet this period
-                            </p>
-                        )}
-                        {top.map((t) => (
-                            <div key={t.tenantId}>
-                                <div className="flex items-center justify-between gap-3 text-xs">
-                                    <span className="truncate font-medium text-foreground">
-                                        {t.name}
-                                    </span>
-                                    <span className="shrink-0  text-secondary-foreground">
-                                        {formatUSD(t.costMicros)}
-                                    </span>
-                                </div>
-                                <Bar
-                                    className="mt-1"
-                                    segments={[
-                                        {
-                                            pct: (t.anthropicMicros / maxCost) * 100,
-                                            className: "bg-orange-500",
-                                        },
-                                        {
-                                            pct: (t.googleMicros / maxCost) * 100,
-                                            className: "bg-blue-500",
-                                        },
-                                        {
-                                            pct: (t.otherMicros / maxCost) * 100,
-                                            className: "bg-neutral-400",
-                                        },
-                                    ]}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </>
-            )}
         </Tile>
     );
 }
@@ -492,7 +412,7 @@ export function TenantsSection() {
                         <ActivityTile a={o.activity} />
                         <QuotaTile />
                     </div>
-                    <SpendTile s={o.spend} />
+                    <TenantRegistrationsChart className="rounded-md border-t-2 border-border p-4" />
                     <ExceptionStrip e={o.exceptions} />
                 </div>
             )}

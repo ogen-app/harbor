@@ -190,6 +190,13 @@ func addVendorCost(s *VendorSpend, vendor string, costMicros int64) {
 	}
 }
 
+// IsAIVendor reports whether a vendor/model token belongs to a known AI vendor
+// family (Anthropic/Claude or Google/Gemini) rather than the catch-all "other"
+// bucket. The daily token-cost chart uses it to keep only real AI spend, so
+// non-AI rows (e.g. social-platform usage that also lands in vendor_usage_events)
+// never pollute the "AI token cost" series.
+func IsAIVendor(s string) bool { return classifyVendor(s) != "other" }
+
 // classifyVendor maps a vendor_usage_events vendor string to a model-family bucket.
 func classifyVendor(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))

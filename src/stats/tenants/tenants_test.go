@@ -101,7 +101,10 @@ func (f *fakeSpendRepo) DailyCostByModelForTenant(context.Context, string, int) 
 
 func TestCollectHeadlineAndExceptions(t *testing.T) {
 	tenants := &fakeTenantRepo{
-		headline: ogen.OverviewHeadline{Total: 12, New7d: 3, New30d: 7},
+		headline: ogen.OverviewHeadline{
+			Total: 12, New7d: 3, New30d: 7,
+			Active: 9, Suspended: 2, Deleted: 1,
+		},
 		active7d: 5,
 		failed:   2, broken: 1, stuck: 4,
 	}
@@ -109,8 +112,9 @@ func TestCollectHeadlineAndExceptions(t *testing.T) {
 
 	o := Collect(context.Background(), tenants, spend)
 
-	if o.Headline.Total != 12 || o.Headline.Active != 12 {
-		t.Errorf("headline = %+v, want total/active 12", o.Headline)
+	if o.Headline.Total != 12 || o.Headline.Active != 9 ||
+		o.Headline.Suspended != 2 || o.Headline.Deleted != 1 {
+		t.Errorf("headline = %+v, want total 12 / active 9 / suspended 2 / deleted 1", o.Headline)
 	}
 	if o.Movement.New7d != 3 || o.Movement.New30d != 7 {
 		t.Errorf("movement = %+v, want new7d 3 / new30d 7", o.Movement)

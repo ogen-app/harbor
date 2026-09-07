@@ -1,6 +1,7 @@
 import { DatabaseTeaser } from "@/components/dashboard/DatabaseTeaser";
 import { TenantsSection } from "@/components/dashboard/TenantsSection";
 import { DailyTokenCostChart } from "@/components/dashboard/DailyTokenCostChart";
+import { SpendConcentrationCard } from "@/components/dashboard/SpendConcentrationCard";
 import { PublishingStatsChart } from "@/components/dashboard/PublishingStatsChart";
 import { GreetingMessage } from "@/components/dashboard/GreetingMessage";
 
@@ -14,7 +15,13 @@ export default function DashboardPage() {
             </header>
             <div className="dashboard-numeric p-6 space-y-6">
                 <TenantsSection />
-                <DailyTokenCostChart />
+                {/* Daily token cost and AI spend concentration as one glued block:
+                    a single rounded/clipped shell with the two panels sharing a
+                    seam (inner corners squared, divider between). */}
+                <div className="overflow-hidden rounded-lg bg-primary">
+                    <DailyTokenCostChart className="rounded-none" />
+                    <SpendConcentrationCard className="rounded-none border-t border-border" />
+                </div>
                 <PublishingStatsChart />
                 <DatabaseTeaser />
             </div>

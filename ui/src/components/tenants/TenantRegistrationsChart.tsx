@@ -30,7 +30,14 @@ function fmt(date: string): string {
 
 const CHART_H = 100; // px
 
-export function TenantRegistrationsChart() {
+// className overrides the outer card chrome. Unset it's a standalone card (the
+// /tenants page); the dashboard Tenants block passes a tile-style class so it
+// sits flush with the sibling metric tiles.
+export function TenantRegistrationsChart({
+  className,
+}: {
+  className?: string;
+} = {}) {
   const [data, setData] = useState<RegResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,7 +67,7 @@ export function TenantRegistrationsChart() {
   const labelStride = Math.max(1, Math.ceil(days.length / 7));
 
   return (
-    <div className="rounded-xl bg-primary p-6">
+    <div className={cn("rounded-xl bg-primary p-6", className)}>
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-1.5">
           <h2 className="text-sm font-medium text-foreground">
