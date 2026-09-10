@@ -314,6 +314,13 @@ export function PlatformsTab() {
                   setDragIndex(null);
                   setOverIndex(null);
                 }}
+                onNudge={(delta) => {
+                  const target = Math.min(
+                    Math.max(i + delta, 0),
+                    platforms.length - 1,
+                  );
+                  if (target !== i) void persistReorder(i, target);
+                }}
                 onEdit={() => openEdit(p)}
                 onDelete={() => openDelete(p)}
               />
@@ -472,6 +479,7 @@ function PlatformRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  onNudge,
   onEdit,
   onDelete,
 }: {
@@ -481,6 +489,7 @@ function PlatformRow({
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   onDragEnd: () => void;
+  onNudge: (delta: number) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -498,12 +507,19 @@ function PlatformRow({
         isOver && "border-t-2 border-foreground",
       )}
     >
-      {/* Drag handle (the drag source) */}
+      {/* Drag handle (the drag source). Also keyboard-operable: ↑/↓ move the
+          row so reordering isn't drag-only. */}
       <button
         type="button"
         draggable
         onDragStart={onDragStartHandle}
-        aria-label={`Drag to reorder ${platform.name}`}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+            onNudge(e.key === "ArrowUp" ? -1 : 1);
+          }
+        }}
+        aria-label={`Reorder ${platform.name} — drag, or use arrow keys`}
         className="flex cursor-grab items-center justify-center text-quaternary hover:text-secondary-foreground active:cursor-grabbing"
       >
         <DotsSixVerticalIcon className="size-4" />

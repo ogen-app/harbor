@@ -70,6 +70,36 @@ const emptyText = (): TextConstraints => ({
   perPostType: {},
 });
 
+// A block is "empty" when it carries no actual limits — every numeric field is
+// 0, every list is empty, every flag is off. Such a block is sent as null so a
+// platform with no configured limits of that kind stays null through a
+// whole-resource update rather than being materialized as zeros.
+const listLen = (a: string[] | null | undefined) => a?.length ?? 0;
+const imageEmpty = (c: ImageConstraints): boolean =>
+  c.maxFileSizeBytes === 0 &&
+  listLen(c.allowedFormats) === 0 &&
+  !c.animatedGifSupported &&
+  c.maxAttachmentsPerPost === 0;
+const videoEmpty = (c: VideoConstraints): boolean =>
+  c.maxFileSizeBytes === 0 &&
+  listLen(c.allowedFormats) === 0 &&
+  c.maxDurationSeconds === 0 &&
+  c.minDurationSeconds === 0 &&
+  c.maxWidth === 0 &&
+  c.maxHeight === 0 &&
+  listLen(c.allowedAspectRatios) === 0 &&
+  c.maxAttachmentsPerPost === 0 &&
+  !c.requiresVideoTitle;
+const pdfEmpty = (c: PdfConstraints): boolean =>
+  c.maxFileSizeBytes === 0 &&
+  listLen(c.allowedFormats) === 0 &&
+  c.maxPages === 0 &&
+  c.maxAttachmentsPerPost === 0;
+const textEmpty = (c: TextConstraints): boolean =>
+  c.maxContentChars === 0 &&
+  c.maxTitleChars === 0 &&
+  Object.keys(c.perPostType ?? {}).length === 0;
+
 function toRows(p?: Platform): PostTypeRow[] {
   if (!p?.postTypes) return [];
   const supported = new Set(p.supportedPostTypes ?? []);
@@ -215,8 +245,16 @@ function PlatformForm({
     }
 
     // Fan the post-type rows back into the map + publishable subset, dropping
-    // blank slugs. Last write wins on a duplicate slug.
+    // blank slugs. Duplicate slugs would silently collapse (later rows
+    // overwriting labels / publishable state), so reject them up front.
     const validRows = postTypes.filter((r) => r.slug.trim());
+    const trimmedSlugs = validRows.map((r) => r.slug.trim());
+    const dupe = trimmedSlugs.find((s, i) => trimmedSlugs.indexOf(s) !== i);
+    if (dupe) {
+      setError(`Duplicate post-type slug “${dupe}”. Slugs must be unique.`);
+      setFormTab("Post types");
+      return;
+    }
     const postTypesMap: Record<string, string> = {};
     const supported: string[] = [];
     for (const r of validRows) {
@@ -233,6 +271,11 @@ function PlatformForm({
       if (slugSet.has(slug) && chars > 0) perPostType[slug] = chars;
     }
 
+    // Keep nullable blocks null unless they actually carry limits: an
+    // all-zero/empty block means "no limits configured", so send null rather
+    // than materializing a zeroed record (which would turn a previously-null
+    // block into zeros on a whole-resource update).
+    const finalText: TextConstraints = { ...text, perPostType };
     const body: Platform = {
       id: platform?.id ?? "",
       name: trimmedName,
@@ -244,10 +287,10 @@ function PlatformForm({
       postTypes: postTypesMap,
       supportedPostTypes: supported,
       sortOrder,
-      imageConstraints: image,
-      videoConstraints: video,
-      pdfConstraints: pdf,
-      textConstraints: { ...text, perPostType },
+      imageConstraints: imageEmpty(image) ? null : image,
+      videoConstraints: videoEmpty(video) ? null : video,
+      pdfConstraints: pdfEmpty(pdf) ? null : pdf,
+      textConstraints: textEmpty(finalText) ? null : finalText,
       // Read-only server fields; ignored on write but required by the type.
       usage: platform?.usage ?? { connectedAccounts: 0, scheduledPosts: 0 },
       createdAt: platform?.createdAt ?? "",

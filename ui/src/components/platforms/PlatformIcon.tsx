@@ -50,8 +50,12 @@ function slugKey(zernioId: string): string {
   return zernioId?.trim().toLowerCase() ?? "";
 }
 
+// Object.hasOwn guards the lookups so a slug that collides with an inherited
+// Object.prototype key (constructor, toString, valueOf, …) falls back to the
+// neutral defaults instead of returning a prototype method.
 export function platformIcon(zernioId: string): IconSvgElement {
-  return PLATFORM_ICONS[slugKey(zernioId)] ?? Globe02Icon;
+  const key = slugKey(zernioId);
+  return Object.hasOwn(PLATFORM_ICONS, key) ? PLATFORM_ICONS[key] : Globe02Icon;
 }
 
 // PlatformIcon renders the brand glyph for a platform's Zernio slug, tinted with
@@ -64,7 +68,10 @@ export function PlatformIcon({
   zernioId: string;
   className?: string;
 }) {
-  const color = PLATFORM_COLORS[slugKey(zernioId)];
+  const key = slugKey(zernioId);
+  const color = Object.hasOwn(PLATFORM_COLORS, key)
+    ? PLATFORM_COLORS[key]
+    : undefined;
   return (
     <HugeiconsIcon
       icon={platformIcon(zernioId)}

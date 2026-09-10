@@ -3,11 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+
+	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
 )
 
 // A nil *ogenplatforms.Client models an unconfigured platform-admin service; its
@@ -63,6 +66,52 @@ func TestPlatforms_GlobalLimitsSoftUnavailable(t *testing.T) {
 	}
 	if got.Available {
 		t.Errorf("available = true, want false when client is nil")
+	}
+}
+
+// A configured-but-unreachable client (valid addr+token, Ogen down) must also
+// degrade softly: the reads map the gRPC Unavailable to 200 + available:false
+// rather than a 500. This exercises the real client's lazy dial + the handler's
+// isPlatformsUnavailable classification, not just the nil-client path.
+func TestPlatforms_UnreachableIsSoftUnavailable(t *testing.T) {
+	// Bind then immediately release a loopback port so nothing is listening on
+	// it — a deterministic "Ogen is down" address.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	_ = lis.Close()
+
+	client, err := ogenplatforms.New(addr, "tok")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	app := fiber.New()
+	NewPlatformsHandler(client).Register(app, passAuth)
+
+	for _, path := range []string{"/api/platforms", "/api/platforms/global-limits"} {
+		// Timeout must exceed the client's 10s RPC timeout in case the dial is
+		// slow; a refused connection is normally fail-fast (sub-second).
+		resp, err := app.Test(httptest.NewRequest("GET", path, nil), 15000)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if resp.StatusCode != fiber.StatusOK {
+			t.Fatalf("%s: status = %d, want 200 (soft unavailable)", path, resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		var got struct {
+			Available bool `json:"available"`
+		}
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("%s decode: %v (body=%s)", path, err, body)
+		}
+		if got.Available {
+			t.Errorf("%s: available = true, want false when Ogen is unreachable", path)
+		}
 	}
 }
 
