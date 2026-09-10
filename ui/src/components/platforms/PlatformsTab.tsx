@@ -273,14 +273,17 @@ export function PlatformsTab() {
         ) : (
           <div className="divide-y divide-border">
             <div className={`${GRID} px-6 py-2.5`}>
-              <span className="sr-only">Reorder</span>
+              {/* Empty (but in-flow) placeholders for the drag + actions
+                  columns. NOT sr-only: that's position:absolute, which drops the
+                  cell out of the grid and shifts every header left one column. */}
+              <span aria-hidden />
               <HeaderCell label="Platform" />
               <HeaderCell label="Zernio slug" />
               <HeaderCell label="Post types" align="right" />
               <HeaderCell label="Accounts" align="right" />
               <HeaderCell label="Scheduled" align="right" />
               <HeaderCell label="Status" />
-              <span className="sr-only">Actions</span>
+              <span aria-hidden />
             </div>
 
             {platforms.map((p, i) => (

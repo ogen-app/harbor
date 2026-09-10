@@ -31,7 +31,7 @@ import {
     AuthorizedIcon,
     UserGroupIcon,
     MailSetting01Icon,
-    CloudUploadIcon,
+    FactoryIcon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
@@ -204,27 +204,6 @@ export function AppSidebar({
                 </div>
 
                 <Link
-                    href="/secrets"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                        activeHref.startsWith("/secrets") &&
-                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
-                    )}
-                >
-                    <HugeiconsIcon icon={AuthorizedIcon} className="size-5 shrink-0" />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Secrets
-                    </span>
-                </Link>
-
-                <Link
                     href="/platforms"
                     className={cn(
                         "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
@@ -234,7 +213,7 @@ export function AppSidebar({
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
                     )}
                 >
-                    <HugeiconsIcon icon={CloudUploadIcon} className="size-5 shrink-0" />
+                    <HugeiconsIcon icon={FactoryIcon} className="size-5 shrink-0" />
                     <span
                         className={cn(
                             "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
@@ -284,6 +263,27 @@ export function AppSidebar({
                         )}
                     >
                         Email templates
+                    </span>
+                </Link>
+
+                <Link
+                    href="/secrets"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                        activeHref.startsWith("/secrets") &&
+                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
+                    )}
+                >
+                    <HugeiconsIcon icon={AuthorizedIcon} className="size-5 shrink-0" />
+                    <span
+                        className={cn(
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Secrets
                     </span>
                 </Link>
 

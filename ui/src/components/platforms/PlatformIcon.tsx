@@ -31,12 +31,32 @@ const PLATFORM_ICONS: Record<string, IconSvgElement> = {
   reddit: RedditIcon,
 };
 
-export function platformIcon(zernioId: string): IconSvgElement {
-  return PLATFORM_ICONS[zernioId?.trim().toLowerCase()] ?? Globe02Icon;
+// Each brand's primary color, so the icon reads as the platform at a glance.
+// Unknown slugs use the neutral fallback (no entry → inherits currentColor).
+const PLATFORM_COLORS: Record<string, string> = {
+  twitter: "#000000",
+  x: "#000000",
+  linkedin: "#0A66C2",
+  facebook: "#1877F2",
+  instagram: "#E4405F",
+  threads: "#000000",
+  youtube: "#FF0000",
+  tiktok: "#000000",
+  pinterest: "#BD081C",
+  reddit: "#FF4500",
+};
+
+function slugKey(zernioId: string): string {
+  return zernioId?.trim().toLowerCase() ?? "";
 }
 
-// PlatformIcon renders the brand glyph for a platform's Zernio slug, dimming
-// when the platform is disabled so muted rows read as inactive.
+export function platformIcon(zernioId: string): IconSvgElement {
+  return PLATFORM_ICONS[slugKey(zernioId)] ?? Globe02Icon;
+}
+
+// PlatformIcon renders the brand glyph for a platform's Zernio slug, tinted with
+// the brand color. className still controls size / a fallback color for unknown
+// slugs (the brand color, when known, wins via inline style).
 export function PlatformIcon({
   zernioId,
   className,
@@ -44,10 +64,12 @@ export function PlatformIcon({
   zernioId: string;
   className?: string;
 }) {
+  const color = PLATFORM_COLORS[slugKey(zernioId)];
   return (
     <HugeiconsIcon
       icon={platformIcon(zernioId)}
       className={cn("size-5 shrink-0", className)}
+      style={color ? { color } : undefined}
     />
   );
 }

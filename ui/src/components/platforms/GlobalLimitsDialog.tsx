@@ -38,6 +38,10 @@ export function GlobalLimitsDialog({
             the matching ceiling here.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Pale full-bleed divider under the description. */}
+        <div className="-mx-6 border-b border-border" />
+
         {open && (
           <LimitsBody
             onCancel={() => onOpenChange(false)}
