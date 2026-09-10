@@ -32,11 +32,14 @@ import { GlobalLimitsDialog } from "./GlobalLimitsDialog";
 import type { Platform, PlatformsListResponse } from "./types";
 
 // Shared grid template so the header and every row align — columns:
-// drag · platform · slug · post types · accounts · scheduled · status · actions.
+// platform · slug · post types · accounts · scheduled · status · actions.
+// The Platform column is the first track so it sits flush-left under the "All
+// platforms" header (matching the /tenants table); the drag handle is not a
+// column — it's an on-hover affordance floated into the row's left gutter.
 // Tracks are minmax(0,fr) so they always fit the card (no overflow) and text
 // truncates instead of colliding; numeric columns are right-aligned.
 const GRID =
-  "grid grid-cols-[1.75rem_minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.15fr)_2.25rem] items-center gap-3";
+  "grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.15fr)_2.25rem] items-center gap-3";
 
 function bySortOrder(a: Platform, b: Platform): number {
   if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
@@ -119,6 +122,14 @@ export function PlatformsTab() {
   const available = data?.available ?? false;
   const platforms = [...(data?.platforms ?? [])].sort(bySortOrder);
   const enabledCount = platforms.filter((p) => p.enabled).length;
+  const totalAccounts = platforms.reduce(
+    (sum, p) => sum + p.usage.connectedAccounts,
+    0,
+  );
+  const totalScheduled = platforms.reduce(
+    (sum, p) => sum + p.usage.scheduledPosts,
+    0,
+  );
 
   const openEdit = (p: Platform) => {
     setDialogPlatform(p);
@@ -244,8 +255,9 @@ export function PlatformsTab() {
             </span>
           )}
           <Button
-            variant="outline"
+            variant="defaultInverted"
             size="sm"
+            className="font-semibold"
             onClick={() => setLimitsOpen(true)}
             disabled={loading || !available}
           >
@@ -273,16 +285,15 @@ export function PlatformsTab() {
         ) : (
           <div className="divide-y divide-border">
             <div className={`${GRID} px-6 py-2.5`}>
-              {/* Empty (but in-flow) placeholders for the drag + actions
-                  columns. NOT sr-only: that's position:absolute, which drops the
-                  cell out of the grid and shifts every header left one column. */}
-              <span aria-hidden />
               <HeaderCell label="Platform" />
               <HeaderCell label="Zernio slug" />
               <HeaderCell label="Post types" align="right" />
               <HeaderCell label="Accounts" align="right" />
               <HeaderCell label="Scheduled" align="right" />
               <HeaderCell label="Status" />
+              {/* Empty (but in-flow) placeholder for the actions column. NOT
+                  sr-only: that's position:absolute, which drops the cell out of
+                  the grid and shifts every header right one column. */}
               <span aria-hidden />
             </div>
 
@@ -325,6 +336,23 @@ export function PlatformsTab() {
                 onDelete={() => openDelete(p)}
               />
             ))}
+
+            {/* Totals footer — sums the Accounts and Scheduled columns across
+                every platform (enabled and disabled). Aligned to the same grid
+                so the numbers sit right under their columns. */}
+            <div
+              className={`${GRID} px-6 py-3 text-sm font-medium text-foreground`}
+            >
+              <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+                Total
+              </span>
+              <span aria-hidden />
+              <span aria-hidden />
+              <span className="text-right tabular-nums">{totalAccounts}</span>
+              <span className="text-right tabular-nums">{totalScheduled}</span>
+              <span aria-hidden />
+              <span aria-hidden />
+            </div>
           </div>
         )}
       </div>
@@ -502,13 +530,15 @@ function PlatformRow({
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       className={cn(
-        `${GRID} px-6 py-3.5 text-sm transition-colors hover:bg-secondary/40`,
+        `${GRID} group relative px-6 py-3.5 text-sm transition-colors hover:bg-secondary/40`,
         !platform.enabled && "opacity-55",
         isOver && "border-t-2 border-foreground",
       )}
     >
-      {/* Drag handle (the drag source). Also keyboard-operable: ↑/↓ move the
-          row so reordering isn't drag-only. */}
+      {/* Drag handle (the drag source). Floated into the left gutter — NOT a
+          grid column — so the Platform column stays flush-left under the header;
+          revealed on row hover / keyboard focus. Also keyboard-operable: ↑/↓
+          move the row so reordering isn't drag-only. */}
       <button
         type="button"
         draggable
@@ -520,7 +550,7 @@ function PlatformRow({
           }
         }}
         aria-label={`Reorder ${platform.name} — drag, or use arrow keys`}
-        className="flex cursor-grab items-center justify-center text-quaternary hover:text-secondary-foreground active:cursor-grabbing"
+        className="absolute left-1 top-1/2 flex -translate-y-1/2 cursor-grab items-center justify-center text-quaternary opacity-0 transition-opacity hover:text-secondary-foreground focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100"
       >
         <DotsSixVerticalIcon className="size-4" />
       </button>
@@ -625,7 +655,6 @@ function SkeletonRows() {
     <div className="divide-y divide-border">
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className={`${GRID} px-6 py-3.5`}>
-          <div className="size-4 animate-pulse rounded bg-secondary" />
           <div className="flex items-center gap-2.5">
             <div className="size-5 animate-pulse rounded bg-secondary" />
             <div className="h-3 w-28 animate-pulse rounded bg-secondary" />

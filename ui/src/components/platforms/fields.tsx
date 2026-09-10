@@ -10,6 +10,12 @@ import { bytesToMB, mbToBytes, formatBytes } from "./bytes";
 // Input/Label primitives so every field in the (large) Add/Edit form stays
 // visually consistent and the dialog body reads as data, not markup.
 
+// Two-column field grid shared by the platform editors (Add/Edit form and the
+// Global limits dialog). items-start so a field with a hint doesn't stretch its
+// hint-less neighbour's rows — that stretching pushed inputs out of alignment
+// (the "jumping" bug). gap-y is generous since rows have uneven heights.
+export const FIELD_GRID = "grid grid-cols-2 items-start gap-x-4 gap-y-5";
+
 // Field is a labeled wrapper: a Label above the control and an optional dim
 // hint below it.
 export function Field({
@@ -35,22 +41,26 @@ export function Field({
 }
 
 // Toggle is an accessible on/off switch (role="switch") with a trailing label,
-// matching the emerald/neutral status colors used elsewhere.
+// matching the emerald/neutral status colors used elsewhere. Pass `description`
+// to stack an explanatory line under the label (switch aligns to the top).
 export function Toggle({
   checked,
   onChange,
   label,
+  description,
   disabled,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
+  description?: React.ReactNode;
   disabled?: boolean;
 }) {
   return (
     <label
       className={cn(
-        "flex items-center gap-2.5 text-sm",
+        "flex gap-2.5 text-sm",
+        description ? "items-start" : "items-center",
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
       )}
     >
@@ -62,6 +72,7 @@ export function Toggle({
         onClick={() => onChange(!checked)}
         className={cn(
           "relative h-5 w-9 shrink-0 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          description && "mt-0.5",
           checked ? "bg-emerald-500" : "bg-quaternary",
         )}
       >
@@ -72,7 +83,16 @@ export function Toggle({
           )}
         />
       </button>
-      <span className="text-foreground">{label}</span>
+      {description ? (
+        <span className="min-w-0">
+          <span className="block font-medium text-foreground">{label}</span>
+          <span className="mt-0.5 block text-xs text-tertiary-foreground">
+            {description}
+          </span>
+        </span>
+      ) : (
+        <span className="text-foreground">{label}</span>
+      )}
     </label>
   );
 }
