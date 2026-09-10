@@ -1,7 +1,8 @@
 package handlers
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -129,11 +130,11 @@ func buildDailyCost(rows []analytics.DailyModelCost, days int) fiber.Map {
 	for m, t := range modelTotals {
 		models = append(models, modelTotal{Model: m, CostMicros: t})
 	}
-	sort.Slice(models, func(a, b int) bool {
-		if models[a].CostMicros != models[b].CostMicros {
-			return models[a].CostMicros > models[b].CostMicros
+	slices.SortFunc(models, func(a, b modelTotal) int {
+		if c := cmp.Compare(b.CostMicros, a.CostMicros); c != 0 {
+			return c
 		}
-		return models[a].Model < models[b].Model
+		return cmp.Compare(a.Model, b.Model)
 	})
 
 	return fiber.Map{

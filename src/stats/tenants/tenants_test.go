@@ -110,7 +110,7 @@ func TestCollectHeadlineAndExceptions(t *testing.T) {
 	}
 	spend := &fakeSpendRepo{available: false}
 
-	o := Collect(context.Background(), tenants, spend)
+	o := Collect(t.Context(), tenants, spend)
 
 	if o.Headline.Total != 12 || o.Headline.Active != 9 ||
 		o.Headline.Suspended != 2 || o.Headline.Deleted != 1 {
@@ -150,7 +150,7 @@ func TestCollectSpendRankingAndVendorSplit(t *testing.T) {
 		},
 	}
 
-	o := Collect(context.Background(), tenants, spend)
+	o := Collect(t.Context(), tenants, spend)
 
 	if !o.Spend.Available {
 		t.Fatal("spend should be available")
@@ -193,7 +193,7 @@ func TestCollectSpendTotalFailureIsUnavailable(t *testing.T) {
 		},
 	}
 
-	o := Collect(context.Background(), tenants, spend)
+	o := Collect(t.Context(), tenants, spend)
 
 	if o.Spend.Available {
 		t.Error("spend should be unavailable when the period total fails")

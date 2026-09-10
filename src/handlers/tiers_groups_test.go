@@ -130,8 +130,8 @@ func TestMapTierGroupError(t *testing.T) {
 		{"internal", status.Error(codes.Internal, "boom"), fiber.StatusInternalServerError},
 	}
 	for _, tc := range cases {
-		var fe *fiber.Error
-		if !errors.As(mapTierGroupError(tc.err, "tier"), &fe) {
+		fe, ok := errors.AsType[*fiber.Error](mapTierGroupError(tc.err, "tier"))
+		if !ok {
 			t.Fatalf("%s: mapTierGroupError did not return a *fiber.Error", tc.name)
 		}
 		if fe.Code != tc.want {

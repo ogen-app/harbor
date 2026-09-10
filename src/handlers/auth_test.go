@@ -90,8 +90,7 @@ func newAuthApp(t *testing.T, verifier GoogleVerifier, allowed []string) (*fiber
 	t.Helper()
 	app := fiber.New(fiber.Config{ErrorHandler: func(c *fiber.Ctx, err error) error {
 		code := fiber.StatusInternalServerError
-		var fe *fiber.Error
-		if errors.As(err, &fe) {
+		if fe, ok := errors.AsType[*fiber.Error](err); ok {
 			code = fe.Code
 		}
 		return c.Status(code).JSON(fiber.Map{"error": err.Error()})

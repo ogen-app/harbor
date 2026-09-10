@@ -2,6 +2,7 @@ package ogensecrets
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestClientRoundTrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	metas, err := client.List(ctx)
 	if err != nil {
@@ -132,7 +133,7 @@ func TestNewDisabled(t *testing.T) {
 		if c != nil {
 			t.Errorf("New(%q,%q) = non-nil, want nil (disabled)", tc.addr, tc.token)
 		}
-		if _, err := c.List(context.Background()); err != ErrUnavailable {
+		if _, err := c.List(t.Context()); !errors.Is(err, ErrUnavailable) {
 			t.Errorf("nil client List err = %v, want ErrUnavailable", err)
 		}
 	}
