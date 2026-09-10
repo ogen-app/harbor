@@ -5,9 +5,10 @@
 package tenants
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/ogen-app/harbor/src/repository/analytics"
@@ -179,7 +180,7 @@ func collectSpend(ctx context.Context, tenants ogen.TenantRepository, spend anal
 			OtherMicros:     vs.OtherMicros,
 		})
 	}
-	sort.SliceStable(top, func(i, j int) bool { return top[i].CostMicros > top[j].CostMicros })
+	slices.SortStableFunc(top, func(a, b SpendTenant) int { return cmp.Compare(b.CostMicros, a.CostMicros) })
 	if len(top) > topSpendTenants {
 		top = top[:topSpendTenants]
 	}
@@ -188,11 +189,7 @@ func collectSpend(ctx context.Context, tenants ogen.TenantRepository, spend anal
 	names, err := tenants.TenantNames(ctx)
 	logFail("spend.names", err)
 	for i := range top {
-		if n := names[top[i].TenantID]; n != "" {
-			top[i].Name = n
-		} else {
-			top[i].Name = top[i].TenantID
-		}
+		top[i].Name = cmp.Or(names[top[i].TenantID], top[i].TenantID)
 	}
 	out.Top = top
 }

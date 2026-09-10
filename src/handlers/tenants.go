@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -90,10 +92,7 @@ type tenantRow struct {
 // (possibly zero) AI spend. Status/StatusReason are the CON-190 lifecycle fields,
 // read from the Ogen DB (falling back to "active" for an un-migrated Ogen).
 func rowFromMetrics(m ogen.TenantMetrics, spend analytics.VendorSpend) tenantRow {
-	status := m.Status
-	if status == "" {
-		status = "active"
-	}
+	status := cmp.Or(m.Status, "active")
 	return tenantRow{
 		ID:             m.ID,
 		Name:           m.Name,
@@ -167,13 +166,9 @@ func (f tenantFilter) match(t tenantRow) bool {
 		}
 		return has
 	case "group":
-		has := false
-		for _, g := range t.Groups {
-			if strings.EqualFold(g.Name, f.Value) {
-				has = true
-				break
-			}
-		}
+		has := slices.ContainsFunc(t.Groups, func(g ogen.Group) bool {
+			return strings.EqualFold(g.Name, f.Value)
+		})
 		if f.Operator == "excludes" {
 			return !has
 		}
@@ -208,8 +203,8 @@ func buildActivitySparklines(rows []analytics.TenantDayCount, windowDays int) ma
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	// UTC date "YYYY-MM-DD" → slot index in [0, windowDays).
 	slot := make(map[string]int, windowDays)
-	for i := 0; i < windowDays; i++ {
-		date := today.AddDate(0, 0, -(windowDays-1-i)).Format("2006-01-02")
+	for i := range windowDays {
+		date := today.AddDate(0, 0, -(windowDays - 1 - i)).Format("2006-01-02")
 		slot[date] = i
 	}
 	byTenant := make(map[string][]int, len(rows))
@@ -267,8 +262,7 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	groupCatalog, _ := h.tenants.ListGroups(c.Context())
 	for i := range rows {
 		if tier, ok := tierByTenant[rows[i].ID]; ok {
-			t := tier
-			rows[i].Tier = &t
+			rows[i].Tier = &tier
 		}
 		if gs := groupsByTenant[rows[i].ID]; gs != nil {
 			rows[i].Groups = gs
@@ -308,11 +302,7 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	for _, r := range rows {
 		statusSet[r.Status] = struct{}{}
 	}
-	statuses := make([]string, 0, len(statusSet))
-	for s := range statusSet {
-		statuses = append(statuses, s)
-	}
-	sort.Strings(statuses)
+	statuses := slices.Sorted(maps.Keys(statusSet))
 
 	total := len(rows)
 
@@ -617,11 +607,11 @@ func buildDailyPublishes(rows []ogen.PublishingDayStat, days int) fiber.Map {
 	for p, t := range platformTotals {
 		platforms = append(platforms, platformTotal{Platform: p, Count: t})
 	}
-	sort.Slice(platforms, func(a, b int) bool {
-		if platforms[a].Count != platforms[b].Count {
-			return platforms[a].Count > platforms[b].Count
+	slices.SortFunc(platforms, func(a, b platformTotal) int {
+		if c := cmp.Compare(b.Count, a.Count); c != 0 {
+			return c
 		}
-		return platforms[a].Platform < platforms[b].Platform
+		return cmp.Compare(a.Platform, b.Platform)
 	})
 
 	return fiber.Map{
@@ -786,11 +776,11 @@ func (h *TenantsHandler) writeActivity(c *fiber.Ctx, tenantID string) error {
 	for cat := range catTotals {
 		categories = append(categories, cat)
 	}
-	sort.Slice(categories, func(a, b int) bool {
-		if catTotals[categories[a]] != catTotals[categories[b]] {
-			return catTotals[categories[a]] > catTotals[categories[b]]
+	slices.SortFunc(categories, func(a, b string) int {
+		if c := cmp.Compare(catTotals[b], catTotals[a]); c != 0 {
+			return c
 		}
-		return categories[a] < categories[b]
+		return cmp.Compare(a, b)
 	})
 
 	return c.JSON(fiber.Map{"activity": events, "series": series, "categories": categories, "hasMore": hasMore, "available": true})

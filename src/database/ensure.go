@@ -35,8 +35,7 @@ func EnsureDatabase(ctx context.Context, dsn string) error {
 		// url.Parse returns a *url.Error whose message embeds the raw dsn
 		// (credentials and all); unwrap to the bare cause so the logged error
 		// carries the reason without the secret.
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
+		if urlErr, ok := errors.AsType[*url.Error](err); ok {
 			err = urlErr.Err
 		}
 		return fmt.Errorf("parse dsn: %w", err)
@@ -74,8 +73,7 @@ func EnsureDatabase(ctx context.Context, dsn string) error {
 	if _, err := sqldb.ExecContext(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
 		// A concurrently-booting instance may have created it between our check
 		// and now; Postgres reports 42P04 (duplicate_database), success for us.
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "42P04" {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "42P04" {
 			return nil
 		}
 		return fmt.Errorf("create database %q: %w", dbName, err)

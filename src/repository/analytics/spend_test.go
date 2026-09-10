@@ -1,7 +1,6 @@
 package analytics
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
@@ -33,14 +32,14 @@ func TestAddVendorCostClassification(t *testing.T) {
 // ErrUnavailable rather than panicking on a nil *bun.DB.
 func TestDailyCostByModelUnavailable(t *testing.T) {
 	r := NewSpendRepository(nil)
-	if _, err := r.DailyCostByModel(context.Background(), 30); !errors.Is(err, ErrUnavailable) {
+	if _, err := r.DailyCostByModel(t.Context(), 30); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("err = %v, want ErrUnavailable", err)
 	}
 }
 
 func TestDailyCostByModelForTenantUnavailable(t *testing.T) {
 	r := NewSpendRepository(nil)
-	if _, err := r.DailyCostByModelForTenant(context.Background(), "t1", 30); !errors.Is(err, ErrUnavailable) {
+	if _, err := r.DailyCostByModelForTenant(t.Context(), "t1", 30); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("err = %v, want ErrUnavailable", err)
 	}
 }
