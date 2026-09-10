@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Loader } from "@/components/ui/loader";
 import {
-  PlusIcon,
   DotsThreeOutlineVerticalIcon,
   DotsSixVerticalIcon,
   NotePencilIcon,
@@ -30,13 +29,14 @@ import { cn } from "@/lib/utils";
 import { PlatformIcon } from "./PlatformIcon";
 import { PlatformDialog } from "./PlatformDialog";
 import { GlobalLimitsDialog } from "./GlobalLimitsDialog";
-import { Toggle } from "./fields";
 import type { Platform, PlatformsListResponse } from "./types";
 
 // Shared grid template so the header and every row align — columns:
 // drag · platform · slug · post types · accounts · scheduled · status · actions.
+// Tracks are minmax(0,fr) so they always fit the card (no overflow) and text
+// truncates instead of colliding; numeric columns are right-aligned.
 const GRID =
-  "grid grid-cols-[1.75rem_minmax(170px,2fr)_minmax(100px,1fr)_5rem_5rem_5rem_7.5rem_2.25rem] items-center gap-3";
+  "grid grid-cols-[1.75rem_minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.15fr)_2.25rem] items-center gap-3";
 
 function bySortOrder(a: Platform, b: Platform): number {
   if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
@@ -49,8 +49,8 @@ function postTypeCount(p: Platform): number {
 
 // PlatformsTab is the social-platform catalog manager, styled to match the
 // /secrets + /tenants "All X" table. It fetches include_disabled=true so
-// disabled platforms show (muted) and can be toggled on. Supports add/edit
-// (whole-resource form), enable/disable (usage-aware confirm), delete (with
+// disabled platforms show (muted) and are managed like the rest. Supports
+// edit (whole-resource form — enable/disable happens there too), delete (with
 // force), the global-limits panel, and drag-to-reorder (persisted as sort_order
 // via whole-resource updates). All state is Ogen's, via /api/platforms.
 export function PlatformsTab() {
@@ -61,18 +61,10 @@ export function PlatformsTab() {
   const [savingOrder, setSavingOrder] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
   const [dialogPlatform, setDialogPlatform] = useState<Platform | undefined>(
     undefined,
   );
   const [limitsOpen, setLimitsOpen] = useState(false);
-
-  const [enableTarget, setEnableTarget] = useState<{
-    platform: Platform;
-    next: boolean;
-  } | null>(null);
-  const [enableBusy, setEnableBusy] = useState(false);
-  const [enableError, setEnableError] = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<Platform | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -128,52 +120,14 @@ export function PlatformsTab() {
   const platforms = [...(data?.platforms ?? [])].sort(bySortOrder);
   const enabledCount = platforms.filter((p) => p.enabled).length;
 
-  const openCreate = () => {
-    setDialogMode("create");
-    setDialogPlatform(undefined);
-    setDialogOpen(true);
-  };
   const openEdit = (p: Platform) => {
-    setDialogMode("edit");
     setDialogPlatform(p);
     setDialogOpen(true);
   };
 
-  const handleSaved = (name: string, created: boolean) => {
-    flash(`Platform “${name}” ${created ? "created" : "updated"}.`);
+  const handleSaved = (name: string) => {
+    flash(`Platform “${name}” updated.`);
     refresh();
-  };
-
-  // ── enable / disable ──────────────────────────────────────────────────────
-  const confirmEnable = async () => {
-    if (!enableTarget) return;
-    setEnableBusy(true);
-    setEnableError(null);
-    try {
-      const res = await fetch(
-        `/api/platforms/${encodeURIComponent(enableTarget.platform.id)}/enabled`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: enableTarget.next }),
-        },
-      );
-      if (!res.ok) {
-        const detail = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(detail?.error || `Request failed (${res.status})`);
-      }
-      flash(
-        `Platform “${enableTarget.platform.name}” ${enableTarget.next ? "enabled" : "disabled"}.`,
-      );
-      setEnableTarget(null);
-      refresh();
-    } catch (e) {
-      setEnableError(e instanceof Error ? e.message : "Failed to update.");
-    } finally {
-      setEnableBusy(false);
-    }
   };
 
   // ── delete ────────────────────────────────────────────────────────────────
@@ -275,7 +229,7 @@ export function PlatformsTab() {
           <p className="mt-1 max-w-xl text-xs text-tertiary-foreground">
             The social platforms Ogen can publish to, with their per-platform
             media and text limits. Disabled platforms are shown muted. Drag the
-            handle to reorder.
+            handle to reorder; enable/disable from a platform’s edit form.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -284,7 +238,9 @@ export function PlatformsTab() {
               {(refreshing || savingOrder) && (
                 <Loader className="size-3.5 border-[1.5px]" />
               )}
-              {savingOrder ? "Saving order…" : `${enabledCount} of ${platforms.length} enabled`}
+              {savingOrder
+                ? "Saving order…"
+                : `${enabledCount} of ${platforms.length} enabled`}
             </span>
           )}
           <Button
@@ -295,10 +251,6 @@ export function PlatformsTab() {
           >
             <SlidersHorizontalIcon className="size-4" />
             Global limits
-          </Button>
-          <Button size="sm" onClick={openCreate} disabled={loading || !available}>
-            <PlusIcon className="size-4" weight="bold" />
-            Add platform
           </Button>
         </div>
       </div>
@@ -316,7 +268,7 @@ export function PlatformsTab() {
           </p>
         ) : platforms.length === 0 ? (
           <p className="p-6 text-sm text-tertiary-foreground">
-            No platforms in the catalog yet — add the first one.
+            No platforms in the catalog yet.
           </p>
         ) : (
           <div className="divide-y divide-border">
@@ -324,9 +276,9 @@ export function PlatformsTab() {
               <span className="sr-only">Reorder</span>
               <HeaderCell label="Platform" />
               <HeaderCell label="Zernio slug" />
-              <HeaderCell label="Post types" />
-              <HeaderCell label="Accounts" />
-              <HeaderCell label="Scheduled" />
+              <HeaderCell label="Post types" align="right" />
+              <HeaderCell label="Accounts" align="right" />
+              <HeaderCell label="Scheduled" align="right" />
               <HeaderCell label="Status" />
               <span className="sr-only">Actions</span>
             </div>
@@ -335,7 +287,6 @@ export function PlatformsTab() {
               <PlatformRow
                 key={p.id || p.zernioId}
                 platform={p}
-                index={i}
                 isOver={overIndex === i && dragIndex !== null && dragIndex !== i}
                 onDragStartHandle={(e) => {
                   setDragIndex(i);
@@ -345,7 +296,7 @@ export function PlatformsTab() {
                   if (row) e.dataTransfer.setDragImage(row as Element, 12, 12);
                   e.dataTransfer.effectAllowed = "move";
                   // Firefox won't start a drag unless some data is set.
-                  e.dataTransfer.setData("text/plain", platforms[i].id);
+                  e.dataTransfer.setData("text/plain", p.id);
                 }}
                 onDragOver={(e) => {
                   if (dragIndex === null) return;
@@ -360,9 +311,6 @@ export function PlatformsTab() {
                   setDragIndex(null);
                   setOverIndex(null);
                 }}
-                onToggle={() =>
-                  setEnableTarget({ platform: p, next: !p.enabled })
-                }
                 onEdit={() => openEdit(p)}
                 onDelete={() => openDelete(p)}
               />
@@ -381,11 +329,11 @@ export function PlatformsTab() {
         </div>
       )}
 
-      {/* Add / edit */}
+      {/* Edit */}
       <PlatformDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        mode={dialogMode}
+        mode="edit"
         platform={dialogPlatform}
         onSaved={handleSaved}
       />
@@ -396,57 +344,6 @@ export function PlatformsTab() {
         onOpenChange={setLimitsOpen}
         onSaved={() => flash("Global limits saved.")}
       />
-
-      {/* Enable / disable confirmation */}
-      <Dialog
-        open={enableTarget !== null}
-        onOpenChange={(o) => {
-          if (!o) {
-            setEnableTarget(null);
-            setEnableError(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-md">
-          {enableTarget && (
-            <>
-              <DialogHeader>
-                <DialogTitle>
-                  {enableTarget.next ? "Enable" : "Disable"}{" "}
-                  {enableTarget.platform.name}?
-                </DialogTitle>
-                <DialogDescription>
-                  {enableTarget.next
-                    ? "New accounts can connect and it appears in the tenant composer."
-                    : "Soft-disable: existing scheduled posts still run, but new connects are blocked and it drops from the tenant composer."}
-                </DialogDescription>
-              </DialogHeader>
-              <UsageSummary platform={enableTarget.platform} />
-              {enableError && (
-                <p className="text-sm text-destructive" role="alert">
-                  {enableError}
-                </p>
-              )}
-              <DialogFooter>
-                <Button
-                  variant="ghost"
-                  onClick={() => setEnableTarget(null)}
-                  disabled={enableBusy}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={confirmEnable} disabled={enableBusy}>
-                  {enableBusy
-                    ? "Saving…"
-                    : enableTarget.next
-                      ? "Enable"
-                      : "Disable"}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Delete confirmation (with force on in-use) */}
       <Dialog
@@ -480,23 +377,17 @@ export function PlatformsTab() {
                 >
                   Cancel
                 </Button>
-                {deleteBlocked ? (
-                  <Button
-                    variant="destructiveInverted"
-                    onClick={() => confirmDelete(true)}
-                    disabled={deleteBusy}
-                  >
-                    {deleteBusy ? "Deleting…" : "Force delete"}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="destructiveInverted"
-                    onClick={() => confirmDelete(false)}
-                    disabled={deleteBusy}
-                  >
-                    {deleteBusy ? "Deleting…" : "Delete"}
-                  </Button>
-                )}
+                <Button
+                  variant="destructiveInverted"
+                  onClick={() => confirmDelete(deleteBlocked)}
+                  disabled={deleteBusy}
+                >
+                  {deleteBusy
+                    ? "Deleting…"
+                    : deleteBlocked
+                      ? "Force delete"
+                      : "Delete"}
+                </Button>
               </DialogFooter>
             </>
           )}
@@ -506,16 +397,50 @@ export function PlatformsTab() {
   );
 }
 
-function HeaderCell({ label }: { label: string }) {
+function HeaderCell({
+  label,
+  align = "left",
+}: {
+  label: string;
+  align?: "left" | "right";
+}) {
   return (
-    <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
+    <span
+      className={cn(
+        "truncate text-xs font-semibold uppercase tracking-wide text-tertiary-foreground",
+        align === "right" && "text-right",
+      )}
+    >
       {label}
     </span>
   );
 }
 
+// StatusBadge is the color-coded enabled/disabled label (enable/disable itself
+// now lives in the edit form). Emerald when enabled, neutral when disabled.
+function StatusBadge({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex w-fit items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+        enabled
+          ? "bg-emerald-500/10 text-emerald-700"
+          : "bg-neutral-400/15 text-tertiary-foreground",
+      )}
+    >
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          enabled ? "bg-emerald-500" : "bg-neutral-400",
+        )}
+      />
+      {enabled ? "Enabled" : "Disabled"}
+    </span>
+  );
+}
+
 // UsageSummary shows the connected-accounts / scheduled-posts footprint that
-// drives the enable/disable and delete guards.
+// drives the delete guard.
 function UsageSummary({ platform }: { platform: Platform }) {
   return (
     <div className="flex gap-6 rounded-md border border-border bg-secondary/30 px-4 py-3 text-sm">
@@ -539,24 +464,20 @@ function UsageSummary({ platform }: { platform: Platform }) {
 
 function PlatformRow({
   platform,
-  index,
   isOver,
   onDragStartHandle,
   onDragOver,
   onDrop,
   onDragEnd,
-  onToggle,
   onEdit,
   onDelete,
 }: {
   platform: Platform;
-  index: number;
   isOver: boolean;
   onDragStartHandle: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   onDragEnd: () => void;
-  onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -598,36 +519,38 @@ function PlatformRow({
 
       {/* Zernio slug */}
       <span className="truncate font-mono text-xs text-secondary-foreground">
-        {platform.zernioId || <span className="text-tertiary-foreground">—</span>}
+        {platform.zernioId || (
+          <span className="text-tertiary-foreground">—</span>
+        )}
       </span>
 
       {/* Post-type count (labels on hover) */}
       <span
-        className="text-secondary-foreground tabular-nums"
+        className="text-right tabular-nums text-secondary-foreground"
         title={typeLabels || undefined}
       >
         {types}
       </span>
 
       {/* Connected accounts */}
-      <span className="text-secondary-foreground tabular-nums">
+      <span className="text-right tabular-nums text-secondary-foreground">
         {platform.usage.connectedAccounts}
       </span>
 
       {/* Scheduled posts */}
-      <span className="text-secondary-foreground tabular-nums">
+      <span className="text-right tabular-nums text-secondary-foreground">
         {platform.usage.scheduledPosts}
       </span>
 
-      {/* Enabled toggle → opens the usage-aware confirm dialog */}
-      <Toggle
-        checked={platform.enabled}
-        onChange={onToggle}
-        label={platform.enabled ? "Enabled" : "Disabled"}
-      />
+      {/* Enabled status (read-only color-coded label) */}
+      <StatusBadge enabled={platform.enabled} />
 
       {/* Actions */}
-      <PlatformActions name={platform.name} onEdit={onEdit} onDelete={onDelete} />
+      <PlatformActions
+        name={platform.name}
+        onEdit={onEdit}
+        onDelete={onDelete}
+      />
     </div>
   );
 }
@@ -689,10 +612,10 @@ function SkeletonRows() {
             <div className="h-3 w-28 animate-pulse rounded bg-secondary" />
           </div>
           <div className="h-3 w-20 animate-pulse rounded bg-secondary" />
-          <div className="h-3 w-8 animate-pulse rounded bg-secondary" />
-          <div className="h-3 w-8 animate-pulse rounded bg-secondary" />
-          <div className="h-3 w-8 animate-pulse rounded bg-secondary" />
-          <div className="h-4 w-20 animate-pulse rounded bg-secondary" />
+          <div className="h-3 w-6 animate-pulse rounded bg-secondary justify-self-end" />
+          <div className="h-3 w-6 animate-pulse rounded bg-secondary justify-self-end" />
+          <div className="h-3 w-6 animate-pulse rounded bg-secondary justify-self-end" />
+          <div className="h-4 w-20 animate-pulse rounded-full bg-secondary" />
           <div className="size-6 animate-pulse rounded bg-secondary justify-self-end" />
         </div>
       ))}

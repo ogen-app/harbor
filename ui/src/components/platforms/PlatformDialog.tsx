@@ -98,7 +98,7 @@ export function PlatformDialog({
 }: PlatformDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-5xl">
         <PlatformForm
           mode={mode}
           platform={platform}
@@ -272,9 +272,15 @@ function PlatformForm({
         </DialogDescription>
       </DialogHeader>
 
+      {/* Three columns split by pale, padded vertical separators:
+          identity + guidance | post types | media & text limits. Stacks on
+          narrow viewports. */}
+      <div className="grid gap-6 md:grid-cols-3 md:gap-0 md:divide-x md:divide-border">
+        {/* ── Column 1: identity + guidance ────────────────────────── */}
+        <div className="space-y-5 md:pr-6">
       {/* ── Identity ─────────────────────────────────────────────── */}
       <Section title="Identity">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-4">
           <Field label="Display name" htmlFor="pf-name">
             <Input
               id="pf-name"
@@ -301,7 +307,7 @@ function PlatformForm({
             />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-4">
           <NumberField
             label="Sort order"
             value={sortOrder}
@@ -343,6 +349,10 @@ function PlatformForm({
         </Field>
       </Section>
 
+        </div>
+
+        {/* ── Column 2: post types ─────────────────────────────────── */}
+        <div className="space-y-5 md:px-6">
       {/* ── Post types ───────────────────────────────────────────── */}
       <Section
         title="Post types"
@@ -402,6 +412,10 @@ function PlatformForm({
         </div>
       </Section>
 
+        </div>
+
+        {/* ── Column 3: media & text limits ────────────────────────── */}
+        <div className="space-y-5 md:pl-6">
       {/* ── Constraint tabs ──────────────────────────────────────── */}
       <Section title="Media & text limits">
         <div role="tablist" className="flex gap-6 border-b border-border">
@@ -426,7 +440,7 @@ function PlatformForm({
 
         <div className="pt-1">
           {tab === "Image" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4">
               <ByteField
                 label="Max file size"
                 bytes={image.maxFileSizeBytes}
@@ -460,7 +474,7 @@ function PlatformForm({
           )}
 
           {tab === "Video" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4">
               <ByteField
                 label="Max file size"
                 bytes={video.maxFileSizeBytes}
@@ -527,7 +541,7 @@ function PlatformForm({
           )}
 
           {tab === "PDF" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4">
               <ByteField
                 label="Max file size"
                 bytes={pdf.maxFileSizeBytes}
@@ -558,7 +572,7 @@ function PlatformForm({
 
           {tab === "Text" && (
             <div className="grid gap-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4">
                 <NumberField
                   label="Max content characters"
                   value={text.maxContentChars}
@@ -621,6 +635,8 @@ function PlatformForm({
           )}
         </div>
       </Section>
+        </div>
+      </div>
 
       {error && (
         <p className="text-sm text-destructive" role="alert">
@@ -637,7 +653,12 @@ function PlatformForm({
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button
+          type="submit"
+          variant="defaultInverted"
+          className="font-semibold"
+          disabled={submitting}
+        >
           {submitting
             ? "Saving…"
             : mode === "edit"
