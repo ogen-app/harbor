@@ -20,6 +20,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	"github.com/ogen-app/harbor/src/repository/harbor"
 	"github.com/ogen-app/harbor/src/repository/ogen"
+	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
 	"github.com/ogen-app/harbor/src/repository/ogensecrets"
 	"github.com/ogen-app/harbor/src/repository/ogentenants"
 )
@@ -29,7 +30,7 @@ import (
 // Harbor runs as a single binary. ogenDB and analyticsDB are pools to Ogen's
 // (external) control-plane and analytics databases — either may be nil when
 // Ogen is unreachable; they are held for forthcoming Ogen-backed handlers.
-func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
+func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, platformsAdminClient *ogenplatforms.Client, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: defaultErrorHandler,
 	})
@@ -87,6 +88,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	handlers.NewEmailTemplatesHandler(emailTemplateRepo).Register(app, requireAuth)
 	handlers.NewSecretsHandler(secretsClient).Register(app, requireAuth)
 	handlers.NewTiersGroupsHandler(tenantsAdminClient).Register(app, requireAuth)
+	handlers.NewPlatformsHandler(platformsAdminClient).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route

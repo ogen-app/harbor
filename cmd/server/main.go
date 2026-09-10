@@ -20,6 +20,7 @@ import (
 	"github.com/ogen-app/harbor/src/config"
 	"github.com/ogen-app/harbor/src/database"
 	"github.com/ogen-app/harbor/src/logging"
+	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
 	"github.com/ogen-app/harbor/src/repository/ogensecrets"
 	"github.com/ogen-app/harbor/src/repository/ogentenants"
 	"github.com/ogen-app/harbor/src/server"
@@ -107,12 +108,25 @@ func main() {
 		slog.Info("ogen tenant-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
+	// gRPC client for Ogen's internal platform-admin surface (social-platform
+	// catalog + media limits). Shares OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN with the
+	// other Ogen clients — all on the same bearer-gated listener — so it's
+	// enabled/disabled on the same condition and likewise never blocks boot.
+	platformsAdminClient, err := ogenplatforms.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen platform-admin client", err)
+	}
+	if platformsAdminClient != nil {
+		defer platformsAdminClient.Close()
+		slog.Info("ogen platform-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}

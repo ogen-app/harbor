@@ -50,15 +50,16 @@ tidy:
 	go mod tidy
 
 # ── Protobuf / gRPC ───────────────────────────────────────────────────────────
-# tenants.v1 + secrets.v1 live in the shared buf.build/ogen-app/proto module
-# (CON-220). Generate the client stubs from a pinned version; bump PROTO_VERSION
-# to adopt a new contract, then `make proto` and commit gen/.
+# tenants.v1 + secrets.v1 + platforms.v1 live in the shared buf.build/ogen-app/proto
+# module (CON-220). Generate the client stubs from a pinned version; bump
+# PROTO_VERSION to adopt a new contract, then `make proto` and commit gen/.
 PROTO_MODULE  := buf.build/ogen-app/proto
 PROTO_VERSION := v1.0.0
 
 proto:
 	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \
-		--path tenants/v1/tenants.proto --path secrets/v1/secrets.proto
+		--path tenants/v1/tenants.proto --path secrets/v1/secrets.proto \
+		--path platforms/v1/platforms.proto
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 docker:
