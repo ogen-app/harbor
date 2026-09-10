@@ -80,6 +80,11 @@ function toRows(p?: Platform): PostTypeRow[] {
   }));
 }
 
+// Two-column field grid: items-start so a field with a hint doesn't stretch its
+// hint-less neighbor's rows (which pushed inputs out of alignment — the "jumping"
+// bug). gap-y is generous since rows have uneven heights.
+const FIELD_GRID = "grid grid-cols-2 items-start gap-x-4 gap-y-5";
+
 interface PlatformDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -92,8 +97,9 @@ interface PlatformDialogProps {
 // PlatformDialog is the whole-resource Add/Edit form. The body lives in
 // PlatformForm, which Radix mounts fresh each open — so it seeds from the
 // current platform without an effect and resets between opens (mirrors
-// CatalogDialog/SecretDialog). It's a wide (~50vw) tabbed dialog: one tab per
-// area (identity+guidance / post types / media & text limits).
+// CatalogDialog/SecretDialog). It's a fixed-height (75vh), ~50vw tabbed dialog
+// whose middle scrolls: one tab per area (identity+guidance / post types /
+// media & text limits).
 export function PlatformDialog({
   open,
   onOpenChange,
@@ -103,7 +109,7 @@ export function PlatformDialog({
 }: PlatformDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[50vw] max-w-none min-w-[640px]">
+      <DialogContent className="flex h-[75vh] w-[50vw] min-w-[640px] max-w-none flex-col gap-0 p-0">
         <PlatformForm
           mode={mode}
           platform={platform}
@@ -273,452 +279,485 @@ function PlatformForm({
     }
   };
 
+  const title =
+    mode === "edit"
+      ? `Edit ${platform?.name?.trim() || "platform"}`
+      : "New platform";
+
   return (
-    <form onSubmit={handleSubmit} className="grid gap-5">
-      <DialogHeader>
-        <DialogTitle>
-          {mode === "edit" ? "Edit platform" : "New platform"}
-        </DialogTitle>
-        <DialogDescription>
-          {mode === "edit"
-            ? "Update this platform’s post types, media/text limits, guidance, and enabled state."
-            : "Add a platform. It starts disabled — verify the Zernio slug connects, then enable it from the list."}
-        </DialogDescription>
-      </DialogHeader>
-
-      {/* Pale full-bleed divider under the description. */}
-      <div className="-mx-6 border-b border-border" />
-
-      {/* Top-level tabs (one per area) */}
-      <div role="tablist" className="flex gap-6 border-b border-border">
-        {FORM_TABS.map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={t === formTab}
-            onClick={() => setFormTab(t)}
-            className={cn(
-              "relative -mb-px border-b-2 py-2.5 text-sm whitespace-nowrap transition-colors outline-none",
-              t === formTab
-                ? "border-foreground font-semibold text-foreground"
-                : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
-            )}
-          >
-            {t}
-          </button>
-        ))}
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      {/* Header (fixed) */}
+      <div className="shrink-0 px-6 pt-6">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {mode === "edit"
+              ? "Update this platform’s post types, media/text limits, guidance, and enabled state."
+              : "Add a platform. It starts disabled — verify the Zernio slug connects, then enable it from the list."}
+          </DialogDescription>
+        </DialogHeader>
       </div>
 
-      {/* ── Tab: Identity & guidance ─────────────────────────────── */}
-      {formTab === "Identity" && (
-        <div className="grid gap-5">
-          <div className="grid grid-cols-2 gap-4">
-            <Field
-              label="Display name"
-              htmlFor="pf-name"
-              hint={identityLocked ? "Set at creation — can’t be changed." : undefined}
-            >
-              <Input
-                id="pf-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. LinkedIn"
-                autoComplete="off"
-                disabled={identityLocked}
-              />
-            </Field>
-            <Field
-              label="Zernio slug"
-              htmlFor="pf-slug"
-              hint={
-                identityLocked
-                  ? "Set at creation — can’t be changed."
-                  : "The Zernio wire id (e.g. linkedin, twitter)."
-              }
-            >
-              <Input
-                id="pf-slug"
-                value={zernioId}
-                onChange={(e) => setZernioId(e.target.value)}
-                placeholder="e.g. linkedin"
-                autoComplete="off"
-                spellCheck={false}
-                className="font-mono"
-                disabled={identityLocked}
-              />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <NumberField
-              label="Sort order"
-              value={sortOrder}
-              onChange={setSortOrder}
-              hint="Lower sorts first. Drag rows in the list to reorder too."
-            />
-            <div className="flex flex-col justify-end gap-3 pb-1">
-              <Toggle
-                checked={connectSupported}
-                onChange={setConnectSupported}
-                label="Connect supported"
-              />
-              <Toggle checked={enabled} onChange={setEnabled} label="Enabled" />
-            </div>
-          </div>
+      {/* Pale full-bleed divider under the description. */}
+      <div className="mt-4 shrink-0 border-b border-border" />
 
-          <Section
-            title="Guidance"
-            subtitle="Prose hints used by AI content generation."
-          >
-            <Field label="Cadence" htmlFor="pf-cadence">
-              <textarea
-                id="pf-cadence"
-                value={cadence}
-                onChange={(e) => setCadence(e.target.value)}
-                rows={2}
-                placeholder="e.g. 3–5 posts per week, mornings"
-                className="w-full resize-y rounded-none border-b border-quaternary bg-input px-4 py-2 text-sm text-foreground outline-none focus:border-foreground"
-              />
-            </Field>
-            <Field label="Constraints" htmlFor="pf-constraints">
-              <textarea
-                id="pf-constraints"
-                value={constraintsProse}
-                onChange={(e) => setConstraintsProse(e.target.value)}
-                rows={2}
-                placeholder="e.g. Keep it professional; no hashtags"
-                className="w-full resize-y rounded-none border-b border-quaternary bg-input px-4 py-2 text-sm text-foreground outline-none focus:border-foreground"
-              />
-            </Field>
-          </Section>
+      {/* Top-level tabs (fixed) */}
+      <div className="shrink-0 px-6 pt-4">
+        <div role="tablist" className="flex gap-6 border-b border-border">
+          {FORM_TABS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={t === formTab}
+              onClick={() => setFormTab(t)}
+              className={cn(
+                "relative -mb-px border-b-2 py-2.5 text-sm whitespace-nowrap transition-colors outline-none",
+                t === formTab
+                  ? "border-foreground font-semibold text-foreground"
+                  : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
+              )}
+            >
+              {t}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
-      {/* ── Tab: Post types ──────────────────────────────────────── */}
-      {formTab === "Post types" && (
-        <Section
-          title="Post types"
-          subtitle="Slug → label. Mark the Zernio-publishable ones."
-        >
-          <div className="grid gap-2">
-            {postTypes.length === 0 && (
-              <p className="text-xs text-tertiary-foreground">
-                No post types yet.
-              </p>
-            )}
-            {postTypes.map((row, i) => (
-              <div key={i} className="flex items-center gap-2">
+      {/* Scrollable body */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        {/* ── Tab: Identity & guidance ─────────────────────────────── */}
+        {formTab === "Identity" && (
+          <div className="grid gap-5">
+            <div className={FIELD_GRID}>
+              <Field
+                label="Display name"
+                htmlFor="pf-name"
+                hint={
+                  identityLocked ? "Set at creation — can’t be changed." : undefined
+                }
+              >
                 <Input
-                  aria-label={`Post type ${i + 1} slug`}
-                  value={row.slug}
-                  onChange={(e) => setPostType(i, { slug: e.target.value })}
-                  placeholder="slug"
-                  className="font-mono"
+                  id="pf-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. LinkedIn"
+                  autoComplete="off"
+                  disabled={identityLocked}
+                />
+              </Field>
+              <Field
+                label="Zernio slug"
+                htmlFor="pf-slug"
+                hint={
+                  identityLocked
+                    ? "Set at creation — can’t be changed."
+                    : "The Zernio wire id (e.g. linkedin, twitter)."
+                }
+              >
+                <Input
+                  id="pf-slug"
+                  value={zernioId}
+                  onChange={(e) => setZernioId(e.target.value)}
+                  placeholder="e.g. linkedin"
                   autoComplete="off"
                   spellCheck={false}
+                  className="font-mono"
+                  disabled={identityLocked}
                 />
-                <Input
-                  aria-label={`Post type ${i + 1} label`}
-                  value={row.label}
-                  onChange={(e) => setPostType(i, { label: e.target.value })}
-                  placeholder="Label"
-                  autoComplete="off"
-                />
-                <label className="flex shrink-0 items-center gap-1.5 text-xs text-secondary-foreground">
-                  <input
-                    type="checkbox"
-                    checked={row.publishable}
-                    onChange={(e) =>
-                      setPostType(i, { publishable: e.target.checked })
-                    }
-                    className="size-4 accent-emerald-600"
+              </Field>
+            </div>
+            <div className={FIELD_GRID}>
+              <NumberField
+                label="Sort order"
+                value={sortOrder}
+                onChange={setSortOrder}
+                hint="Lower sorts first. Drag rows in the list to reorder too."
+              />
+              <Field label="Availability">
+                <div className="flex flex-col gap-2.5 pt-1.5">
+                  <Toggle
+                    checked={connectSupported}
+                    onChange={setConnectSupported}
+                    label="Connect supported"
                   />
-                  Publishable
-                </label>
-                <button
+                  <Toggle
+                    checked={enabled}
+                    onChange={setEnabled}
+                    label="Enabled"
+                  />
+                </div>
+              </Field>
+            </div>
+
+            <Section
+              title="Guidance"
+              subtitle="Prose hints used by AI content generation."
+            >
+              <Field label="Cadence" htmlFor="pf-cadence">
+                <textarea
+                  id="pf-cadence"
+                  value={cadence}
+                  onChange={(e) => setCadence(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. 3–5 posts per week, mornings"
+                  className="w-full resize-y rounded-none border-b border-quaternary bg-input px-4 py-2 text-sm text-foreground outline-none focus:border-foreground"
+                />
+              </Field>
+              <Field label="Constraints" htmlFor="pf-constraints">
+                <textarea
+                  id="pf-constraints"
+                  value={constraintsProse}
+                  onChange={(e) => setConstraintsProse(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Keep it professional; no hashtags"
+                  className="w-full resize-y rounded-none border-b border-quaternary bg-input px-4 py-2 text-sm text-foreground outline-none focus:border-foreground"
+                />
+              </Field>
+            </Section>
+          </div>
+        )}
+
+        {/* ── Tab: Post types ──────────────────────────────────────── */}
+        {formTab === "Post types" && (
+          <Section
+            title="Post types"
+            subtitle="Slug → label. Mark the Zernio-publishable ones."
+          >
+            <div className="grid gap-2">
+              {postTypes.length === 0 && (
+                <p className="text-xs text-tertiary-foreground">
+                  No post types yet.
+                </p>
+              )}
+              {postTypes.map((row, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    aria-label={`Post type ${i + 1} slug`}
+                    value={row.slug}
+                    onChange={(e) => setPostType(i, { slug: e.target.value })}
+                    placeholder="slug"
+                    className="font-mono"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <Input
+                    aria-label={`Post type ${i + 1} label`}
+                    value={row.label}
+                    onChange={(e) => setPostType(i, { label: e.target.value })}
+                    placeholder="Label"
+                    autoComplete="off"
+                  />
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs text-secondary-foreground">
+                    <input
+                      type="checkbox"
+                      checked={row.publishable}
+                      onChange={(e) =>
+                        setPostType(i, { publishable: e.target.checked })
+                      }
+                      className="size-4 accent-emerald-600"
+                    />
+                    Publishable
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removePostType(i)}
+                    aria-label={`Remove post type ${i + 1}`}
+                    className="shrink-0 rounded-xs p-1.5 text-tertiary-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                  >
+                    <TrashIcon className="size-4" />
+                  </button>
+                </div>
+              ))}
+              <div>
+                <Button
                   type="button"
-                  onClick={() => removePostType(i)}
-                  aria-label={`Remove post type ${i + 1}`}
-                  className="shrink-0 rounded-xs p-1.5 text-tertiary-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                  variant="outline"
+                  size="sm"
+                  onClick={addPostType}
                 >
-                  <TrashIcon className="size-4" />
-                </button>
+                  <PlusIcon className="size-4" weight="bold" />
+                  Add post type
+                </Button>
               </div>
-            ))}
+            </div>
+          </Section>
+        )}
+
+        {/* ── Tab: Media & text limits ─────────────────────────────── */}
+        {formTab === "Media & text limits" && (
+          <div className="grid gap-4">
+            <div role="tablist" className="flex gap-6 border-b border-border">
+              {MEDIA_TABS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={t === mediaTab}
+                  onClick={() => setMediaTab(t)}
+                  className={cn(
+                    "relative -mb-px border-b-2 py-2 text-sm whitespace-nowrap transition-colors outline-none",
+                    t === mediaTab
+                      ? "border-foreground font-semibold text-foreground"
+                      : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
             <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addPostType}
-              >
-                <PlusIcon className="size-4" weight="bold" />
-                Add post type
-              </Button>
+              {mediaTab === "Image" && (
+                <div className={FIELD_GRID}>
+                  <ByteField
+                    label="Max file size"
+                    bytes={image.maxFileSizeBytes}
+                    onChange={(b) =>
+                      setImage((c) => ({ ...c, maxFileSizeBytes: b }))
+                    }
+                    extraHint="Can't exceed the global image ceiling."
+                  />
+                  <NumberField
+                    label="Max attachments per post"
+                    value={image.maxAttachmentsPerPost}
+                    onChange={(n) =>
+                      setImage((c) => ({ ...c, maxAttachmentsPerPost: n }))
+                    }
+                  />
+                  <TagsField
+                    label="Allowed formats"
+                    value={image.allowedFormats}
+                    onChange={(f) =>
+                      setImage((c) => ({ ...c, allowedFormats: f }))
+                    }
+                    placeholder="jpeg, png, webp, gif"
+                    hint="Comma-separated."
+                  />
+                  <ToggleField label="Animated GIF">
+                    <Toggle
+                      checked={image.animatedGifSupported}
+                      onChange={(v) =>
+                        setImage((c) => ({ ...c, animatedGifSupported: v }))
+                      }
+                      label="Supported"
+                    />
+                  </ToggleField>
+                </div>
+              )}
+
+              {mediaTab === "Video" && (
+                <div className={FIELD_GRID}>
+                  <ByteField
+                    label="Max file size"
+                    bytes={video.maxFileSizeBytes}
+                    onChange={(b) =>
+                      setVideo((c) => ({ ...c, maxFileSizeBytes: b }))
+                    }
+                    extraHint="Can't exceed the global video ceiling."
+                  />
+                  <TagsField
+                    label="Allowed formats"
+                    value={video.allowedFormats}
+                    onChange={(f) =>
+                      setVideo((c) => ({ ...c, allowedFormats: f }))
+                    }
+                    placeholder="mp4, mov, webm"
+                    hint="Comma-separated."
+                  />
+                  <NumberField
+                    label="Min duration (seconds)"
+                    value={video.minDurationSeconds}
+                    onChange={(n) =>
+                      setVideo((c) => ({ ...c, minDurationSeconds: n }))
+                    }
+                  />
+                  <NumberField
+                    label="Max duration (seconds)"
+                    value={video.maxDurationSeconds}
+                    onChange={(n) =>
+                      setVideo((c) => ({ ...c, maxDurationSeconds: n }))
+                    }
+                  />
+                  <NumberField
+                    label="Max width (px)"
+                    value={video.maxWidth}
+                    onChange={(n) => setVideo((c) => ({ ...c, maxWidth: n }))}
+                  />
+                  <NumberField
+                    label="Max height (px)"
+                    value={video.maxHeight}
+                    onChange={(n) => setVideo((c) => ({ ...c, maxHeight: n }))}
+                  />
+                  <TagsField
+                    label="Allowed aspect ratios"
+                    value={video.allowedAspectRatios}
+                    onChange={(r) =>
+                      setVideo((c) => ({ ...c, allowedAspectRatios: r }))
+                    }
+                    placeholder="16:9, 9:16, 1:1, 4:5"
+                    hint="Comma-separated."
+                  />
+                  <NumberField
+                    label="Max attachments per post"
+                    value={video.maxAttachmentsPerPost}
+                    onChange={(n) =>
+                      setVideo((c) => ({ ...c, maxAttachmentsPerPost: n }))
+                    }
+                  />
+                  <ToggleField label="Video title">
+                    <Toggle
+                      checked={video.requiresVideoTitle}
+                      onChange={(v) =>
+                        setVideo((c) => ({ ...c, requiresVideoTitle: v }))
+                      }
+                      label="Required"
+                    />
+                  </ToggleField>
+                </div>
+              )}
+
+              {mediaTab === "PDF" && (
+                <div className={FIELD_GRID}>
+                  <ByteField
+                    label="Max file size"
+                    bytes={pdf.maxFileSizeBytes}
+                    onChange={(b) =>
+                      setPdf((c) => ({ ...c, maxFileSizeBytes: b }))
+                    }
+                    extraHint="Can't exceed the global PDF ceiling."
+                  />
+                  <NumberField
+                    label="Max pages"
+                    value={pdf.maxPages}
+                    onChange={(n) => setPdf((c) => ({ ...c, maxPages: n }))}
+                  />
+                  <TagsField
+                    label="Allowed formats"
+                    value={pdf.allowedFormats}
+                    onChange={(f) => setPdf((c) => ({ ...c, allowedFormats: f }))}
+                    placeholder="pdf"
+                    hint="Comma-separated."
+                  />
+                  <NumberField
+                    label="Max attachments per post"
+                    value={pdf.maxAttachmentsPerPost}
+                    onChange={(n) =>
+                      setPdf((c) => ({ ...c, maxAttachmentsPerPost: n }))
+                    }
+                  />
+                </div>
+              )}
+
+              {mediaTab === "Text" && (
+                <div className="grid gap-5">
+                  <div className={FIELD_GRID}>
+                    <NumberField
+                      label="Max content characters"
+                      value={text.maxContentChars}
+                      onChange={(n) =>
+                        setText((c) => ({ ...c, maxContentChars: n }))
+                      }
+                    />
+                    <NumberField
+                      label="Max title characters"
+                      value={text.maxTitleChars}
+                      onChange={(n) =>
+                        setText((c) => ({ ...c, maxTitleChars: n }))
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Per-post-type character overrides</Label>
+                    {postTypes.filter((r) => r.slug.trim()).length === 0 ? (
+                      <p className="text-xs text-tertiary-foreground">
+                        Add post types in the Post types tab to set per-type
+                        character limits.
+                      </p>
+                    ) : (
+                      <div className="grid gap-2">
+                        {postTypes
+                          .filter((r) => r.slug.trim())
+                          .map((r) => {
+                            const slug = r.slug.trim();
+                            return (
+                              <div
+                                key={slug}
+                                className="flex items-center justify-between gap-3"
+                              >
+                                <span className="min-w-0 truncate text-sm text-secondary-foreground">
+                                  {r.label.trim() || slug}{" "}
+                                  <span className="font-mono text-xs text-tertiary-foreground">
+                                    {slug}
+                                  </span>
+                                </span>
+                                <Input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={0}
+                                  aria-label={`Character override for ${slug}`}
+                                  value={String(text.perPostType?.[slug] ?? 0)}
+                                  onChange={(e) => {
+                                    const n = Number(e.target.value);
+                                    setPerPostType(
+                                      slug,
+                                      Number.isFinite(n) && n > 0
+                                        ? Math.floor(n)
+                                        : 0,
+                                    );
+                                  }}
+                                  className="max-w-32"
+                                />
+                              </div>
+                            );
+                          })}
+                        <p className="text-xs text-tertiary-foreground">
+                          0 means no override — the max content limit applies.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        </Section>
-      )}
+        )}
+      </div>
 
-      {/* ── Tab: Media & text limits ─────────────────────────────── */}
-      {formTab === "Media & text limits" && (
-        <div className="grid gap-3">
-          <div role="tablist" className="flex gap-6 border-b border-border">
-            {MEDIA_TABS.map((t) => (
-              <button
-                key={t}
-                type="button"
-                role="tab"
-                aria-selected={t === mediaTab}
-                onClick={() => setMediaTab(t)}
-                className={cn(
-                  "relative -mb-px border-b-2 py-2 text-sm whitespace-nowrap transition-colors outline-none",
-                  t === mediaTab
-                    ? "border-foreground font-semibold text-foreground"
-                    : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
-                )}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
-          <div className="pt-1">
-            {mediaTab === "Image" && (
-              <div className="grid grid-cols-2 gap-4">
-                <ByteField
-                  label="Max file size"
-                  bytes={image.maxFileSizeBytes}
-                  onChange={(b) =>
-                    setImage((c) => ({ ...c, maxFileSizeBytes: b }))
-                  }
-                  extraHint="Can't exceed the global image ceiling."
-                />
-                <NumberField
-                  label="Max attachments per post"
-                  value={image.maxAttachmentsPerPost}
-                  onChange={(n) =>
-                    setImage((c) => ({ ...c, maxAttachmentsPerPost: n }))
-                  }
-                />
-                <TagsField
-                  label="Allowed formats"
-                  value={image.allowedFormats}
-                  onChange={(f) => setImage((c) => ({ ...c, allowedFormats: f }))}
-                  placeholder="jpeg, png, webp, gif"
-                  hint="Comma-separated."
-                />
-                <div className="flex items-end pb-1">
-                  <Toggle
-                    checked={image.animatedGifSupported}
-                    onChange={(v) =>
-                      setImage((c) => ({ ...c, animatedGifSupported: v }))
-                    }
-                    label="Animated GIF supported"
-                  />
-                </div>
-              </div>
-            )}
-
-            {mediaTab === "Video" && (
-              <div className="grid grid-cols-2 gap-4">
-                <ByteField
-                  label="Max file size"
-                  bytes={video.maxFileSizeBytes}
-                  onChange={(b) =>
-                    setVideo((c) => ({ ...c, maxFileSizeBytes: b }))
-                  }
-                  extraHint="Can't exceed the global video ceiling."
-                />
-                <TagsField
-                  label="Allowed formats"
-                  value={video.allowedFormats}
-                  onChange={(f) => setVideo((c) => ({ ...c, allowedFormats: f }))}
-                  placeholder="mp4, mov, webm"
-                  hint="Comma-separated."
-                />
-                <NumberField
-                  label="Min duration (seconds)"
-                  value={video.minDurationSeconds}
-                  onChange={(n) =>
-                    setVideo((c) => ({ ...c, minDurationSeconds: n }))
-                  }
-                />
-                <NumberField
-                  label="Max duration (seconds)"
-                  value={video.maxDurationSeconds}
-                  onChange={(n) =>
-                    setVideo((c) => ({ ...c, maxDurationSeconds: n }))
-                  }
-                />
-                <NumberField
-                  label="Max width (px)"
-                  value={video.maxWidth}
-                  onChange={(n) => setVideo((c) => ({ ...c, maxWidth: n }))}
-                />
-                <NumberField
-                  label="Max height (px)"
-                  value={video.maxHeight}
-                  onChange={(n) => setVideo((c) => ({ ...c, maxHeight: n }))}
-                />
-                <TagsField
-                  label="Allowed aspect ratios"
-                  value={video.allowedAspectRatios}
-                  onChange={(r) =>
-                    setVideo((c) => ({ ...c, allowedAspectRatios: r }))
-                  }
-                  placeholder="16:9, 9:16, 1:1, 4:5"
-                  hint="Comma-separated."
-                />
-                <NumberField
-                  label="Max attachments per post"
-                  value={video.maxAttachmentsPerPost}
-                  onChange={(n) =>
-                    setVideo((c) => ({ ...c, maxAttachmentsPerPost: n }))
-                  }
-                />
-                <div className="flex items-end pb-1">
-                  <Toggle
-                    checked={video.requiresVideoTitle}
-                    onChange={(v) =>
-                      setVideo((c) => ({ ...c, requiresVideoTitle: v }))
-                    }
-                    label="Requires video title"
-                  />
-                </div>
-              </div>
-            )}
-
-            {mediaTab === "PDF" && (
-              <div className="grid grid-cols-2 gap-4">
-                <ByteField
-                  label="Max file size"
-                  bytes={pdf.maxFileSizeBytes}
-                  onChange={(b) => setPdf((c) => ({ ...c, maxFileSizeBytes: b }))}
-                  extraHint="Can't exceed the global PDF ceiling."
-                />
-                <NumberField
-                  label="Max pages"
-                  value={pdf.maxPages}
-                  onChange={(n) => setPdf((c) => ({ ...c, maxPages: n }))}
-                />
-                <TagsField
-                  label="Allowed formats"
-                  value={pdf.allowedFormats}
-                  onChange={(f) => setPdf((c) => ({ ...c, allowedFormats: f }))}
-                  placeholder="pdf"
-                  hint="Comma-separated."
-                />
-                <NumberField
-                  label="Max attachments per post"
-                  value={pdf.maxAttachmentsPerPost}
-                  onChange={(n) =>
-                    setPdf((c) => ({ ...c, maxAttachmentsPerPost: n }))
-                  }
-                />
-              </div>
-            )}
-
-            {mediaTab === "Text" && (
-              <div className="grid gap-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <NumberField
-                    label="Max content characters"
-                    value={text.maxContentChars}
-                    onChange={(n) =>
-                      setText((c) => ({ ...c, maxContentChars: n }))
-                    }
-                  />
-                  <NumberField
-                    label="Max title characters"
-                    value={text.maxTitleChars}
-                    onChange={(n) => setText((c) => ({ ...c, maxTitleChars: n }))}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Per-post-type character overrides</Label>
-                  {postTypes.filter((r) => r.slug.trim()).length === 0 ? (
-                    <p className="text-xs text-tertiary-foreground">
-                      Add post types in the Post types tab to set per-type
-                      character limits.
-                    </p>
-                  ) : (
-                    <div className="grid gap-2">
-                      {postTypes
-                        .filter((r) => r.slug.trim())
-                        .map((r) => {
-                          const slug = r.slug.trim();
-                          return (
-                            <div
-                              key={slug}
-                              className="flex items-center justify-between gap-3"
-                            >
-                              <span className="min-w-0 truncate text-sm text-secondary-foreground">
-                                {r.label.trim() || slug}{" "}
-                                <span className="font-mono text-xs text-tertiary-foreground">
-                                  {slug}
-                                </span>
-                              </span>
-                              <Input
-                                type="number"
-                                inputMode="numeric"
-                                min={0}
-                                aria-label={`Character override for ${slug}`}
-                                value={String(text.perPostType?.[slug] ?? 0)}
-                                onChange={(e) => {
-                                  const n = Number(e.target.value);
-                                  setPerPostType(
-                                    slug,
-                                    Number.isFinite(n) && n > 0
-                                      ? Math.floor(n)
-                                      : 0,
-                                  );
-                                }}
-                                className="max-w-32"
-                              />
-                            </div>
-                          );
-                        })}
-                      <p className="text-xs text-tertiary-foreground">
-                        0 means no override — the max content limit applies.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+      {/* Error (fixed, above footer) */}
+      {error && (
+        <div className="shrink-0 px-6 pt-3">
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
         </div>
       )}
 
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-
-      <DialogFooter>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onCancel}
-          disabled={submitting}
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          variant="defaultInverted"
-          className="font-semibold"
-          disabled={submitting}
-        >
-          {submitting
-            ? "Saving…"
-            : mode === "edit"
-              ? "Save changes"
-              : "Add platform"}
-        </Button>
-      </DialogFooter>
+      {/* Footer (fixed) */}
+      <div className="shrink-0 border-t border-border px-6 py-4">
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onCancel}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="defaultInverted"
+            className="font-semibold"
+            disabled={submitting}
+          >
+            {submitting
+              ? "Saving…"
+              : mode === "edit"
+                ? "Save changes"
+                : "Add platform"}
+          </Button>
+        </DialogFooter>
+      </div>
     </form>
   );
 }
@@ -745,5 +784,23 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+// ToggleField wraps a Toggle with a Label so it lines up with the labeled input
+// in the adjacent grid column: the label sits on the label row and the switch
+// sits at input height (h-10), keeping the row visually even.
+function ToggleField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label>{label}</Label>
+      <div className="flex h-10 items-center">{children}</div>
+    </div>
   );
 }
