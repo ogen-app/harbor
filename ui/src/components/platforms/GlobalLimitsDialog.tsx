@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/loader";
-import { ByteField, NumberField } from "./fields";
+import { ByteField, NumberField, FIELD_GRID } from "./fields";
 import type { GlobalLimits, GlobalLimitsResponse } from "./types";
 
 interface GlobalLimitsDialogProps {
@@ -171,7 +171,7 @@ function LimitsForm({
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className={FIELD_GRID}>
         <ByteField
           label="Max image upload"
           bytes={maxImageUploadBytes}
@@ -205,6 +205,9 @@ function LimitsForm({
         </p>
       )}
 
+      {/* Full-bleed divider above the footer, and the same button treatment as
+          the platform Add/Edit form (ghost Cancel + inverted, semibold save). */}
+      <div className="-mx-6 border-t border-border" />
       <DialogFooter>
         <Button
           type="button"
@@ -214,7 +217,12 @@ function LimitsForm({
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button
+          type="submit"
+          variant="defaultInverted"
+          className="font-semibold"
+          disabled={submitting}
+        >
           {submitting ? "Saving…" : "Save limits"}
         </Button>
       </DialogFooter>

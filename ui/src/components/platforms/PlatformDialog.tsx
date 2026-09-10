@@ -14,7 +14,14 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { Field, Toggle, NumberField, ByteField, TagsField } from "./fields";
+import {
+  Field,
+  Toggle,
+  NumberField,
+  ByteField,
+  TagsField,
+  FIELD_GRID,
+} from "./fields";
 import type {
   Platform,
   ImageConstraints,
@@ -109,11 +116,6 @@ function toRows(p?: Platform): PostTypeRow[] {
     publishable: supported.has(slug),
   }));
 }
-
-// Two-column field grid: items-start so a field with a hint doesn't stretch its
-// hint-less neighbor's rows (which pushed inputs out of alignment — the "jumping"
-// bug). gap-y is generous since rows have uneven heights.
-const FIELD_GRID = "grid grid-cols-2 items-start gap-x-4 gap-y-5";
 
 interface PlatformDialogProps {
   open: boolean;
@@ -417,20 +419,6 @@ function PlatformForm({
                 onChange={setSortOrder}
                 hint="Lower sorts first. Drag rows in the list to reorder too."
               />
-              <Field label="Availability">
-                <div className="flex flex-col gap-2.5 pt-1.5">
-                  <Toggle
-                    checked={connectSupported}
-                    onChange={setConnectSupported}
-                    label="Connect supported"
-                  />
-                  <Toggle
-                    checked={enabled}
-                    onChange={setEnabled}
-                    label="Enabled"
-                  />
-                </div>
-              </Field>
             </div>
 
             <Section
@@ -458,6 +446,35 @@ function PlatformForm({
                 />
               </Field>
             </Section>
+
+            {/* Availability — pinned to the bottom of the tab and set on a
+                golden callout to flag that these two switches gate whether the
+                platform can be connected and published to. */}
+            <section className="rounded-lg border border-amber-500/40 bg-amber-400/10 p-4">
+              <div className="mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  Availability
+                </h3>
+                <p className="mt-0.5 text-xs text-tertiary-foreground">
+                  Controls whether this platform can be connected and published
+                  to. Change with care.
+                </p>
+              </div>
+              <div className="grid gap-3.5">
+                <Toggle
+                  checked={connectSupported}
+                  onChange={setConnectSupported}
+                  label="Connect supported"
+                  description="Whether operators can connect and manage accounts for this platform."
+                />
+                <Toggle
+                  checked={enabled}
+                  onChange={setEnabled}
+                  label="Enabled"
+                  description="Whether the platform is active and available for publishing. Turn off to retire it without deleting."
+                />
+              </div>
+            </section>
           </div>
         )}
 
