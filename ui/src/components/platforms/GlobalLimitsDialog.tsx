@@ -1,0 +1,219 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Loader } from "@/components/ui/loader";
+import { ByteField, NumberField } from "./fields";
+import type { GlobalLimits, GlobalLimitsResponse } from "./types";
+
+interface GlobalLimitsDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}
+
+// GlobalLimitsDialog reads and writes the five cross-platform ceilings. Radix
+// only mounts the content while open, so LimitsBody fetches on open; the form
+// remounts (keyed on the loaded values) so its fields seed without an effect.
+export function GlobalLimitsDialog({
+  open,
+  onOpenChange,
+  onSaved,
+}: GlobalLimitsDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Global limits</DialogTitle>
+          <DialogDescription>
+            Cross-platform ceilings. A per-platform file-size limit can’t exceed
+            the matching ceiling here.
+          </DialogDescription>
+        </DialogHeader>
+        {open && (
+          <LimitsBody
+            onCancel={() => onOpenChange(false)}
+            onSaved={() => {
+              onSaved();
+              onOpenChange(false);
+            }}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LimitsBody({
+  onCancel,
+  onSaved,
+}: {
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [limits, setLimits] = useState<GlobalLimits | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback((signal?: AbortSignal) => {
+    return fetch("/api/platforms/global-limits", { signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Request failed (${r.status})`);
+        return r.json() as Promise<GlobalLimitsResponse>;
+      })
+      .then((json) => {
+        if (!json.available) {
+          setError("The platform-admin service is unavailable.");
+          return;
+        }
+        setLimits(json.limits);
+        setError(null);
+      })
+      .catch((e: unknown) => {
+        if (signal?.aborted) return;
+        setError(e instanceof Error ? e.message : "Failed to load limits.");
+      })
+      .finally(() => {
+        if (!signal?.aborted) setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-8 text-sm text-tertiary-foreground">
+        <Loader className="size-4 border-[1.5px]" />
+        Loading limits…
+      </div>
+    );
+  }
+  if (error || !limits) {
+    return (
+      <>
+        <p className="py-6 text-sm text-destructive" role="alert">
+          {error ?? "Limits unavailable."}
+        </p>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onCancel}>
+            Close
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  }
+
+  return <LimitsForm initial={limits} onCancel={onCancel} onSaved={onSaved} />;
+}
+
+function LimitsForm({
+  initial,
+  onCancel,
+  onSaved,
+}: {
+  initial: GlobalLimits;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [maxImageUploadBytes, setImage] = useState(initial.maxImageUploadBytes);
+  const [maxPdfUploadBytes, setPdf] = useState(initial.maxPdfUploadBytes);
+  const [maxVideoUploadBytes, setVideo] = useState(initial.maxVideoUploadBytes);
+  const [maxAltTextChars, setAlt] = useState(initial.maxAltTextChars);
+  const [maxThreadSegments, setThread] = useState(initial.maxThreadSegments);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const body: GlobalLimits = {
+        maxImageUploadBytes,
+        maxPdfUploadBytes,
+        maxVideoUploadBytes,
+        maxAltTextChars,
+        maxThreadSegments,
+      };
+      const res = await fetch("/api/platforms/global-limits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(detail?.error || `Request failed (${res.status})`);
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save limits.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="grid gap-4">
+      <div className="grid grid-cols-2 gap-4">
+        <ByteField
+          label="Max image upload"
+          bytes={maxImageUploadBytes}
+          onChange={setImage}
+        />
+        <ByteField
+          label="Max PDF upload"
+          bytes={maxPdfUploadBytes}
+          onChange={setPdf}
+        />
+        <ByteField
+          label="Max video upload"
+          bytes={maxVideoUploadBytes}
+          onChange={setVideo}
+        />
+        <NumberField
+          label="Max alt-text characters"
+          value={maxAltTextChars}
+          onChange={setAlt}
+        />
+        <NumberField
+          label="Max thread segments"
+          value={maxThreadSegments}
+          onChange={setThread}
+        />
+      </div>
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Saving…" : "Save limits"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}

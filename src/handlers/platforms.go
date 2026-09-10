@@ -16,9 +16,10 @@ import (
 // PlatformsHandler is the REST surface Harbor's UI calls to manage Ogen's
 // publishable social-platform catalog (CON-292/293). It is a thin adapter over
 // the ogenplatforms gRPC client — the data model, seed catalog, and all
-// validation live in Ogen behind the wire. This iteration exposes the read path
-// (list the whole catalog); catalog writes and the global-limits panel land in
-// later iterations.
+// validation live in Ogen behind the wire. It exposes the full catalog surface:
+// list, create, whole-resource update (also how sort_order/reorder and the
+// enabled-from-edit-form persist), enable/disable, delete (with force), and the
+// global-limits panel.
 type PlatformsHandler struct {
 	client *ogenplatforms.Client
 }
@@ -32,6 +33,16 @@ func NewPlatformsHandler(client *ogenplatforms.Client) *PlatformsHandler {
 // shared gRPC token.
 func (h *PlatformsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/platforms", requireAuth, h.List)
+
+	// Static /global-limits routes are registered before the /:id routes so
+	// Fiber doesn't capture "global-limits" as a platform :id on PUT.
+	app.Get("/api/platforms/global-limits", requireAuth, h.GetGlobalLimits)
+	app.Put("/api/platforms/global-limits", requireAuth, h.UpdateGlobalLimits)
+
+	app.Post("/api/platforms", requireAuth, h.Create)
+	app.Put("/api/platforms/:id/enabled", requireAuth, h.SetEnabled)
+	app.Put("/api/platforms/:id", requireAuth, h.Update)
+	app.Delete("/api/platforms/:id", requireAuth, h.Delete)
 }
 
 // platformsListResponse mirrors the secrets/tiers pattern: `available`
@@ -41,6 +52,17 @@ func (h *PlatformsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 type platformsListResponse struct {
 	Available bool                     `json:"available"`
 	Platforms []ogenplatforms.Platform `json:"platforms"`
+}
+
+type platformEnabledRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// globalLimitsResponse flags availability like the list endpoint, so the
+// global-limits panel degrades softly when Ogen is unreachable.
+type globalLimitsResponse struct {
+	Available bool                       `json:"available"`
+	Limits    ogenplatforms.GlobalLimits `json:"limits"`
 }
 
 // List godoc
@@ -68,6 +90,144 @@ func (h *PlatformsHandler) List(c *fiber.Ctx) error {
 		out = []ogenplatforms.Platform{}
 	}
 	return c.JSON(platformsListResponse{Available: true, Platforms: out})
+}
+
+// Create godoc
+// @Summary  Create a platform (server-minted id, created disabled)
+// @Tags     platforms
+// @Accept   json
+// @Produce  json
+// @Success  201  {object}  ogenplatforms.Platform
+// @Router   /api/platforms [post]
+func (h *PlatformsHandler) Create(c *fiber.Ctx) error {
+	start := time.Now()
+	p, err := parsePlatformBody(c)
+	if err != nil {
+		logPlatforms(c, start, err)
+		return err
+	}
+	p.ID = "" // id is server-minted; ignore anything the client sent.
+	out, cerr := h.client.Create(c.Context(), p)
+	logPlatforms(c, start, cerr)
+	if cerr != nil {
+		return mapPlatformError(cerr)
+	}
+	return c.Status(fiber.StatusCreated).JSON(out)
+}
+
+// Update godoc
+// @Summary  Replace a platform (whole-resource; also persists sort_order)
+// @Tags     platforms
+// @Accept   json
+// @Produce  json
+// @Param    id  path  string  true  "Platform id"
+// @Success  200  {object}  ogenplatforms.Platform
+// @Router   /api/platforms/{id} [put]
+func (h *PlatformsHandler) Update(c *fiber.Ctx) error {
+	start := time.Now()
+	p, err := parsePlatformBody(c)
+	if err != nil {
+		logPlatforms(c, start, err)
+		return err
+	}
+	p.ID = c.Params("id") // path is authoritative for the target.
+	out, uerr := h.client.Update(c.Context(), p)
+	logPlatforms(c, start, uerr)
+	if uerr != nil {
+		return mapPlatformError(uerr)
+	}
+	return c.JSON(out)
+}
+
+// SetEnabled godoc
+// @Summary  Soft-enable/disable a platform
+// @Tags     platforms
+// @Accept   json
+// @Produce  json
+// @Param    id  path  string  true  "Platform id"
+// @Success  200  {object}  ogenplatforms.Platform
+// @Router   /api/platforms/{id}/enabled [put]
+func (h *PlatformsHandler) SetEnabled(c *fiber.Ctx) error {
+	start := time.Now()
+	var req platformEnabledRequest
+	if err := c.BodyParser(&req); err != nil {
+		logPlatforms(c, start, err)
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	out, err := h.client.SetEnabled(c.Context(), c.Params("id"), req.Enabled)
+	logPlatforms(c, start, err)
+	if err != nil {
+		return mapPlatformError(err)
+	}
+	return c.JSON(out)
+}
+
+// Delete godoc
+// @Summary  Delete a platform (force overrides the in-use guard)
+// @Tags     platforms
+// @Param    id     path   string  true   "Platform id"
+// @Param    force  query  bool    false  "Override the in-use guard"
+// @Success  204
+// @Router   /api/platforms/{id} [delete]
+func (h *PlatformsHandler) Delete(c *fiber.Ctx) error {
+	start := time.Now()
+	err := h.client.Delete(c.Context(), c.Params("id"), c.QueryBool("force", false))
+	logPlatforms(c, start, err)
+	if err != nil {
+		return mapPlatformError(err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// GetGlobalLimits godoc
+// @Summary  Read the five cross-platform ceilings
+// @Tags     platforms
+// @Produce  json
+// @Success  200  {object}  globalLimitsResponse
+// @Router   /api/platforms/global-limits [get]
+func (h *PlatformsHandler) GetGlobalLimits(c *fiber.Ctx) error {
+	start := time.Now()
+	limits, err := h.client.GetGlobalLimits(c.Context())
+	logPlatforms(c, start, err)
+	if err != nil {
+		if isPlatformsUnavailable(err) {
+			return c.JSON(globalLimitsResponse{Available: false})
+		}
+		return mapPlatformError(err)
+	}
+	return c.JSON(globalLimitsResponse{Available: true, Limits: limits})
+}
+
+// UpdateGlobalLimits godoc
+// @Summary  Write the five cross-platform ceilings
+// @Tags     platforms
+// @Accept   json
+// @Produce  json
+// @Success  200  {object}  ogenplatforms.GlobalLimits
+// @Router   /api/platforms/global-limits [put]
+func (h *PlatformsHandler) UpdateGlobalLimits(c *fiber.Ctx) error {
+	start := time.Now()
+	var l ogenplatforms.GlobalLimits
+	if err := c.BodyParser(&l); err != nil {
+		logPlatforms(c, start, err)
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	out, err := h.client.UpdateGlobalLimits(c.Context(), l)
+	logPlatforms(c, start, err)
+	if err != nil {
+		return mapPlatformError(err)
+	}
+	return c.JSON(out)
+}
+
+// parsePlatformBody decodes the whole-resource JSON the Add/Edit form sends. A
+// parse failure returns a fixed-shape 400 (never the body).
+func parsePlatformBody(c *fiber.Ctx) (ogenplatforms.Platform, error) {
+	var p ogenplatforms.Platform
+	if err := c.BodyParser(&p); err != nil {
+		return p, fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	return p, nil
 }
 
 // isPlatformsUnavailable reports whether err means "platform-admin service can't

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -37,5 +38,65 @@ func TestPlatforms_ListSoftUnavailable(t *testing.T) {
 	}
 	if got.Platforms == nil {
 		t.Errorf("platforms = null, want [] so the UI can map over it")
+	}
+}
+
+// GET /global-limits must degrade softly too (200 + available:false) when the
+// client is unconfigured, so the panel renders gracefully.
+func TestPlatforms_GlobalLimitsSoftUnavailable(t *testing.T) {
+	app := fiber.New()
+	NewPlatformsHandler(nil).Register(app, passAuth)
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/api/platforms/global-limits", nil))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("status = %d, want 200 (soft unavailable)", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	var got struct {
+		Available bool `json:"available"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decode: %v (body=%s)", err, body)
+	}
+	if got.Available {
+		t.Errorf("available = true, want false when client is nil")
+	}
+}
+
+// Writes against an unconfigured client are hard 503s (not soft states): the
+// operator must know the change didn't land. Covers the create/enable/delete/
+// global-limits write paths + the /:id vs /global-limits route ordering.
+func TestPlatforms_WritesUnavailableAre503(t *testing.T) {
+	app := fiber.New()
+	NewPlatformsHandler(nil).Register(app, passAuth)
+
+	cases := []struct {
+		method, path, body string
+	}{
+		{"POST", "/api/platforms", `{"name":"X","zernioId":"x"}`},
+		{"PUT", "/api/platforms/px", `{"name":"X"}`},
+		{"PUT", "/api/platforms/px/enabled", `{"enabled":true}`},
+		{"DELETE", "/api/platforms/px", ""},
+		{"PUT", "/api/platforms/global-limits", `{"maxThreadSegments":25}`},
+	}
+	for _, tc := range cases {
+		var bodyReader io.Reader
+		if tc.body != "" {
+			bodyReader = strings.NewReader(tc.body)
+		}
+		req := httptest.NewRequest(tc.method, tc.path, bodyReader)
+		if tc.body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", tc.method, tc.path, err)
+		}
+		if resp.StatusCode != fiber.StatusServiceUnavailable {
+			t.Errorf("%s %s: status = %d, want 503", tc.method, tc.path, resp.StatusCode)
+		}
 	}
 }
