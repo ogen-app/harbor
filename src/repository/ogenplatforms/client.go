@@ -125,6 +125,14 @@ func New(addr, token string) (*Client, error) {
 	}
 	conn, err := grpc.NewClient(
 		addr,
+		// Plaintext transport by design: Ogen exposes its internal admin gRPC on
+		// ONE shared, bearer-gated listener with no TLS (see the ogensecrets /
+		// ogentenants clients, which dial the same way). The bearer token is the
+		// auth boundary, so OGEN_GRPC_ADDR MUST resolve over a trusted private
+		// link (Ogen and Harbor co-located / internal networking) and must never
+		// traverse an untrusted hop. Enabling TLS here alone would break the
+		// handshake with Ogen's plaintext listener; adopting TLS is a
+		// cross-cutting change across Ogen's server and every Harbor client.
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(bearerTokenInterceptor(token)),
 	)
