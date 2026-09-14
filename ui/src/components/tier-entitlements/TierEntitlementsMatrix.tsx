@@ -16,11 +16,11 @@ import type {
 // The Feature + Status columns are frozen (sticky) at the left, mirroring the
 // /tenants table (contiguous grid tracks — no gap — so the opaque frozen
 // backgrounds hide content scrolling underneath; each cell carries its own
-// padding). The tier/version columns are a fixed narrow width and separated by
-// full-height vertical rules.
-const FEATURE_W = 200; // px — frozen
-const STATUS_W = 50; // px — frozen, just a status dot
-const TIER_W = 104; // px — narrow tier/version column
+// padding). The tier/version columns share the remaining width (minmax floor +
+// 1fr) and are separated by full-height vertical rules.
+const FEATURE_W = 400; // px — frozen
+const STATUS_W = 100; // px — frozen, label chip + Linear issue
+const TIER_MIN = 96; // px — tier column floor before the table scrolls
 const EDGE_L = "pl-6"; // card inset on the frozen Feature column
 // Soft right-edge shadow on the last frozen column (Status), shown only while
 // the table is scrolled, so tier columns read as sliding underneath.
@@ -52,12 +52,12 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 // Delivery status of a FEATURE (the reference's LIVE / FLAG OFF / IN PROGRESS /
 // PLANNED legend) — orthogonal to a tier version's draft/active/retired status.
-// Rendered as a color dot in the narrow Status column; the legend maps colors.
-const STATUS_META: Record<string, { label: string; dot: string }> = {
-  live: { label: "LIVE", dot: "bg-emerald-500" },
-  in_progress: { label: "IN PROGRESS", dot: "bg-sky-500" },
-  flag_off: { label: "FLAG OFF", dot: "bg-amber-500" },
-  planned: { label: "PLANNED", dot: "bg-gray-400" },
+// Rendered as a color-coded chip in the Status column; the legend maps colors.
+const FEATURE_STATUS: Record<string, { label: string; className: string }> = {
+  live: { label: "LIVE", className: "bg-emerald-100 text-emerald-800" },
+  in_progress: { label: "IN PROGRESS", className: "bg-sky-100 text-sky-800" },
+  flag_off: { label: "FLAG OFF", className: "bg-amber-100 text-amber-800" },
+  planned: { label: "PLANNED", className: "bg-gray-100 text-gray-600" },
 };
 const LEGEND: { key: string; hint: string }[] = [
   { key: "live", hint: "shipped" },
@@ -105,6 +105,16 @@ function formatMoney(p: Price): string {
   return s + suffix;
 }
 
+// formatMB humanises a raw byte count as megabytes (e.g. 104857600 → "100 MB",
+// 10737418240 → "10,240 MB"). Byte-valued entitlements use the `_bytes` key
+// suffix (e.g. media_storage_bytes); operators think in MB.
+function formatMB(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  const rounded =
+    mb >= 10 || Number.isInteger(mb) ? Math.round(mb) : Math.round(mb * 10) / 10;
+  return `${rounded.toLocaleString("en-US")} MB`;
+}
+
 // A rendered entitlement cell: the display text plus whether it's a muted
 // placeholder (so "—" reads lighter than a real value).
 function cell(
@@ -125,6 +135,10 @@ function cell(
   if (value === null || value === undefined) return { text: "∞", muted: false };
   if (typeof value === "boolean")
     return value ? { text: "✓", muted: false } : { text: "—", muted: true };
+  // Byte-valued numerics (media_storage_bytes, …) render humanised in MB.
+  if (feature.key.endsWith("_bytes") && typeof value === "number") {
+    return { text: formatMB(value), muted: false };
+  }
   return { text: String(value), muted: false };
 }
 
@@ -235,9 +249,12 @@ export function TierEntitlementsMatrix() {
     [data],
   );
 
-  // Contiguous tracks: Feature (frozen) · Status (frozen) · one narrow column
-  // per tier. Fixed pixel widths keep the frozen pin offset deterministic.
-  const gridTemplate = `${FEATURE_W}px ${STATUS_W}px repeat(${tiers.length}, ${TIER_W}px)`;
+  // Contiguous tracks: Feature (frozen) · Status (frozen) · the tier columns
+  // sharing the remaining width (minmax floor + 1fr). Fixed frozen widths keep
+  // the pin offset deterministic; tableMinWidth is the floor before the table
+  // scrolls sideways (and keeps row backgrounds spanning the full width).
+  const gridTemplate = `${FEATURE_W}px ${STATUS_W}px repeat(${tiers.length}, minmax(${TIER_MIN}px, 1fr))`;
+  const tableMinWidth = FEATURE_W + STATUS_W + tiers.length * TIER_MIN;
 
   return (
     <div className="rounded-xl bg-primary">
@@ -256,14 +273,17 @@ export function TierEntitlementsMatrix() {
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5">
           {LEGEND.map(({ key, hint }) => {
-            const s = STATUS_META[key];
+            const s = FEATURE_STATUS[key];
             return (
               <span key={key} className="flex items-center gap-1.5 text-xs">
                 <span
-                  aria-hidden
-                  className={cn("size-2 rounded-full", s.dot)}
-                />
-                <span className="font-semibold text-foreground">{s.label}</span>
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
+                    s.className,
+                  )}
+                >
+                  {s.label}
+                </span>
                 <span className="text-tertiary-foreground">{hint}</span>
               </span>
             );
@@ -297,10 +317,10 @@ export function TierEntitlementsMatrix() {
             No feature catalog or tiers to show yet.
           </p>
         ) : (
-          <div className="min-w-max">
+          <div className="w-full" style={{ minWidth: tableMinWidth }}>
             {/* Column header row */}
             <div
-              className="grid border-b border-border"
+              className="grid w-full border-b border-border"
               style={{ gridTemplateColumns: gridTemplate }}
             >
               <div
@@ -315,7 +335,7 @@ export function TierEntitlementsMatrix() {
               </div>
               <div
                 className={cn(
-                  "sticky z-20 flex items-end justify-center bg-primary px-2 py-2.5",
+                  "sticky z-20 flex items-end bg-primary px-2 py-2.5",
                   scrolled && FROZEN_SHADOW,
                 )}
                 style={{ left: FEATURE_W }}
@@ -363,7 +383,7 @@ export function TierEntitlementsMatrix() {
                     columns and stays pinned, and the vertical rules continue
                     through the empty tier cells. */}
                 <div
-                  className="grid border-b border-border"
+                  className="grid w-full border-b border-border"
                   style={{ gridTemplateColumns: gridTemplate }}
                 >
                   <div
@@ -389,14 +409,11 @@ export function TierEntitlementsMatrix() {
                 </div>
 
                 {feats.map((f) => {
-                  const meta = STATUS_META[f.status];
-                  const statusTitle = `${meta?.label ?? (f.status || "—")}${
-                    f.linearIssue ? ` · ${f.linearIssue}` : ""
-                  }`;
+                  const s = FEATURE_STATUS[f.status];
                   return (
                     <div
                       key={f.key}
-                      className="group grid border-b border-border text-sm"
+                      className="group grid w-full border-b border-border text-sm"
                       style={{ gridTemplateColumns: gridTemplate }}
                     >
                       {/* Feature name + description (frozen) */}
@@ -417,21 +434,33 @@ export function TierEntitlementsMatrix() {
                         )}
                       </div>
 
-                      {/* Status dot (frozen) — full label + issue in the title */}
+                      {/* Status chip + Linear issue (frozen) */}
                       <div
                         className={cn(
-                          "sticky z-10 flex items-center justify-center bg-primary px-2 py-3 transition-colors group-hover:bg-secondary",
+                          "sticky z-10 flex flex-col justify-center gap-0.5 bg-primary px-2 py-3 transition-colors group-hover:bg-secondary",
                           scrolled && FROZEN_SHADOW,
                         )}
                         style={{ left: FEATURE_W }}
                       >
-                        <span
-                          title={statusTitle}
-                          className={cn(
-                            "inline-block size-2.5 rounded-full",
-                            meta?.dot ?? "bg-gray-300",
-                          )}
-                        />
+                        {s ? (
+                          <span
+                            className={cn(
+                              "w-fit rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
+                              s.className,
+                            )}
+                          >
+                            {s.label}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-tertiary-foreground">
+                            {f.status || "—"}
+                          </span>
+                        )}
+                        {f.linearIssue && (
+                          <span className="font-mono text-[10px] text-tertiary-foreground">
+                            {f.linearIssue}
+                          </span>
+                        )}
                       </div>
 
                       {/* One cell per tier */}
