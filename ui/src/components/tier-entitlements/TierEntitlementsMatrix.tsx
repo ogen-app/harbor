@@ -364,7 +364,7 @@ export function TierEntitlementsMatrix() {
                 return (
                   <div
                     key={t.tierId}
-                    className="flex flex-col items-center justify-end gap-0.5 border-l border-border px-2 py-2.5 text-center"
+                    className="flex flex-col items-start justify-end gap-0.5 border-l border-border px-3 py-2.5 text-left"
                   >
                     <span className="flex items-center gap-1 text-sm font-semibold text-foreground">
                       {t.tierColor && (
