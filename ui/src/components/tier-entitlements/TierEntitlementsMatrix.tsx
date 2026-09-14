@@ -567,6 +567,7 @@ export function TierEntitlementsMatrix() {
         tierId={drawer?.tier.tierId ?? ""}
         tierName={drawer?.tier.tierName ?? ""}
         baseVersion={drawer?.version ?? null}
+        siblingVersions={drawer?.tier.versions ?? []}
         features={features}
         onSaved={() => reload()}
       />

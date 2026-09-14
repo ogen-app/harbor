@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { InfinitySquareIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,6 +72,12 @@ function initEntitlements(
 const selectClass =
   "h-8 rounded-none border-b border-quaternary bg-input px-2 text-[14px] font-medium outline-none focus-visible:border-foreground";
 
+// errorText pulls the server's { error } message from a failed response.
+async function errorText(res: Response): Promise<string> {
+  const j = (await res.json().catch(() => null)) as { error?: string } | null;
+  return j?.error || `Request failed (${res.status})`;
+}
+
 interface VersionFormDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -78,6 +86,9 @@ interface VersionFormDrawerProps {
   tierName: string;
   // The version being edited (update) or cloned as the starting point (create).
   baseVersion: TierVersion | null;
+  // All versions of this tier — used to enforce a single purchasable published
+  // version.
+  siblingVersions: TierVersion[];
   features: Feature[];
   onSaved: () => void;
 }
@@ -94,10 +105,15 @@ export function VersionFormDrawer({
   tierId,
   tierName,
   baseVersion,
+  siblingVersions,
   features,
   onSaved,
 }: VersionFormDrawerProps) {
   const [purchasable, setPurchasable] = useState(false);
+  // Draft vs published: on when the version stays a draft; off publishes it
+  // (draft → active) on save, which needs a change reason.
+  const [draft, setDraft] = useState(true);
+  const [changeReason, setChangeReason] = useState("");
   const [prices, setPrices] = useState<Price[]>([]);
   const [ent, setEnt] = useState<Record<string, EntitlementValue | undefined>>(
     {},
@@ -124,6 +140,8 @@ export function VersionFormDrawer({
           ],
     );
     setEnt(initEntitlements(features, baseVersion));
+    setDraft(true);
+    setChangeReason("");
     setErr(null);
     /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,6 +181,26 @@ export function VersionFormDrawer({
     setPrices((prev) => prev.filter((_, idx) => idx !== i));
 
   async function save() {
+    // Only one non-draft (published) version of a tier may be purchasable.
+    if (!draft && purchasable) {
+      const conflict = siblingVersions.find(
+        (v) =>
+          v.id !== baseVersion?.id &&
+          v.status !== "draft" &&
+          v.purchasable,
+      );
+      if (conflict) {
+        setErr(
+          `This tier already has a purchasable published version (v${conflict.version}). Retire it before publishing another as purchasable.`,
+        );
+        return;
+      }
+    }
+    if (!draft && !changeReason.trim()) {
+      setErr("A change reason is required to publish a version.");
+      return;
+    }
+
     setBusy(true);
     setErr(null);
     // Drop "not set" numerics; keep booleans and explicit numbers/unlimited.
@@ -171,19 +209,43 @@ export function VersionFormDrawer({
       if (v !== undefined) entitlements[k] = v;
     }
     const body = { purchasable, entitlements, prices };
-    const url =
-      mode === "create"
-        ? `/api/tier-entitlements/tiers/${encodeURIComponent(tierId)}/versions`
-        : `/api/tier-entitlements/versions/${encodeURIComponent(baseVersion?.id ?? "")}`;
     try {
-      const r = await fetch(url, {
-        method: mode === "create" ? "POST" : "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const j = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error || `Request failed (${r.status})`);
+      // 1. Create or replace the draft body.
+      let versionId = baseVersion?.id ?? "";
+      if (mode === "create") {
+        const r = await fetch(
+          `/api/tier-entitlements/tiers/${encodeURIComponent(tierId)}/versions`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        if (!r.ok) throw new Error(await errorText(r));
+        const created = (await r.json()) as { id: string };
+        versionId = created.id;
+      } else {
+        const r = await fetch(
+          `/api/tier-entitlements/versions/${encodeURIComponent(versionId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        if (!r.ok) throw new Error(await errorText(r));
+      }
+      // 2. Publish (draft → active) when Draft is off.
+      if (!draft) {
+        const pr = await fetch(
+          `/api/tier-entitlements/versions/${encodeURIComponent(versionId)}/publish`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ changeReason }),
+          },
+        );
+        if (!pr.ok) throw new Error(await errorText(pr));
       }
       onOpenChange(false);
       onSaved();
@@ -222,20 +284,47 @@ export function VersionFormDrawer({
           )}
 
           {/* Meta */}
-          <div className="flex items-center gap-3">
-            <Switch
-              size="lg"
-              variant="success"
-              checked={purchasable}
-              onChange={setPurchasable}
-              label="Purchasable"
-            />
-            <span className="text-sm font-medium text-foreground">
-              Purchasable
-            </span>
-            <span className="text-xs text-tertiary-foreground">
-              buyable now on the pricing page
-            </span>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Switch
+                size="lg"
+                variant="success"
+                checked={purchasable}
+                onChange={setPurchasable}
+                label="Purchasable"
+              />
+              <span className="text-sm font-medium text-foreground">
+                Purchasable
+              </span>
+              <span className="text-xs text-tertiary-foreground">
+                buyable now on the pricing page
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch
+                size="lg"
+                checked={draft}
+                onChange={setDraft}
+                label="Draft"
+              />
+              <span className="text-sm font-medium text-foreground">Draft</span>
+              <span className="text-xs text-tertiary-foreground">
+                {draft ? "kept editable, not live" : "published (active) on save"}
+              </span>
+            </div>
+            {!draft && (
+              <div className="space-y-1">
+                <Label className="text-xs text-tertiary-foreground">
+                  Change reason (required to publish)
+                </Label>
+                <Input
+                  inputSize="sm"
+                  value={changeReason}
+                  onChange={(e) => setChangeReason(e.target.value)}
+                  placeholder="e.g. Q3 price update"
+                />
+              </div>
+            )}
           </div>
 
           {/* Prices */}
@@ -324,7 +413,7 @@ export function VersionFormDrawer({
                 {feats.map((f) => (
                   <div
                     key={f.key}
-                    className="flex items-center justify-between gap-3 border-b border-border/60 pb-2"
+                    className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-b-0 last:pb-0"
                   >
                     <Label className="min-w-0 flex-1 text-sm font-normal text-foreground">
                       {f.name}
@@ -370,7 +459,13 @@ export function VersionFormDrawer({
             disabled={busy || blockedUpdate}
           >
             {busy && <Loader className="size-3.5 border-[1.5px]" />}
-            {mode === "create" ? "Create draft" : "Save changes"}
+            {mode === "create"
+              ? draft
+                ? "Create draft"
+                : "Create & publish"
+              : draft
+                ? "Save changes"
+                : "Save & publish"}
           </Button>
         </DrawerFooter>
       </DrawerContent>
@@ -397,22 +492,21 @@ function NumericField({
       <Input
         type="number"
         inputSize="sm"
-        className="w-24"
+        className="w-20"
         placeholder="—"
         disabled={unlimited}
         value={unlimited ? "" : display}
         onChange={(e) => onNum(e.target.value, isBytes)}
       />
-      {isBytes && (
-        <span className="text-xs text-tertiary-foreground">MB</span>
-      )}
-      <span className="flex items-center gap-1.5 text-xs text-tertiary-foreground">
-        <Switch
-          checked={unlimited}
-          onChange={onUnlimited}
-          label="Unlimited"
+      {isBytes && <span className="text-xs text-tertiary-foreground">MB</span>}
+      <span className="text-xs font-medium text-tertiary-foreground">OR</span>
+      <span className="flex items-center gap-1.5">
+        <Switch checked={unlimited} onChange={onUnlimited} label="Unlimited" />
+        <HugeiconsIcon
+          icon={InfinitySquareIcon}
+          className="size-5 text-gray-600"
+          aria-label="Unlimited"
         />
-        ∞
       </span>
     </div>
   );
