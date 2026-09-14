@@ -1,11 +1,17 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ComponentProps,
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   SquareSplitHorizontalIcon,
   CaretUpIcon,
   CaretDownIcon,
-  CheckIcon,
   DotsSixVerticalIcon,
   DotsThreeOutlineVerticalIcon,
   ArrowSquareOutIcon,
@@ -24,6 +30,7 @@ import { useRowKeyboardNav } from "@/lib/useRowKeyboardNav";
 import { InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -317,42 +324,10 @@ function loadColumnPrefs(): ColumnPref[] {
 // ColumnSwitch is a small accessible on/off toggle (no external dependency),
 // styled to the app tokens: black track when on, beige when off, white knob with
 // a check when on.
-function ColumnSwitch({
-  checked,
-  onChange,
-  disabled,
-  label,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-foreground/30 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-foreground" : "bg-quaternary",
-      )}
-    >
-      <span
-        className={cn(
-          "inline-flex size-4 items-center justify-center rounded-full bg-primary shadow-sm transition-transform",
-          checked ? "translate-x-[18px]" : "translate-x-0.5",
-        )}
-      >
-        {checked && (
-          <CheckIcon className="size-2.5 text-foreground" weight="bold" />
-        )}
-      </span>
-    </button>
-  );
+// Thin alias kept so the ColumnSelector call sites read the same; the switch
+// itself is the shared ui/switch component.
+function ColumnSwitch(props: ComponentProps<typeof Switch>) {
+  return <Switch {...props} />;
 }
 
 // ColumnSelector is the "Edit columns" popover: a drag-to-reorder list of the

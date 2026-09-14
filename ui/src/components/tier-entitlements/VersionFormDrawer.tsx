@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Drawer,
   DrawerBody,
@@ -221,17 +222,21 @@ export function VersionFormDrawer({
           )}
 
           {/* Meta */}
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+          <div className="flex items-center gap-3">
+            <Switch
+              size="lg"
+              variant="success"
               checked={purchasable}
-              onChange={(e) => setPurchasable(e.target.checked)}
+              onChange={setPurchasable}
+              label="Purchasable"
             />
-            <span className="font-medium text-foreground">Purchasable</span>
+            <span className="text-sm font-medium text-foreground">
+              Purchasable
+            </span>
             <span className="text-xs text-tertiary-foreground">
               buyable now on the pricing page
             </span>
-          </label>
+          </div>
 
           {/* Prices */}
           <section className="space-y-2">
@@ -304,8 +309,15 @@ export function VersionFormDrawer({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
               Entitlements
             </h3>
-            {groupByCategory(features).map(([category, feats]) => (
-              <div key={category} className="space-y-2">
+            {groupByCategory(features).map(([category, feats], gi) => (
+              <div
+                key={category}
+                className={cn(
+                  "space-y-2",
+                  // A 3px rule sets each group apart from the previous one.
+                  gi > 0 && "border-t-[3px] border-border pt-4",
+                )}
+              >
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-secondary-foreground">
                   {CATEGORY_LABELS[category] ?? category.replace(/_/g, " ")}
                 </p>
@@ -318,9 +330,10 @@ export function VersionFormDrawer({
                       {f.name}
                     </Label>
                     {f.valueType === "boolean" ? (
-                      <BoolToggle
-                        value={ent[f.key] === true}
+                      <Switch
+                        checked={ent[f.key] === true}
                         onChange={(v) => setBool(f.key, v)}
+                        label={f.name}
                       />
                     ) : (
                       <NumericField
@@ -365,38 +378,6 @@ export function VersionFormDrawer({
   );
 }
 
-function BoolToggle({
-  value,
-  onChange,
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-border text-xs">
-      {[
-        { v: false, label: "Off" },
-        { v: true, label: "On" },
-      ].map((o) => (
-        <button
-          key={o.label}
-          type="button"
-          onClick={() => onChange(o.v)}
-          className={cn(
-            "px-3 py-1",
-            o.v && "border-l border-border",
-            value === o.v
-              ? "bg-secondary font-medium text-foreground"
-              : "text-tertiary-foreground hover:text-foreground",
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function NumericField({
   value,
   isBytes,
@@ -425,14 +406,14 @@ function NumericField({
       {isBytes && (
         <span className="text-xs text-tertiary-foreground">MB</span>
       )}
-      <label className="flex items-center gap-1 text-xs text-tertiary-foreground">
-        <input
-          type="checkbox"
+      <span className="flex items-center gap-1.5 text-xs text-tertiary-foreground">
+        <Switch
           checked={unlimited}
-          onChange={(e) => onUnlimited(e.target.checked)}
+          onChange={onUnlimited}
+          label="Unlimited"
         />
         ∞
-      </label>
+      </span>
     </div>
   );
 }
