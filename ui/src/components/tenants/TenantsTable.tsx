@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   type ComponentProps,
   type CSSProperties,
   useEffect,
@@ -16,6 +17,7 @@ import {
   DotsThreeOutlineVerticalIcon,
   ArrowSquareOutIcon,
   StackIcon,
+  TagIcon,
   UsersThreeIcon,
   PulseIcon,
   PauseIcon,
@@ -516,18 +518,37 @@ function GroupsCell({ groups }: { groups: ClassificationLabel[] }) {
 // write over gRPC via the parent's optimistic handlers. stopPropagation keeps
 // the trigger / portaled menu clicks from toggling row expansion (the row is a
 // role="button" and portal clicks bubble through the React tree).
+// One authorable tier version, and the versions grouped under their tier — used
+// by the row menu's "Version" picker (SetTenantTierVersion). Fetched from
+// /api/tier-entitlements.
+type TierVersionOption = { id: string; version: number; status: string };
+type TierVersionGroup = {
+  tierId: string;
+  tierName: string;
+  tierColor: string;
+  versions: TierVersionOption[];
+};
+
 function ActionsMenu({
   tenant,
   allTiers,
   allGroups,
+  tierVersions,
   onSetTier,
+  onSetTierVersion,
   onToggleGroup,
   onStatusAction,
 }: {
   tenant: Tenant;
   allTiers: ClassificationLabel[];
   allGroups: ClassificationLabel[];
+  tierVersions: TierVersionGroup[];
   onSetTier: (tenant: Tenant, tierId: string) => void;
+  onSetTierVersion: (
+    tenant: Tenant,
+    tierId: string,
+    version: TierVersionOption,
+  ) => void;
   onToggleGroup: (
     tenant: Tenant,
     group: ClassificationLabel,
@@ -666,6 +687,45 @@ function ActionsMenu({
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+
+        {/* Pin the tenant to a specific tier VERSION (SetTenantTierVersion) —
+            grouped by tier, versions listed with their status. This also
+            updates the denormalised tier pointer, so it doubles as a tier set. */}
+        {tierVersions.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+              <TagIcon className="size-4" />
+              Version
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-72 min-w-56 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+            >
+              {tierVersions.map((tv) => (
+                <Fragment key={tv.tierId}>
+                  <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] uppercase tracking-wide text-tertiary-foreground">
+                    <ColorDot color={tv.tierColor} />
+                    {tv.tierName}
+                  </div>
+                  {tv.versions.map((v) => (
+                    <DropdownMenuItem
+                      key={v.id}
+                      onSelect={() => onSetTierVersion(tenant, tv.tierId, v)}
+                      className="gap-2 py-2 pl-8 pr-3"
+                    >
+                      v{v.version}
+                      {v.status !== "active" && (
+                        <span className="text-tertiary-foreground">
+                          · {v.status}
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </Fragment>
+              ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         )}
@@ -920,6 +980,8 @@ export function TenantsTable() {
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
     null,
   );
+  // Authorable tier versions for the row menu's Version picker.
+  const [tierVersions, setTierVersions] = useState<TierVersionGroup[]>([]);
   // The pending lifecycle change awaiting confirmation in the status dialog.
   const [statusAction, setStatusAction] = useState<{
     tenant: Tenant;
@@ -955,6 +1017,46 @@ export function TenantsTable() {
       });
     return () => controller.abort();
   }, [filters]);
+
+  // The authorable tier versions (for the row menu's Version picker). Loaded
+  // once from the tier-entitlements matrix; degrades silently if unavailable.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/tier-entitlements", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          j: {
+            available?: boolean;
+            tiers?: {
+              tierId: string;
+              tierName: string;
+              tierColor: string;
+              versions?: { id: string; version: number; status: string }[];
+            }[];
+          } | null,
+        ) => {
+          if (!j?.available) return;
+          const groups = (j.tiers ?? [])
+            .map((t) => ({
+              tierId: t.tierId,
+              tierName: t.tierName,
+              tierColor: t.tierColor,
+              versions: [...(t.versions ?? [])]
+                .sort((a, b) => a.version - b.version)
+                .map((v) => ({
+                  id: v.id,
+                  version: v.version,
+                  status: v.status,
+                })),
+            }))
+            .filter((t) => t.versions.length > 0);
+          setTierVersions(groups);
+        },
+      )
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   // Load the persisted preferences once on the client, after hydration, so the
   // first render still matches the server (defaults) and no mismatch is logged.
@@ -1090,6 +1192,37 @@ export function TenantsTable() {
     } catch (e) {
       mutateTenant(tenant.id, (t) => ({ ...t, tier: previous }));
       flash(e instanceof Error ? e.message : "Failed to set tier", true);
+    }
+  };
+
+  // setTierVersion pins a tenant to a specific tier version
+  // (SetTenantTierVersion). Optimistic on the denormalised tier (the assignment
+  // updates tenants.tier_id in the same transaction); reverts on failure.
+  const setTierVersion = async (
+    tenant: Tenant,
+    tierId: string,
+    version: TierVersionOption,
+  ) => {
+    const tier = allTiers.find((t) => t.id === tierId);
+    const previous = tenant.tier ?? null;
+    if (tier) mutateTenant(tenant.id, (t) => ({ ...t, tier }));
+    try {
+      const res = await fetch(
+        `/api/tier-entitlements/tenants/${encodeURIComponent(tenant.id)}/version`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          // A manual operator assignment; "upgrade" is a valid audit reason.
+          body: JSON.stringify({ tierVersionId: version.id, reason: "upgrade" }),
+        },
+      );
+      if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
+      flash(
+        `${tenant.name}: set to ${tier?.name ?? "tier"} v${version.version}`,
+      );
+    } catch (e) {
+      mutateTenant(tenant.id, (t) => ({ ...t, tier: previous }));
+      flash(e instanceof Error ? e.message : "Failed to set version", true);
     }
   };
 
@@ -1506,7 +1639,9 @@ export function TenantsTable() {
                       tenant={t}
                       allTiers={allTiers}
                       allGroups={allGroups}
+                      tierVersions={tierVersions}
                       onSetTier={setTier}
+                      onSetTierVersion={setTierVersion}
                       onToggleGroup={toggleGroup}
                       onStatusAction={(tenant, target) =>
                         setStatusAction({ tenant, target })
