@@ -366,11 +366,12 @@ export function TierEntitlementsMatrix() {
               })}
 
               {/* Top fade — sits just below the sticky header row (tracks its
-                  height) and hides at the very top. */}
+                  height) and hides at the very top. Its bolder top border keeps
+                  the header/first-row divider visible above the fade. */}
               <div
                 aria-hidden
                 className={cn(
-                  "pointer-events-none absolute inset-x-0 top-full z-10 h-8 bg-linear-to-b from-primary to-transparent transition-opacity duration-200",
+                  "pointer-events-none absolute inset-x-0 top-full z-10 h-8 border-t border-foreground/20 bg-linear-to-b from-primary to-transparent transition-opacity duration-200",
                   atTop ? "opacity-0" : "opacity-100",
                 )}
               />
