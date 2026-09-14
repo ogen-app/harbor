@@ -427,11 +427,11 @@ export function TierEntitlementsMatrix() {
                           "pr-3",
                         )}
                       >
-                        <span className="truncate font-medium text-foreground">
+                        <span className="font-medium text-foreground">
                           {f.name}
                         </span>
                         {f.description && (
-                          <span className="truncate text-xs text-tertiary-foreground">
+                          <span className="text-xs leading-snug text-tertiary-foreground">
                             {f.description}
                           </span>
                         )}
