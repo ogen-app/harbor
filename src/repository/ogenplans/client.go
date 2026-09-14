@@ -311,6 +311,8 @@ func (c *Client) SetTenantTierVersion(ctx context.Context, tenantID, tierVersion
 
 // ── proto <-> JSON conversion ──────────────────────────────────────────────
 
+// versionFromProto maps a proto TierVersion to the JSON shape the UI holds,
+// normalising the optional entitlements Struct and unset timestamps.
 func versionFromProto(v *plansv1.TierVersion) TierVersion {
 	if v == nil {
 		return TierVersion{}
@@ -324,7 +326,10 @@ func versionFromProto(v *plansv1.TierVersion) TierVersion {
 			CountryCode:     p.GetCountryCode(),
 		})
 	}
-	var ent map[string]any
+	// Always a non-nil map (like prices, an empty slice): the proto entitlements
+	// field is optional, and emitting JSON null here would break clients that
+	// index it. An omitted field becomes {}.
+	ent := map[string]any{}
 	if s := v.GetEntitlements(); s != nil {
 		ent = s.AsMap() // numbers -> float64, unlimited -> nil, bool -> bool
 	}
@@ -344,6 +349,7 @@ func versionFromProto(v *plansv1.TierVersion) TierVersion {
 	}
 }
 
+// featureFromProto maps one proto catalog Feature to its JSON shape.
 func featureFromProto(f *plansv1.Feature) Feature {
 	if f == nil {
 		return Feature{}
@@ -361,6 +367,7 @@ func featureFromProto(f *plansv1.Feature) Feature {
 	}
 }
 
+// pricesToProto maps the JSON price rows a draft carries to their proto form.
 func pricesToProto(prices []Price) []*plansv1.Price {
 	if len(prices) == 0 {
 		return nil

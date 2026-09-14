@@ -33,7 +33,9 @@ export interface TierVersion {
   status: string; // draft | active | retired
   purchasable: boolean;
   changeReason: string;
-  entitlements: Record<string, EntitlementValue>;
+  // May be null over the wire (the proto field is optional); normalise to {}
+  // before indexing.
+  entitlements: Record<string, EntitlementValue> | null;
   prices: Price[];
   liveAssignmentCount: number;
   createdAt: string;

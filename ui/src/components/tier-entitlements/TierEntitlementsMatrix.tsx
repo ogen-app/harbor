@@ -95,10 +95,12 @@ function cell(
   feature: Feature,
 ): { text: string; muted: boolean } {
   if (!version) return { text: "—", muted: true };
-  if (!Object.prototype.hasOwnProperty.call(version.entitlements, feature.key)) {
+  // entitlements may be null over the wire (the proto field is optional).
+  const entitlements = version.entitlements ?? {};
+  if (!Object.prototype.hasOwnProperty.call(entitlements, feature.key)) {
     return { text: "—", muted: true };
   }
-  const value: EntitlementValue = version.entitlements[feature.key];
+  const value: EntitlementValue = entitlements[feature.key];
   if (feature.valueType === "boolean") {
     return value ? { text: "✓", muted: false } : { text: "—", muted: true };
   }
