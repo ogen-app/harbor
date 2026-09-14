@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  CheckmarkSquare02Icon,
+  InfinitySquareIcon,
+} from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
 import type {
@@ -120,7 +125,7 @@ function formatMB(bytes: number): string {
 function cell(
   version: TierVersion | null,
   feature: Feature,
-): { text: string; muted: boolean } {
+): { text: string; muted: boolean; icon?: "infinity" | "check" } {
   if (!version) return { text: "—", muted: true };
   // entitlements may be null over the wire (the proto field is optional).
   const entitlements = version.entitlements ?? {};
@@ -129,12 +134,17 @@ function cell(
   }
   const value: EntitlementValue = entitlements[feature.key];
   if (feature.valueType === "boolean") {
-    return value ? { text: "✓", muted: false } : { text: "—", muted: true };
+    return value
+      ? { text: "", muted: false, icon: "check" }
+      : { text: "—", muted: true };
   }
-  // numeric (or unknown type): null = unlimited.
-  if (value === null || value === undefined) return { text: "∞", muted: false };
+  // numeric (or unknown type): null = unlimited (rendered as an infinity icon).
+  if (value === null || value === undefined)
+    return { text: "", muted: false, icon: "infinity" };
   if (typeof value === "boolean")
-    return value ? { text: "✓", muted: false } : { text: "—", muted: true };
+    return value
+      ? { text: "", muted: false, icon: "check" }
+      : { text: "—", muted: true };
   // Byte-valued numerics (media_storage_bytes, …) render humanised in MB.
   if (feature.key.endsWith("_bytes") && typeof value === "number") {
     return { text: formatMB(value), muted: false };
@@ -479,7 +489,21 @@ export function TierEntitlementsMatrix() {
                                 : "text-foreground",
                             )}
                           >
-                            {c.text}
+                            {c.icon === "infinity" ? (
+                              <HugeiconsIcon
+                                icon={InfinitySquareIcon}
+                                className="size-5 text-gray-600"
+                                aria-label="Unlimited"
+                              />
+                            ) : c.icon === "check" ? (
+                              <HugeiconsIcon
+                                icon={CheckmarkSquare02Icon}
+                                className="size-5 text-gray-600"
+                                aria-label="Included"
+                              />
+                            ) : (
+                              c.text
+                            )}
                           </div>
                         );
                       })}
