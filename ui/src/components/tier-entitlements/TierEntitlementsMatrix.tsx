@@ -287,6 +287,24 @@ export function TierEntitlementsMatrix() {
     [data],
   );
 
+  // Consecutive columns of one tier form a group with a single merged header.
+  const tierGroups = useMemo(() => {
+    const groups: { tier: MatrixTier; start: number; span: number }[] = [];
+    for (let i = 0; i < columns.length; i++) {
+      const last = groups[groups.length - 1];
+      if (last && last.tier.tierId === columns[i].tier.tierId) last.span += 1;
+      else groups.push({ tier: columns[i].tier, start: i, span: 1 });
+    }
+    return groups;
+  }, [columns]);
+  // The first version column of each new tier (not the very first) starts a
+  // tier — drawn with a 3px rule down the whole table; versions within a tier
+  // are divided by the normal 1px rule.
+  const tierStart = (i: number) =>
+    i > 0 && columns[i].tier.tierId !== columns[i - 1].tier.tierId;
+  const colBorder = (i: number) =>
+    tierStart(i) ? "border-l-[3px] border-border" : "border-l border-border";
+
   // Contiguous tracks: Feature (frozen) · Status (frozen) · the tier columns
   // sharing the remaining width (minmax floor + 1fr). Fixed frozen widths keep
   // the pin offset deterministic; tableMinWidth is the floor before the table
@@ -328,94 +346,128 @@ export function TierEntitlementsMatrix() {
             {/* Column header row — sticky at the top of the scroll region. Its
                 own bg-primary keeps the (transparent) tier header cells opaque
                 so body rows pass cleanly underneath. */}
-            <div
-              className="sticky top-0 z-30 grid w-full border-b border-border bg-primary"
-              style={{ gridTemplateColumns: gridTemplate }}
-            >
+            <div className="sticky top-0 z-30 bg-primary">
+              {/* Sub-row A — one merged header per tier, spanning its version
+                  columns; a 3px rule separates tiers. */}
               <div
-                className={cn(
-                  "sticky left-0 z-20 flex items-end bg-primary py-2.5",
-                  EDGE_L,
-                )}
+                className="grid w-full"
+                style={{ gridTemplateColumns: gridTemplate }}
               >
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
-                  Feature
-                </span>
-              </div>
-              <div
-                className={cn(
-                  "sticky z-20 flex items-end bg-primary px-2 py-2.5",
-                  scrolled && FROZEN_SHADOW,
-                )}
-                style={{ left: FEATURE_W }}
-              >
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
-                  Status
-                </span>
-              </div>
-              {columns.map(({ tier: t, version: v }, ci) => {
-                const price = headlinePrice(v);
-                return (
+                <div
+                  className={cn(
+                    "sticky left-0 z-20 flex items-end bg-primary pt-2.5 pb-1",
+                    EDGE_L,
+                  )}
+                >
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
+                    Feature
+                  </span>
+                </div>
+                <div
+                  className={cn(
+                    "sticky z-20 flex items-end bg-primary px-2 pt-2.5 pb-1",
+                    scrolled && FROZEN_SHADOW,
+                  )}
+                  style={{ left: FEATURE_W }}
+                >
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
+                    Status
+                  </span>
+                </div>
+                {tierGroups.map((g) => (
                   <div
-                    key={v?.id ?? `${t.tierId}-empty-${ci}`}
-                    className="flex flex-col items-start justify-end gap-1.5 border-l border-border px-3 py-2.5 text-left"
+                    key={g.tier.tierId}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 pt-2.5 pb-1 text-sm font-semibold text-foreground",
+                      g.start > 0 && "border-l-[3px] border-border",
+                    )}
+                    style={{ gridColumn: `${g.start + 3} / span ${g.span}` }}
                   >
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                      {t.tierColor && (
-                        <span
-                          aria-hidden
-                          className="size-2 rounded-full"
-                          style={{ backgroundColor: t.tierColor }}
-                        />
-                      )}
-                      {t.tierName}
-                    </span>
-                    <span className="text-lg font-semibold font-mono text-foreground">
-                      {price ? formatMoney(price) : "—"}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {v && <VersionPill version={v} />}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={`${t.tierName} version actions`}
-                            className="cursor-pointer rounded text-tertiary-foreground outline-none transition-colors hover:text-foreground data-[state=open]:text-foreground"
-                          >
-                            <HugeiconsIcon
-                              icon={MoreHorizontalSquare02Icon}
-                              className="size-5"
-                            />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="min-w-44">
-                          <DropdownMenuItem
-                            onClick={() => openDrawer("create", t, v)}
-                          >
-                            <HugeiconsIcon
-                              icon={GitBranchPlusIcon}
-                              className="size-4"
-                            />
-                            Create new version
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={!v || v.status !== "draft"}
-                            onClick={() => openDrawer("update", t, v)}
-                          >
-                            <HugeiconsIcon
-                              icon={PencilEdit02Icon}
-                              className="size-4"
-                            />
-                            Update this version
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    {g.tier.tierColor && (
+                      <span
+                        aria-hidden
+                        className="size-2 rounded-full"
+                        style={{ backgroundColor: g.tier.tierColor }}
+                      />
+                    )}
+                    {g.tier.tierName}
                   </div>
-                );
-              })}
+                ))}
+              </div>
 
-              {/* Top fade — sits just below the sticky header row (tracks its
+              {/* Sub-row B — per-version price, pill and actions. */}
+              <div
+                className="grid w-full border-b border-border"
+                style={{ gridTemplateColumns: gridTemplate }}
+              >
+                <div className={cn("sticky left-0 z-20 bg-primary", EDGE_L)} />
+                <div
+                  className={cn(
+                    "sticky z-20 bg-primary px-2",
+                    scrolled && FROZEN_SHADOW,
+                  )}
+                  style={{ left: FEATURE_W }}
+                />
+                {columns.map(({ tier: t, version: v }, ci) => {
+                  const price = headlinePrice(v);
+                  return (
+                    <div
+                      key={v?.id ?? `${t.tierId}-empty-${ci}`}
+                      className={cn(
+                        "flex flex-col items-start justify-end gap-1.5 px-3 pb-2.5 pt-0.5 text-left",
+                        colBorder(ci),
+                      )}
+                    >
+                      <span className="text-lg font-semibold font-mono text-foreground">
+                        {price ? formatMoney(price) : "—"}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {v && <VersionPill version={v} />}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={`${t.tierName} version actions`}
+                              className="cursor-pointer rounded text-tertiary-foreground outline-none transition-colors hover:text-foreground data-[state=open]:text-foreground"
+                            >
+                              <HugeiconsIcon
+                                icon={MoreHorizontalSquare02Icon}
+                                className="size-5"
+                              />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="start"
+                            className="min-w-44"
+                          >
+                            <DropdownMenuItem
+                              onClick={() => openDrawer("create", t, v)}
+                            >
+                              <HugeiconsIcon
+                                icon={GitBranchPlusIcon}
+                                className="size-4"
+                              />
+                              Create new version
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={!v || v.status !== "draft"}
+                              onClick={() => openDrawer("update", t, v)}
+                            >
+                              <HugeiconsIcon
+                                icon={PencilEdit02Icon}
+                                className="size-4"
+                              />
+                              Update this version
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Top fade — sits just below the sticky header (tracks its
                   height) and hides at the very top. Its bolder top border keeps
                   the header/first-row divider visible above the fade. */}
               <div
@@ -452,6 +504,7 @@ export function TierEntitlementsMatrix() {
                   {columns.map(({ tier: t, version: v }, ci) => (
                     <div
                       key={v?.id ?? `${t.tierId}-empty-${ci}`}
+                      className={cn(tierStart(ci) && "border-l-[3px] border-border")}
                       style={{ backgroundColor: BAND_BG }}
                     />
                   ))}
@@ -519,7 +572,8 @@ export function TierEntitlementsMatrix() {
                           <div
                             key={v?.id ?? `${t.tierId}-empty-${ci}`}
                             className={cn(
-                              "flex items-center justify-center border-l border-border px-2 py-3 text-center tabular-nums transition-colors group-hover:bg-secondary",
+                              "flex items-center justify-center px-2 py-3 text-center tabular-nums transition-colors group-hover:bg-secondary",
+                              colBorder(ci),
                               c.muted
                                 ? "text-tertiary-foreground"
                                 : "text-foreground",
