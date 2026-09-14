@@ -291,11 +291,12 @@ export function TierEntitlementsMatrix() {
         </div>
       </div>
 
-      {/* overflow-x-auto lets the table scroll sideways; the frozen Feature/
-          Status block stays pinned and shows its right-edge shadow while
-          scrolled. */}
+      {/* A bounded scroll region (both axes): the frozen Feature/Status block
+          stays pinned horizontally (with a right-edge shadow while scrolled),
+          and the column-header row stays pinned vertically (sticky top). The
+          max-height leaves room for the page + card headers above. */}
       <div
-        className="overflow-x-auto rounded-b-xl"
+        className="max-h-[calc(100vh-15rem)] overflow-auto rounded-b-xl"
         onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 0)}
       >
         {loading ? (
@@ -318,9 +319,11 @@ export function TierEntitlementsMatrix() {
           </p>
         ) : (
           <div className="w-full" style={{ minWidth: tableMinWidth }}>
-            {/* Column header row */}
+            {/* Column header row — sticky at the top of the scroll region. Its
+                own bg-primary keeps the (transparent) tier header cells opaque
+                so body rows pass cleanly underneath. */}
             <div
-              className="grid w-full border-b border-border"
+              className="sticky top-0 z-30 grid w-full border-b border-border bg-primary"
               style={{ gridTemplateColumns: gridTemplate }}
             >
               <div
