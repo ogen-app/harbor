@@ -27,7 +27,7 @@ import type {
 // 1fr) and are separated by full-height vertical rules.
 const FEATURE_W = 400; // px — frozen
 const STATUS_W = 100; // px — frozen, label chip + Linear issue
-const TIER_MIN = 96; // px — tier column floor before the table scrolls
+const TIER_MIN = 150; // px — tier/version column min-width (floor before scroll)
 const EDGE_L = "pl-6"; // card inset on the frozen Feature column
 // Soft right-edge shadow on the last frozen column (Status), shown only while
 // the table is scrolled, so tier columns read as sliding underneath.
@@ -251,21 +251,13 @@ export function TierEntitlementsMatrix() {
   const tableMinWidth = FEATURE_W + STATUS_W + tiers.length * TIER_MIN;
 
   return (
-    <div className="rounded-xl bg-primary">
-      {/* Card header (the description + status legend now live in the page
-          header, right of the title). */}
-      <div className="border-b border-border px-6 py-4">
-        <h2 className="text-sm font-medium text-foreground">
-          Feature distribution
-        </h2>
-      </div>
-
-      {/* A bounded scroll region (both axes): the frozen Feature/Status block
-          stays pinned horizontally (with a right-edge shadow while scrolled),
-          and the column-header row stays pinned vertically (sticky top). The
-          max-height leaves room for the page + card headers above. */}
+    <div className="flex h-full flex-col rounded-xl bg-primary">
+      {/* The scroll region fills the card height (both axes scroll): the frozen
+          Feature/Status block stays pinned horizontally (with a right-edge
+          shadow while scrolled), and the column-header row stays pinned
+          vertically (sticky top). */}
       <div
-        className="max-h-[calc(100vh-15rem)] overflow-auto rounded-b-xl"
+        className="min-h-0 flex-1 overflow-auto rounded-xl"
         onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 0)}
       >
         {loading ? (
