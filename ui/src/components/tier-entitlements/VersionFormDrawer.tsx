@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { InfinitySquareIcon } from "@hugeicons/core-free-icons";
+import {
+  GitBranchPlusIcon,
+  InfinitySquareIcon,
+  PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -271,7 +275,13 @@ export function VersionFormDrawer({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>{title}</DrawerTitle>
+          <DrawerTitle className="flex items-center gap-2">
+            <HugeiconsIcon
+              icon={mode === "create" ? GitBranchPlusIcon : PencilEdit02Icon}
+              className="size-5 text-tertiary-foreground"
+            />
+            {title}
+          </DrawerTitle>
           <DrawerDescription>{description}</DrawerDescription>
         </DrawerHeader>
 
@@ -303,6 +313,7 @@ export function VersionFormDrawer({
             <div className="flex items-center gap-3">
               <Switch
                 size="lg"
+                variant="warning"
                 checked={draft}
                 onChange={setDraft}
                 label="Draft"

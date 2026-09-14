@@ -19,7 +19,7 @@ export function Switch({
     disabled?: boolean;
     label: string;
     size?: "sm" | "lg";
-    variant?: "default" | "success";
+    variant?: "default" | "success" | "warning";
 }) {
     const dims =
         size === "lg"
@@ -37,9 +37,18 @@ export function Switch({
                   off: "translate-x-0.5",
                   icon: "size-2.5",
               };
-    const onBg = variant === "success" ? "bg-emerald-500" : "bg-foreground";
+    const onBg =
+        variant === "success"
+            ? "bg-emerald-500"
+            : variant === "warning"
+              ? "bg-amber-500"
+              : "bg-foreground";
     const iconColor =
-        variant === "success" ? "text-emerald-600" : "text-foreground";
+        variant === "success"
+            ? "text-emerald-600"
+            : variant === "warning"
+              ? "text-amber-600"
+              : "text-foreground";
     return (
         <button
             type="button"
