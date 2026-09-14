@@ -12,6 +12,22 @@ import type {
   TierVersion,
 } from "./types";
 
+// ── layout & columns ──────────────────────────────────────────────────────────
+// The Feature + Status columns are frozen (sticky) at the left, mirroring the
+// /tenants table (contiguous grid tracks — no gap — so the opaque frozen
+// backgrounds hide content scrolling underneath; each cell carries its own
+// padding). The tier/version columns are a fixed narrow width and separated by
+// full-height vertical rules.
+const FEATURE_W = 200; // px — frozen
+const STATUS_W = 50; // px — frozen, just a status dot
+const TIER_W = 104; // px — narrow tier/version column
+const EDGE_L = "pl-6"; // card inset on the frozen Feature column
+// Soft right-edge shadow on the last frozen column (Status), shown only while
+// the table is scrolled, so tier columns read as sliding underneath.
+const FROZEN_SHADOW = "shadow-[6px_0_12px_-2px_rgba(0,0,0,0.14)]";
+// Pale warm-yellow wash behind the category band rows.
+const BAND_BG = "oklch(98% 5% 88deg)";
+
 // Category order + labels from the CON-243 feature catalog (the doc's section
 // headers). Unknown categories are appended in first-seen order under a
 // title-cased fallback label.
@@ -36,15 +52,16 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 // Delivery status of a FEATURE (the reference's LIVE / FLAG OFF / IN PROGRESS /
 // PLANNED legend) — orthogonal to a tier version's draft/active/retired status.
-const FEATURE_STATUS: Record<string, { label: string; className: string }> = {
-  live: { label: "LIVE", className: "bg-emerald-100 text-emerald-800" },
-  in_progress: { label: "IN PROGRESS", className: "bg-sky-100 text-sky-800" },
-  flag_off: { label: "FLAG OFF", className: "bg-amber-100 text-amber-800" },
-  planned: { label: "PLANNED", className: "bg-gray-100 text-gray-600" },
+// Rendered as a color dot in the narrow Status column; the legend maps colors.
+const STATUS_META: Record<string, { label: string; dot: string }> = {
+  live: { label: "LIVE", dot: "bg-emerald-500" },
+  in_progress: { label: "IN PROGRESS", dot: "bg-sky-500" },
+  flag_off: { label: "FLAG OFF", dot: "bg-amber-500" },
+  planned: { label: "PLANNED", dot: "bg-gray-400" },
 };
 const LEGEND: { key: string; hint: string }[] = [
   { key: "live", hint: "shipped" },
-  { key: "flag_off", hint: "built, waiting on the API" },
+  { key: "flag_off", hint: "waiting on the API" },
   { key: "in_progress", hint: "active branch" },
   { key: "planned", hint: "backlog" },
 ];
@@ -121,10 +138,7 @@ function versionBadge(v: TierVersion | null): {
     case "active":
       return { label: `v${v.version}`, className: "text-tertiary-foreground" };
     case "draft":
-      return {
-        label: `v${v.version} draft`,
-        className: "text-amber-700",
-      };
+      return { label: `v${v.version} draft`, className: "text-amber-700" };
     case "retired":
       return {
         label: `v${v.version} retired`,
@@ -167,6 +181,9 @@ export function TierEntitlementsMatrix() {
   const [data, setData] = useState<MatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // True once the table is scrolled off its left edge — reveals the frozen
+  // columns' right-edge shadow.
+  const [scrolled, setScrolled] = useState(false);
 
   const reload = useCallback((signal?: AbortSignal) => {
     return fetch("/api/tier-entitlements", { signal })
@@ -218,10 +235,9 @@ export function TierEntitlementsMatrix() {
     [data],
   );
 
-  // Grid: sticky-ish feature column + status column + one column per tier.
-  const gridStyle = {
-    gridTemplateColumns: `minmax(220px,2.4fr) minmax(104px,auto) repeat(${tiers.length}, minmax(112px,1fr))`,
-  } as const;
+  // Contiguous tracks: Feature (frozen) · Status (frozen) · one narrow column
+  // per tier. Fixed pixel widths keep the frozen pin offset deterministic.
+  const gridTemplate = `${FEATURE_W}px ${STATUS_W}px repeat(${tiers.length}, ${TIER_W}px)`;
 
   return (
     <div className="rounded-xl bg-primary">
@@ -240,17 +256,14 @@ export function TierEntitlementsMatrix() {
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5">
           {LEGEND.map(({ key, hint }) => {
-            const s = FEATURE_STATUS[key];
+            const s = STATUS_META[key];
             return (
               <span key={key} className="flex items-center gap-1.5 text-xs">
                 <span
-                  className={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
-                    s.className,
-                  )}
-                >
-                  {s.label}
-                </span>
+                  aria-hidden
+                  className={cn("size-2 rounded-full", s.dot)}
+                />
+                <span className="font-semibold text-foreground">{s.label}</span>
                 <span className="text-tertiary-foreground">{hint}</span>
               </span>
             );
@@ -258,7 +271,13 @@ export function TierEntitlementsMatrix() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-b-xl">
+      {/* overflow-x-auto lets the table scroll sideways; the frozen Feature/
+          Status block stays pinned and shows its right-edge shadow while
+          scrolled. */}
+      <div
+        className="overflow-x-auto rounded-b-xl"
+        onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 0)}
+      >
         {loading ? (
           <div className="flex items-center gap-2 p-6 text-sm text-tertiary-foreground">
             <Loader className="size-3.5 border-[1.5px]" />
@@ -279,17 +298,32 @@ export function TierEntitlementsMatrix() {
           </p>
         ) : (
           <div className="min-w-max">
-            {/* Column header row: FEATURE · STATUS · one per tier */}
+            {/* Column header row */}
             <div
-              className="grid items-end gap-3 border-b border-border px-6 py-3"
-              style={gridStyle}
+              className="grid border-b border-border"
+              style={{ gridTemplateColumns: gridTemplate }}
             >
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
-                Feature
-              </span>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
-                Status
-              </span>
+              <div
+                className={cn(
+                  "sticky left-0 z-20 flex items-end bg-primary py-2.5",
+                  EDGE_L,
+                )}
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
+                  Feature
+                </span>
+              </div>
+              <div
+                className={cn(
+                  "sticky z-20 flex items-end justify-center bg-primary px-2 py-2.5",
+                  scrolled && FROZEN_SHADOW,
+                )}
+                style={{ left: FEATURE_W }}
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-tertiary-foreground">
+                  Status
+                </span>
+              </div>
               {tiers.map((t) => {
                 const v = shownVersion(t);
                 const badge = versionBadge(v);
@@ -297,9 +331,9 @@ export function TierEntitlementsMatrix() {
                 return (
                   <div
                     key={t.tierId}
-                    className="flex flex-col items-end gap-0.5 text-right"
+                    className="flex flex-col items-center justify-end gap-0.5 border-l border-border px-2 py-2.5 text-center"
                   >
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                    <span className="flex items-center gap-1 text-sm font-semibold text-foreground">
                       {t.tierColor && (
                         <span
                           aria-hidden
@@ -325,76 +359,101 @@ export function TierEntitlementsMatrix() {
             {/* Category bands + feature rows */}
             {grouped.map(([category, feats]) => (
               <div key={category}>
+                {/* Band row: a pale-yellow strip; the label spans the two frozen
+                    columns and stays pinned, and the vertical rules continue
+                    through the empty tier cells. */}
                 <div
-                  className="border-b border-border bg-secondary/40 px-6 py-2 text-[11px] font-semibold uppercase tracking-wide text-secondary-foreground"
+                  className="grid border-b border-border"
+                  style={{ gridTemplateColumns: gridTemplate }}
                 >
-                  {CATEGORY_LABELS[category] ?? category.replace(/_/g, " ")}
+                  <div
+                    className={cn(
+                      "sticky left-0 z-10 flex items-center py-2 text-[11px] font-semibold uppercase tracking-wide text-secondary-foreground",
+                      EDGE_L,
+                      scrolled && FROZEN_SHADOW,
+                    )}
+                    style={{
+                      gridColumn: "1 / span 2",
+                      backgroundColor: BAND_BG,
+                    }}
+                  >
+                    {CATEGORY_LABELS[category] ?? category.replace(/_/g, " ")}
+                  </div>
+                  {tiers.map((t) => (
+                    <div
+                      key={t.tierId}
+                      className="border-l border-border"
+                      style={{ backgroundColor: BAND_BG }}
+                    />
+                  ))}
                 </div>
-                <div className="divide-y divide-border">
-                  {feats.map((f) => {
-                    const s = FEATURE_STATUS[f.status];
-                    return (
+
+                {feats.map((f) => {
+                  const meta = STATUS_META[f.status];
+                  const statusTitle = `${meta?.label ?? (f.status || "—")}${
+                    f.linearIssue ? ` · ${f.linearIssue}` : ""
+                  }`;
+                  return (
+                    <div
+                      key={f.key}
+                      className="group grid border-b border-border text-sm"
+                      style={{ gridTemplateColumns: gridTemplate }}
+                    >
+                      {/* Feature name + description (frozen) */}
                       <div
-                        key={f.key}
-                        className="grid items-center gap-3 px-6 py-3 text-sm transition-colors hover:bg-secondary/30"
-                        style={gridStyle}
+                        className={cn(
+                          "sticky left-0 z-10 flex min-w-0 flex-col justify-center bg-primary py-3 transition-colors group-hover:bg-secondary",
+                          EDGE_L,
+                          "pr-3",
+                        )}
                       >
-                        {/* Feature name + description */}
-                        <span className="flex min-w-0 flex-col">
-                          <span className="truncate font-medium text-foreground">
-                            {f.name}
+                        <span className="truncate font-medium text-foreground">
+                          {f.name}
+                        </span>
+                        {f.description && (
+                          <span className="truncate text-xs text-tertiary-foreground">
+                            {f.description}
                           </span>
-                          {f.description && (
-                            <span className="truncate text-xs text-tertiary-foreground">
-                              {f.description}
-                            </span>
-                          )}
-                        </span>
-
-                        {/* Delivery status chip + Linear issue */}
-                        <span className="flex flex-col items-start gap-0.5">
-                          {s ? (
-                            <span
-                              className={cn(
-                                "rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
-                                s.className,
-                              )}
-                            >
-                              {s.label}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-tertiary-foreground">
-                              {f.status || "—"}
-                            </span>
-                          )}
-                          {f.linearIssue && (
-                            <span className="font-mono text-[10px] text-tertiary-foreground">
-                              {f.linearIssue}
-                            </span>
-                          )}
-                        </span>
-
-                        {/* One cell per tier */}
-                        {tiers.map((t) => {
-                          const c = cell(shownVersion(t), f);
-                          return (
-                            <span
-                              key={t.tierId}
-                              className={cn(
-                                "text-right tabular-nums",
-                                c.muted
-                                  ? "text-tertiary-foreground"
-                                  : "text-foreground",
-                              )}
-                            >
-                              {c.text}
-                            </span>
-                          );
-                        })}
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
+
+                      {/* Status dot (frozen) — full label + issue in the title */}
+                      <div
+                        className={cn(
+                          "sticky z-10 flex items-center justify-center bg-primary px-2 py-3 transition-colors group-hover:bg-secondary",
+                          scrolled && FROZEN_SHADOW,
+                        )}
+                        style={{ left: FEATURE_W }}
+                      >
+                        <span
+                          title={statusTitle}
+                          className={cn(
+                            "inline-block size-2.5 rounded-full",
+                            meta?.dot ?? "bg-gray-300",
+                          )}
+                        />
+                      </div>
+
+                      {/* One cell per tier */}
+                      {tiers.map((t) => {
+                        const c = cell(shownVersion(t), f);
+                        return (
+                          <div
+                            key={t.tierId}
+                            className={cn(
+                              "flex items-center justify-center border-l border-border px-2 py-3 text-center tabular-nums transition-colors group-hover:bg-secondary",
+                              c.muted
+                                ? "text-tertiary-foreground"
+                                : "text-foreground",
+                            )}
+                          >
+                            {c.text}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>

@@ -32,7 +32,7 @@ import {
     UserGroupIcon,
     MailSetting01Icon,
     FactoryIcon,
-    LicenseIcon,
+    ConferenceIcon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
@@ -259,7 +259,7 @@ export function AppSidebar({
                             "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
                     )}
                 >
-                    <HugeiconsIcon icon={LicenseIcon} className="size-5 shrink-0" />
+                    <HugeiconsIcon icon={ConferenceIcon} className="size-5 shrink-0" />
                     <span
                         className={cn(
                             "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
