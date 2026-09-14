@@ -371,7 +371,7 @@ export function TierEntitlementsMatrix() {
               <div
                 aria-hidden
                 className={cn(
-                  "pointer-events-none absolute inset-x-0 top-full z-10 h-8 border-t border-foreground/20 bg-linear-to-b from-primary to-transparent transition-opacity duration-200",
+                  "pointer-events-none absolute inset-x-0 top-full z-10 h-8 border-t border-border bg-linear-to-b from-primary to-transparent transition-opacity duration-200",
                   atTop ? "opacity-0" : "opacity-100",
                 )}
               />
