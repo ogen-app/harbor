@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CheckmarkSquare02Icon,
+  GitBranchPlusIcon,
   InfinitySquareIcon,
   MoreHorizontalSquare02Icon,
+  PencilEdit02Icon,
   SquareMinusIcon,
 } from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
@@ -390,12 +392,20 @@ export function TierEntitlementsMatrix() {
                           <DropdownMenuItem
                             onClick={() => openDrawer("create", t, v)}
                           >
+                            <HugeiconsIcon
+                              icon={GitBranchPlusIcon}
+                              className="size-4"
+                            />
                             Create new version
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={!v || v.status !== "draft"}
                             onClick={() => openDrawer("update", t, v)}
                           >
+                            <HugeiconsIcon
+                              icon={PencilEdit02Icon}
+                              className="size-4"
+                            />
                             Update this version
                           </DropdownMenuItem>
                         </DropdownMenuContent>
