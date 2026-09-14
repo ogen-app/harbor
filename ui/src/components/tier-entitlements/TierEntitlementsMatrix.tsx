@@ -65,14 +65,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   workflow_platform: "Workflow & platform",
 };
 
-// shownVersion picks the version a tier column renders: the highest-numbered
-// active version (versions arrive newest-first), else the newest of any status
-// (so a tier with only a draft still shows). null when a tier has no versions.
-function shownVersion(tier: MatrixTier): TierVersion | null {
-  const active = tier.versions.find((v) => v.status === "active");
-  return active ?? tier.versions[0] ?? null;
-}
-
 // headlinePrice is the price shown under a tier column: the default (no
 // country) monthly price, falling back to any monthly, then the first price.
 function headlinePrice(v: TierVersion | null): Price | null {
@@ -272,19 +264,20 @@ export function TierEntitlementsMatrix() {
   const available = data?.available ?? false;
   const features = data?.features ?? [];
 
-  // Tier columns, ordered cheapest-first by the shown version's headline monthly
-  // price (Trial → Pro → Max); tiers without a price sort last.
-  const tiers = useMemo(() => {
-    const cols = [...(data?.tiers ?? [])];
-    cols.sort((a, b) => {
-      const pa = headlinePrice(shownVersion(a));
-      const pb = headlinePrice(shownVersion(b));
-      const va = pa ? pa.netMinor : Number.POSITIVE_INFINITY;
-      const vb = pb ? pb.netMinor : Number.POSITIVE_INFINITY;
-      if (va !== vb) return va - vb;
-      return a.tierName.localeCompare(b.tierName);
-    });
-    return cols;
+  // One column per tier VERSION — every version of every tier is shown. Tiers
+  // are ordered by name; within a tier, versions ascend (v1 … vN). A tier with
+  // no versions still gets a placeholder column so it can be authored.
+  const columns = useMemo(() => {
+    const tiers = [...(data?.tiers ?? [])].sort((a, b) =>
+      a.tierName.localeCompare(b.tierName),
+    );
+    return tiers.flatMap((t) =>
+      t.versions.length === 0
+        ? [{ tier: t, version: null as TierVersion | null }]
+        : [...t.versions]
+            .sort((a, b) => a.version - b.version)
+            .map((v) => ({ tier: t, version: v as TierVersion | null })),
+    );
   }, [data]);
 
   const grouped = useMemo(
@@ -296,8 +289,8 @@ export function TierEntitlementsMatrix() {
   // sharing the remaining width (minmax floor + 1fr). Fixed frozen widths keep
   // the pin offset deterministic; tableMinWidth is the floor before the table
   // scrolls sideways (and keeps row backgrounds spanning the full width).
-  const gridTemplate = `${FEATURE_W}px ${STATUS_W}px repeat(${tiers.length}, minmax(${TIER_MIN}px, 1fr))`;
-  const tableMinWidth = FEATURE_W + STATUS_W + tiers.length * TIER_MIN;
+  const gridTemplate = `${FEATURE_W}px ${STATUS_W}px repeat(${columns.length}, minmax(${TIER_MIN}px, 1fr))`;
+  const tableMinWidth = FEATURE_W + STATUS_W + columns.length * TIER_MIN;
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden rounded-xl bg-primary">
@@ -324,7 +317,7 @@ export function TierEntitlementsMatrix() {
             <code className="font-mono">OGEN_GRPC_ADDR</code> /{" "}
             <code className="font-mono">OGEN_GRPC_TOKEN</code> are configured.
           </p>
-        ) : features.length === 0 || tiers.length === 0 ? (
+        ) : features.length === 0 || columns.length === 0 ? (
           <p className="p-6 text-sm text-tertiary-foreground">
             No feature catalog or tiers to show yet.
           </p>
@@ -358,12 +351,11 @@ export function TierEntitlementsMatrix() {
                   Status
                 </span>
               </div>
-              {tiers.map((t) => {
-                const v = shownVersion(t);
+              {columns.map(({ tier: t, version: v }, ci) => {
                 const price = headlinePrice(v);
                 return (
                   <div
-                    key={t.tierId}
+                    key={v?.id ?? `${t.tierId}-empty-${ci}`}
                     className="flex flex-col items-start justify-end gap-1.5 border-l border-border px-3 py-2.5 text-left"
                   >
                     <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
@@ -447,9 +439,9 @@ export function TierEntitlementsMatrix() {
                   >
                     {CATEGORY_LABELS[category] ?? category.replace(/_/g, " ")}
                   </div>
-                  {tiers.map((t) => (
+                  {columns.map(({ tier: t, version: v }, ci) => (
                     <div
-                      key={t.tierId}
+                      key={v?.id ?? `${t.tierId}-empty-${ci}`}
                       style={{ backgroundColor: BAND_BG }}
                     />
                   ))}
@@ -510,12 +502,12 @@ export function TierEntitlementsMatrix() {
                         )}
                       </div>
 
-                      {/* One cell per tier */}
-                      {tiers.map((t) => {
-                        const c = cell(shownVersion(t), f);
+                      {/* One cell per tier version */}
+                      {columns.map(({ tier: t, version: v }, ci) => {
+                        const c = cell(v, f);
                         return (
                           <div
-                            key={t.tierId}
+                            key={v?.id ?? `${t.tierId}-empty-${ci}`}
                             className={cn(
                               "flex items-center justify-center border-l border-border px-2 py-3 text-center tabular-nums transition-colors group-hover:bg-secondary",
                               c.muted
