@@ -5,9 +5,11 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CheckmarkSquare02Icon,
   InfinitySquareIcon,
+  SquareMinusIcon,
 } from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
+import { FEATURE_STATUS } from "./legend";
 import type {
   EntitlementValue,
   Feature,
@@ -54,22 +56,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   images_brand: "Images & brand",
   workflow_platform: "Workflow & platform",
 };
-
-// Delivery status of a FEATURE (the reference's LIVE / FLAG OFF / IN PROGRESS /
-// PLANNED legend) — orthogonal to a tier version's draft/active/retired status.
-// Rendered as a color-coded chip in the Status column; the legend maps colors.
-const FEATURE_STATUS: Record<string, { label: string; className: string }> = {
-  live: { label: "LIVE", className: "bg-emerald-100 text-emerald-800" },
-  in_progress: { label: "IN PROGRESS", className: "bg-sky-100 text-sky-800" },
-  flag_off: { label: "FLAG OFF", className: "bg-amber-100 text-amber-800" },
-  planned: { label: "PLANNED", className: "bg-gray-100 text-gray-600" },
-};
-const LEGEND: { key: string; hint: string }[] = [
-  { key: "live", hint: "shipped" },
-  { key: "flag_off", hint: "waiting on the API" },
-  { key: "in_progress", hint: "active branch" },
-  { key: "planned", hint: "backlog" },
-];
 
 // shownVersion picks the version a tier column renders: the highest-numbered
 // active version (versions arrive newest-first), else the newest of any status
@@ -125,26 +111,24 @@ function formatMB(bytes: number): string {
 function cell(
   version: TierVersion | null,
   feature: Feature,
-): { text: string; muted: boolean; icon?: "infinity" | "check" } {
-  if (!version) return { text: "—", muted: true };
+): { text: string; muted: boolean; icon?: "infinity" | "check" | "minus" } {
+  // "not granted" / not applicable renders as a muted square-minus icon.
+  const notGranted = { text: "", muted: true, icon: "minus" as const };
+  if (!version) return notGranted;
   // entitlements may be null over the wire (the proto field is optional).
   const entitlements = version.entitlements ?? {};
   if (!Object.prototype.hasOwnProperty.call(entitlements, feature.key)) {
-    return { text: "—", muted: true };
+    return notGranted;
   }
   const value: EntitlementValue = entitlements[feature.key];
   if (feature.valueType === "boolean") {
-    return value
-      ? { text: "", muted: false, icon: "check" }
-      : { text: "—", muted: true };
+    return value ? { text: "", muted: false, icon: "check" } : notGranted;
   }
   // numeric (or unknown type): null = unlimited (rendered as an infinity icon).
   if (value === null || value === undefined)
     return { text: "", muted: false, icon: "infinity" };
   if (typeof value === "boolean")
-    return value
-      ? { text: "", muted: false, icon: "check" }
-      : { text: "—", muted: true };
+    return value ? { text: "", muted: false, icon: "check" } : notGranted;
   // Byte-valued numerics (media_storage_bytes, …) render humanised in MB.
   if (feature.key.endsWith("_bytes") && typeof value === "number") {
     return { text: formatMB(value), muted: false };
@@ -268,37 +252,12 @@ export function TierEntitlementsMatrix() {
 
   return (
     <div className="rounded-xl bg-primary">
-      {/* Header bar + legend */}
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-6 py-4">
-        <div className="min-w-0">
-          <h2 className="text-sm font-medium text-foreground">
-            Feature distribution
-          </h2>
-          <p className="mt-1 max-w-xl text-xs text-tertiary-foreground">
-            Every catalog feature against each tier’s live version. Values come
-            from the version’s entitlements; ∞ is unlimited, ✓ an enabled
-            capability, — not granted. Read-only for now — authoring and
-            assignment arrive next.
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-          {LEGEND.map(({ key, hint }) => {
-            const s = FEATURE_STATUS[key];
-            return (
-              <span key={key} className="flex items-center gap-1.5 text-xs">
-                <span
-                  className={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
-                    s.className,
-                  )}
-                >
-                  {s.label}
-                </span>
-                <span className="text-tertiary-foreground">{hint}</span>
-              </span>
-            );
-          })}
-        </div>
+      {/* Card header (the description + status legend now live in the page
+          header, right of the title). */}
+      <div className="border-b border-border px-6 py-4">
+        <h2 className="text-sm font-medium text-foreground">
+          Feature distribution
+        </h2>
       </div>
 
       {/* A bounded scroll region (both axes): the frozen Feature/Status block
@@ -500,6 +459,12 @@ export function TierEntitlementsMatrix() {
                                 icon={CheckmarkSquare02Icon}
                                 className="size-5 text-gray-600"
                                 aria-label="Included"
+                              />
+                            ) : c.icon === "minus" ? (
+                              <HugeiconsIcon
+                                icon={SquareMinusIcon}
+                                className="size-5 text-gray-300"
+                                aria-label="Not granted"
                               />
                             ) : (
                               c.text
