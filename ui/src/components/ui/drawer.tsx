@@ -41,7 +41,7 @@ function DrawerContent({
             <DialogPrimitive.Content
                 data-slot="drawer-content"
                 className={cn(
-                    "fixed inset-y-0 right-8 z-[200] flex h-full w-full max-w-xl flex-col border-l border-border bg-primary text-foreground shadow-xl outline-none " +
+                    "fixed inset-y-0 right-8 z-[200] flex h-full w-full max-w-xl flex-col border-l border-border bg-primary p-5 text-foreground shadow-xl outline-none " +
                         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=open]:duration-300 data-[state=closed]:duration-200",
                     className,
                 )}
