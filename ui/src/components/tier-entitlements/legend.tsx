@@ -26,12 +26,7 @@ const LEGEND: { key: string; hint: string }[] = [
 // shown in the page header, and the key to the Status column dots/chips.
 export function StatusLegend({ className }: { className?: string }) {
   return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-x-3 gap-y-1.5",
-        className,
-      )}
-    >
+    <div className={cn("flex flex-col gap-1.5", className)}>
       {LEGEND.map(({ key, hint }) => {
         const s = FEATURE_STATUS[key];
         return (

@@ -24,7 +24,7 @@ export default function TierEntitlementsPage() {
             <button
               type="button"
               aria-label="About the feature-distribution table"
-              className="rounded-full p-0.5 text-tertiary-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border"
+              className="cursor-help rounded-full p-0.5 text-tertiary-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border"
             >
               <Info className="size-5" />
             </button>
