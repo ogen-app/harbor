@@ -5,11 +5,19 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CheckmarkSquare02Icon,
   InfinitySquareIcon,
+  MoreHorizontalSquare02Icon,
   SquareMinusIcon,
 } from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { FEATURE_STATUS } from "./legend";
+import { VersionFormDrawer } from "./VersionFormDrawer";
 import type {
   EntitlementValue,
   Feature,
@@ -87,13 +95,7 @@ function formatMoney(p: Price): string {
   } catch {
     s = `${major} ${p.currency}`;
   }
-  const suffix =
-    p.billingInterval === "year"
-      ? "/yr"
-      : p.billingInterval === "month"
-        ? "/mo"
-        : "";
-  return s + suffix;
+  return s;
 }
 
 // formatMB humanises a raw byte count as megabytes (e.g. 104857600 → "100 MB",
@@ -209,6 +211,23 @@ export function TierEntitlementsMatrix() {
     setAtBottom(
       Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0,
     );
+  };
+
+  // Version authoring drawer (create / update). The data is kept while the
+  // drawer animates closed (drawerOpen drives visibility separately).
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawer, setDrawer] = useState<{
+    mode: "create" | "update";
+    tier: MatrixTier;
+    version: TierVersion | null;
+  } | null>(null);
+  const openDrawer = (
+    mode: "create" | "update",
+    tier: MatrixTier,
+    version: TierVersion | null,
+  ) => {
+    setDrawer({ mode, tier, version });
+    setDrawerOpen(true);
   };
 
   const reload = useCallback((signal?: AbortSignal) => {
@@ -357,10 +376,39 @@ export function TierEntitlementsMatrix() {
                       )}
                       {t.tierName}
                     </span>
-                    <span className="text-xl font-semibold tabular-nums text-foreground">
+                    <span className="text-lg font-semibold font-mono text-foreground">
                       {price ? formatMoney(price) : "—"}
                     </span>
-                    {v && <VersionPill version={v} />}
+                    <div className="flex items-center gap-1.5">
+                      {v && <VersionPill version={v} />}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`${t.tierName} version actions`}
+                            className="cursor-pointer rounded text-tertiary-foreground outline-none transition-colors hover:text-foreground data-[state=open]:text-foreground"
+                          >
+                            <HugeiconsIcon
+                              icon={MoreHorizontalSquare02Icon}
+                              className="size-5"
+                            />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="min-w-44">
+                          <DropdownMenuItem
+                            onClick={() => openDrawer("create", t, v)}
+                          >
+                            Create new version
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!v || v.status !== "draft"}
+                            onClick={() => openDrawer("update", t, v)}
+                          >
+                            Update this version
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 );
               })}
@@ -517,6 +565,18 @@ export function TierEntitlementsMatrix() {
           "pointer-events-none absolute inset-x-0 bottom-0 z-20 h-8 bg-linear-to-t from-primary to-transparent transition-opacity duration-200",
           atBottom ? "opacity-0" : "opacity-100",
         )}
+      />
+
+      {/* Version authoring drawer (create / update this version). */}
+      <VersionFormDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        mode={drawer?.mode ?? "create"}
+        tierId={drawer?.tier.tierId ?? ""}
+        tierName={drawer?.tier.tierName ?? ""}
+        baseVersion={drawer?.version ?? null}
+        features={features}
+        onSaved={() => reload()}
       />
     </div>
   );
