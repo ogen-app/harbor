@@ -13,11 +13,11 @@ import {
   SquareSplitHorizontalIcon,
   CaretUpIcon,
   CaretDownIcon,
+  CheckIcon,
   DotsSixVerticalIcon,
   DotsThreeOutlineVerticalIcon,
   ArrowSquareOutIcon,
   StackIcon,
-  TagIcon,
   UsersThreeIcon,
   PulseIcon,
   PauseIcon,
@@ -42,8 +42,6 @@ import {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -662,70 +660,71 @@ function ActionsMenu({
           <DropdownMenuSeparator className="my-1 h-px bg-border" />
         )}
 
+        {/* Tier / Version: pick a tier (coarse, SetTenantTier) or one of its
+            specific versions (SetTenantTierVersion). Both write tenants.tier_id,
+            so the tier pointer updates either way. The current tier is checked. */}
         {allTiers.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
               <StackIcon className="size-4" />
-              Tier
+              Tier / Version
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               onClick={(e) => e.stopPropagation()}
-              className="max-h-72 min-w-44 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+              className="max-h-80 min-w-56 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
             >
-              <DropdownMenuRadioGroup
-                value={tenant.tier?.id ?? ""}
-                onValueChange={(id) => onSetTier(tenant, id)}
-              >
-                {allTiers.map((t) => (
-                  <DropdownMenuRadioItem
-                    key={t.id}
-                    value={t.id}
-                    className="gap-2 pr-3"
-                  >
-                    <ColorDot color={t.color} />
-                    {t.name}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-
-        {/* Pin the tenant to a specific tier VERSION (SetTenantTierVersion) —
-            grouped by tier, versions listed with their status. This also
-            updates the denormalised tier pointer, so it doubles as a tier set. */}
-        {tierVersions.length > 0 && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
-              <TagIcon className="size-4" />
-              Version
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent
-              onClick={(e) => e.stopPropagation()}
-              className="max-h-72 min-w-56 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
-            >
-              {tierVersions.map((tv) => (
-                <Fragment key={tv.tierId}>
-                  <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] uppercase tracking-wide text-tertiary-foreground">
-                    <ColorDot color={tv.tierColor} />
-                    {tv.tierName}
-                  </div>
-                  {tv.versions.map((v) => (
+              {allTiers.map((t) => {
+                const versions =
+                  tierVersions.find((tv) => tv.tierId === t.id)?.versions ?? [];
+                const onTier = tenant.tier?.id === t.id;
+                // The tier row is checked only when the tenant is on this tier
+                // with NO versioned assignment; otherwise the exact version is.
+                const tierChecked = onTier && !tenant.tierVersion;
+                return (
+                  <Fragment key={t.id}>
                     <DropdownMenuItem
-                      key={v.id}
-                      onSelect={() => onSetTierVersion(tenant, tv.tierId, v)}
-                      className="gap-2 py-2 pl-8 pr-3"
+                      onSelect={() => onSetTier(tenant, t.id)}
+                      className="gap-2 py-2 pr-3 font-medium"
                     >
-                      v{v.version}
-                      {v.status !== "active" && (
-                        <span className="text-tertiary-foreground">
-                          · {v.status}
-                        </span>
+                      <ColorDot color={t.color} />
+                      <span className="flex-1 truncate">{t.name}</span>
+                      {tierChecked && (
+                        <CheckIcon
+                          weight="bold"
+                          className="size-3.5 shrink-0 text-foreground"
+                        />
                       )}
                     </DropdownMenuItem>
-                  ))}
-                </Fragment>
-              ))}
+                    {versions.map((v) => {
+                      const versionChecked =
+                        onTier && tenant.tierVersion?.version === v.version;
+                      return (
+                        <DropdownMenuItem
+                          key={v.id}
+                          onSelect={() => onSetTierVersion(tenant, t.id, v)}
+                          className="gap-2 py-1.5 pl-8 pr-3 text-sm text-secondary-foreground"
+                        >
+                          <span className="flex-1">
+                            v{v.version}
+                            {v.status !== "active" && (
+                              <span className="text-tertiary-foreground">
+                                {" · "}
+                                {v.status}
+                              </span>
+                            )}
+                          </span>
+                          {versionChecked && (
+                            <CheckIcon
+                              weight="bold"
+                              className="size-3.5 shrink-0 text-foreground"
+                            />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         )}
@@ -1624,7 +1623,16 @@ export function TenantsTable() {
                     )}
                   >
                     {t.tier ? (
-                      <LabelChip label={t.tier.name} color={t.tier.color} />
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <LabelChip label={t.tier.name} color={t.tier.color} />
+                        {t.tierVersion && (
+                          <span className="shrink-0 text-xs tabular-nums text-tertiary-foreground">
+                            v{t.tierVersion.version}
+                            {t.tierVersion.status !== "active" &&
+                              ` / ${t.tierVersion.status}`}
+                          </span>
+                        )}
+                      </span>
                     ) : (
                       <span className="text-xs text-tertiary-foreground">—</span>
                     )}

@@ -54,6 +54,9 @@ func (f *fakeTenantRepo) ListGroups(context.Context) ([]ogen.Group, error) { ret
 func (f *fakeTenantRepo) TenantTiers(context.Context) (map[string]ogen.Tier, error) {
 	return nil, nil
 }
+func (f *fakeTenantRepo) TenantTierVersions(context.Context) (map[string]ogen.TenantVersion, error) {
+	return nil, nil
+}
 func (f *fakeTenantRepo) TenantGroups(context.Context) (map[string][]ogen.Group, error) {
 	return nil, nil
 }

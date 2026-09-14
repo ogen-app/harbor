@@ -82,6 +82,9 @@ type tenantRow struct {
 	// classification tables are absent; Groups is always non-nil (possibly empty).
 	Tier   *ogen.Tier   `json:"tier"`
 	Groups []ogen.Group `json:"groups"`
+	// TierVersion is the versioned entitlement version the tenant is pinned to
+	// (CON-243), nil when there's no versioned assignment / the tables are absent.
+	TierVersion *ogen.TenantVersion `json:"tierVersion"`
 	// Activity (CON-223) is the trailing activitySparkWindowDays daily
 	// activity-event counts (oldest→newest) for this tenant's sparkline. Nil when
 	// analytics is unavailable; a zero-filled slice when the tenant had no events.
@@ -257,12 +260,16 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	// chips + filters rather than failing the list. The catalogs feed the filter
 	// options and the row edit menu.
 	tierByTenant, _ := h.tenants.TenantTiers(c.Context())
+	versionByTenant, _ := h.tenants.TenantTierVersions(c.Context())
 	groupsByTenant, _ := h.tenants.TenantGroups(c.Context())
 	tierCatalog, _ := h.tenants.ListTiers(c.Context())
 	groupCatalog, _ := h.tenants.ListGroups(c.Context())
 	for i := range rows {
 		if tier, ok := tierByTenant[rows[i].ID]; ok {
 			rows[i].Tier = &tier
+		}
+		if v, ok := versionByTenant[rows[i].ID]; ok {
+			rows[i].TierVersion = &v
 		}
 		if gs := groupsByTenant[rows[i].ID]; gs != nil {
 			rows[i].Groups = gs
@@ -372,6 +379,12 @@ func (h *TenantsHandler) Detail(c *fiber.Ctx) error {
 		if tier, ok := tierByTenant[row.ID]; ok {
 			t := tier
 			row.Tier = &t
+		}
+	}
+	if versionByTenant, err := h.tenants.TenantTierVersions(c.Context()); err == nil {
+		if v, ok := versionByTenant[row.ID]; ok {
+			vv := v
+			row.TierVersion = &vv
 		}
 	}
 	if groupsByTenant, err := h.tenants.TenantGroups(c.Context()); err == nil {
