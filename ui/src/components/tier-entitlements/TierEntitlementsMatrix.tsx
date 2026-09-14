@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CheckmarkSquare02Icon,
@@ -136,25 +136,31 @@ function cell(
   return { text: String(value), muted: false };
 }
 
-// Tier version status → a small badge next to the version number.
-function versionBadge(v: TierVersion | null): {
-  label: string;
-  className: string;
-} | null {
-  if (!v) return null;
-  switch (v.status) {
-    case "active":
-      return { label: `v${v.version}`, className: "text-tertiary-foreground" };
-    case "draft":
-      return { label: `v${v.version} draft`, className: "text-amber-700" };
-    case "retired":
-      return {
-        label: `v${v.version} retired`,
-        className: "text-gray-500 line-through",
-      };
-    default:
-      return { label: `v${v.version}`, className: "text-tertiary-foreground" };
-  }
+// VersionPill is the segmented info pill under a tier column header: the version
+// (with its draft/retired status when not active) and the number of tenants
+// currently assigned to it, split by a thin divider.
+function VersionPill({ version }: { version: TierVersion }) {
+  const label =
+    version.status === "active"
+      ? `v${version.version}`
+      : `v${version.version} ${version.status}`;
+  const n = version.liveAssignmentCount;
+  return (
+    <span className="inline-flex items-center rounded-full bg-secondary text-[11px] font-medium text-secondary-foreground">
+      <span
+        className={cn(
+          "px-2 py-0.5",
+          version.status === "retired" && "line-through",
+        )}
+      >
+        {label}
+      </span>
+      <span aria-hidden className="h-3.5 w-px bg-border" />
+      <span className="px-2 py-0.5 tabular-nums">
+        {n} {n === 1 ? "tenant" : "tenants"}
+      </span>
+    </span>
+  );
 }
 
 // groupByCategory returns [category, features[]] in CATEGORY_ORDER, with any
@@ -192,6 +198,18 @@ export function TierEntitlementsMatrix() {
   // True once the table is scrolled off its left edge — reveals the frozen
   // columns' right-edge shadow.
   const [scrolled, setScrolled] = useState(false);
+  // Vertical scroll position → the top/bottom fade strips (hidden at the edges),
+  // mirroring the /activity table.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [atTop, setAtTop] = useState(true);
+  const [atBottom, setAtBottom] = useState(true);
+  const onScroll = (el: HTMLDivElement) => {
+    setScrolled(el.scrollLeft > 0);
+    setAtTop(el.scrollTop <= 0);
+    setAtBottom(
+      Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0,
+    );
+  };
 
   const reload = useCallback((signal?: AbortSignal) => {
     return fetch("/api/tier-entitlements", { signal })
@@ -219,6 +237,18 @@ export function TierEntitlementsMatrix() {
     reload(controller.signal);
     return () => controller.abort();
   }, [reload]);
+
+  // Recompute the fade strips once the table has rendered (and whenever the
+  // data changes its height), so a non-scrolled overflowing table still shows
+  // the bottom fade.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setAtTop(el.scrollTop <= 0);
+    setAtBottom(
+      Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0,
+    );
+  }, [data]);
 
   const available = data?.available ?? false;
   const features = data?.features ?? [];
@@ -251,14 +281,15 @@ export function TierEntitlementsMatrix() {
   const tableMinWidth = FEATURE_W + STATUS_W + tiers.length * TIER_MIN;
 
   return (
-    <div className="flex h-full flex-col rounded-xl bg-primary">
+    <div className="relative flex h-full flex-col overflow-hidden rounded-xl bg-primary">
       {/* The scroll region fills the card height (both axes scroll): the frozen
           Feature/Status block stays pinned horizontally (with a right-edge
           shadow while scrolled), and the column-header row stays pinned
           vertically (sticky top). */}
       <div
-        className="min-h-0 flex-1 overflow-auto rounded-xl"
-        onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 0)}
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-auto"
+        onScroll={(e) => onScroll(e.currentTarget)}
       >
         {loading ? (
           <div className="flex items-center gap-2 p-6 text-sm text-tertiary-foreground">
@@ -310,14 +341,13 @@ export function TierEntitlementsMatrix() {
               </div>
               {tiers.map((t) => {
                 const v = shownVersion(t);
-                const badge = versionBadge(v);
                 const price = headlinePrice(v);
                 return (
                   <div
                     key={t.tierId}
-                    className="flex flex-col items-start justify-end gap-0.5 border-l border-border px-3 py-2.5 text-left"
+                    className="flex flex-col items-start justify-end gap-1.5 border-l border-border px-3 py-2.5 text-left"
                   >
-                    <span className="flex items-center gap-1 text-sm font-semibold text-foreground">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                       {t.tierColor && (
                         <span
                           aria-hidden
@@ -327,25 +357,30 @@ export function TierEntitlementsMatrix() {
                       )}
                       {t.tierName}
                     </span>
-                    {badge && (
-                      <span className={cn("text-[11px]", badge.className)}>
-                        {badge.label}
-                      </span>
-                    )}
-                    <span className="text-xs tabular-nums text-secondary-foreground">
+                    <span className="text-xl font-semibold tabular-nums text-foreground">
                       {price ? formatMoney(price) : "—"}
                     </span>
+                    {v && <VersionPill version={v} />}
                   </div>
                 );
               })}
+
+              {/* Top fade — sits just below the sticky header row (tracks its
+                  height) and hides at the very top. */}
+              <div
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute inset-x-0 top-full z-10 h-8 bg-linear-to-b from-primary to-transparent transition-opacity duration-200",
+                  atTop ? "opacity-0" : "opacity-100",
+                )}
+              />
             </div>
 
             {/* Category bands + feature rows */}
             {grouped.map(([category, feats]) => (
               <div key={category}>
-                {/* Band row: a pale-yellow strip; the label spans the two frozen
-                    columns and stays pinned, and the vertical rules continue
-                    through the empty tier cells. */}
+                {/* Band row: a continuous pale-yellow strip (no vertical rules).
+                    The label spans the two frozen columns and stays pinned. */}
                 <div
                   className="grid w-full border-b border-border"
                   style={{ gridTemplateColumns: gridTemplate }}
@@ -366,7 +401,6 @@ export function TierEntitlementsMatrix() {
                   {tiers.map((t) => (
                     <div
                       key={t.tierId}
-                      className="border-l border-border"
                       style={{ backgroundColor: BAND_BG }}
                     />
                   ))}
@@ -472,6 +506,17 @@ export function TierEntitlementsMatrix() {
           </div>
         )}
       </div>
+
+      {/* Bottom fade — white-to-transparent, hidden once scrolled to the end
+          (mirrors the /activity table). The top fade lives under the sticky
+          header row so it tracks the header's height. */}
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 z-20 h-8 bg-linear-to-t from-primary to-transparent transition-opacity duration-200",
+          atBottom ? "opacity-0" : "opacity-100",
+        )}
+      />
     </div>
   );
 }
