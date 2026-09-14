@@ -32,6 +32,7 @@ import {
     UserGroupIcon,
     MailSetting01Icon,
     FactoryIcon,
+    LicenseIcon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
@@ -113,6 +114,9 @@ export function AppSidebar({
     useHotkeys("g>d", () => router.push("/databases"), { preventDefault: true });
     useHotkeys("g>s", () => router.push("/secrets"), { preventDefault: true });
     useHotkeys("g>p", () => router.push("/platforms"), { preventDefault: true });
+    useHotkeys("g>e", () => router.push("/tier-entitlements"), {
+        preventDefault: true,
+    });
 
     return (
         <aside
@@ -242,6 +246,27 @@ export function AppSidebar({
                         )}
                     >
                         Tiers and Groups
+                    </span>
+                </Link>
+
+                <Link
+                    href="/tier-entitlements"
+                    className={cn(
+                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                        collapsed ? "justify-center gap-0" : "gap-2.5",
+                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                        activeHref.startsWith("/tier-entitlements") &&
+                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
+                    )}
+                >
+                    <HugeiconsIcon icon={LicenseIcon} className="size-5 shrink-0" />
+                    <span
+                        className={cn(
+                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
+                            collapsed ? "w-0 opacity-0" : "opacity-100",
+                        )}
+                    >
+                        Tier entitlements
                     </span>
                 </Link>
 
