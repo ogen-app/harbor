@@ -41,8 +41,8 @@ function DrawerContent({
             <DialogPrimitive.Content
                 data-slot="drawer-content"
                 className={cn(
-                    "fixed top-5 right-5 bottom-5 z-[200] flex w-full max-w-[min(36rem,calc(100vw-2.5rem))] flex-col rounded-xl border border-border bg-primary p-3 text-foreground shadow-xl outline-none " +
-                        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=open]:duration-300 data-[state=closed]:duration-200",
+                    "fixed top-5 right-5 bottom-5 z-[200] flex w-full max-w-[min(36rem,calc(100vw-2.5rem))] flex-col rounded-xl border border-border bg-primary p-3 text-foreground shadow-2xl outline-none " +
+                        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=open]:duration-200 data-[state=closed]:duration-100",
                     className,
                 )}
                 {...props}
@@ -64,7 +64,7 @@ function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
         <div
             data-slot="drawer-header"
             className={cn(
-                "flex flex-col gap-1 border-b border-border px-3.5 py-2.5 pr-12",
+                "flex flex-col gap-1 border-b border-border px-6 py-4 pr-12",
                 className,
             )}
             {...props}
@@ -76,10 +76,7 @@ function DrawerBody({ className, ...props }: React.ComponentProps<"div">) {
     return (
         <div
             data-slot="drawer-body"
-            className={cn(
-                "min-h-0 flex-1 overflow-y-auto px-3.5 py-5",
-                className,
-            )}
+            className={cn("min-h-0 flex-1 overflow-y-auto px-6 py-4", className)}
             {...props}
         />
     );
@@ -90,7 +87,7 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
         <div
             data-slot="drawer-footer"
             className={cn(
-                "flex items-center justify-end gap-2 border-t border-border px-3.5 py-2.5",
+                "flex items-center justify-end gap-2 border-t border-border px-6 py-4",
                 className,
             )}
             {...props}
