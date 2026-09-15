@@ -6,7 +6,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
     DropdownMenu,
@@ -22,7 +21,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
-import { SidebarSimpleIcon, WavesIcon } from "@phosphor-icons/react";
+import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
     UserFullViewIcon,
@@ -33,23 +32,60 @@ import {
     MailSetting01Icon,
     FactoryIcon,
     ConferenceIcon,
+    LinkSquare01Icon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
 
 // Nav items render Hugeicons (https://hugeicons.com) via <HugeiconsIcon/>, taking
-// the icon's SVG data object from @hugeicons/core-free-icons.
+// the icon's SVG data object from @hugeicons/core-free-icons. Grouped into
+// labelled sections; the external service dashboards live on the /links page.
 type NavItem = {
     icon: IconSvgElement;
     label: string;
     href: string;
-    active?: boolean;
 };
 
-const navItems: NavItem[] = [
-    { icon: UserFullViewIcon, label: "Tenants", href: "/tenants" },
-    { icon: Activity03Icon, label: "Activity", href: "/activity" },
-    { icon: Database01Icon, label: "Databases", href: "/databases" },
+const NAV_GROUPS: { header: string; items: NavItem[] }[] = [
+    {
+        header: "Tenants",
+        items: [
+            { icon: UserFullViewIcon, label: "Tenants", href: "/tenants" },
+            { icon: Activity03Icon, label: "Activity", href: "/activity" },
+            {
+                icon: UserGroupIcon,
+                label: "Tiers and groups",
+                href: "/tiers-and-groups",
+            },
+            {
+                icon: ConferenceIcon,
+                label: "Tier entitlements",
+                href: "/tier-entitlements",
+            },
+        ],
+    },
+    {
+        header: "System",
+        items: [
+            { icon: Database01Icon, label: "Databases", href: "/databases" },
+        ],
+    },
+    {
+        header: "Settings",
+        items: [
+            { icon: FactoryIcon, label: "Platforms", href: "/platforms" },
+            {
+                icon: MailSetting01Icon,
+                label: "Email templates",
+                href: "/email-templates",
+            },
+            { icon: AuthorizedIcon, label: "Secrets", href: "/secrets" },
+        ],
+    },
+    {
+        header: "Resources",
+        items: [{ icon: LinkSquare01Icon, label: "Links", href: "/links" }],
+    },
 ];
 
 const STORAGE_KEY = "sidebar-collapsed";
@@ -117,6 +153,7 @@ export function AppSidebar({
     useHotkeys("g>e", () => router.push("/tier-entitlements"), {
         preventDefault: true,
     });
+    useHotkeys("g>l", () => router.push("/links"), { preventDefault: true });
 
     return (
         <aside
@@ -155,341 +192,66 @@ export function AppSidebar({
                 )}
             </div>
 
-            {/* Navigation */}
+            {/* Navigation — grouped, labelled sections. */}
             <nav
                 className={cn(
-                    "flex flex-col gap-1 flex-1 p-3 lg:p-6",
+                    "flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto p-3 lg:p-6",
                     !collapsed && "-ml-2",
                 )}
             >
-                {navItems.map((item) => {
-                    const isActive = activeHref.startsWith(item.href);
-                    return (
-                        <Link
-                            key={item.href}
-                            href={item.href}
+                {NAV_GROUPS.map((group) => (
+                    <div key={group.header} className="flex flex-col gap-1">
+                        {/* Group header — the divider label; hidden (but space
+                            kept) when collapsed. */}
+                        <div
                             className={cn(
-                                "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                                collapsed ? "justify-center gap-0" : "gap-2.5",
-                                "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                                isActive &&
-                                    "bg-sidebar-secondary text-secondary-foreground icon-sidebar-active",
+                                "relative h-10 flex items-center overflow-hidden transition-all duration-200",
+                                collapsed
+                                    ? "opacity-0 pointer-events-none"
+                                    : "opacity-100",
                             )}
                         >
-                            <HugeiconsIcon
-                                icon={item.icon}
-                                className="size-5 shrink-0"
-                            />
-                            <span
-                                className={cn(
-                                    "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                                    collapsed ? "w-0 opacity-0" : "opacity-100",
-                                )}
-                            >
-                                {item.label}
+                            <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
+                            <span className="absolute px-3 text-[11px] font-medium uppercase tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
+                                {group.header}
                             </span>
-                        </Link>
-                    );
-                })}
+                        </div>
 
-                {/* Settings group */}
-                <div
-                    className={cn(
-                        "relative h-10 flex items-center overflow-hidden transition-all duration-200",
-                        collapsed
-                            ? "opacity-0 pointer-events-none"
-                            : "opacity-100",
-                    )}
-                >
-                    <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
-                    <span className="absolute px-3 text-[11px] font-medium tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
-                        SETTINGS
-                    </span>
-                </div>
-
-                <Link
-                    href="/platforms"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                        activeHref.startsWith("/platforms") &&
-                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
-                    )}
-                >
-                    <HugeiconsIcon icon={FactoryIcon} className="size-5 shrink-0" />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Platforms
-                    </span>
-                </Link>
-
-                <Link
-                    href="/tiers-and-groups"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                        activeHref.startsWith("/tiers-and-groups") &&
-                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
-                    )}
-                >
-                    <HugeiconsIcon icon={UserGroupIcon} className="size-5 shrink-0" />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Tiers and Groups
-                    </span>
-                </Link>
-
-                <Link
-                    href="/tier-entitlements"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                        activeHref.startsWith("/tier-entitlements") &&
-                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
-                    )}
-                >
-                    <HugeiconsIcon icon={ConferenceIcon} className="size-5 shrink-0" />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Tier entitlements
-                    </span>
-                </Link>
-
-                <Link
-                    href="/email-templates"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                        activeHref.startsWith("/email-templates") &&
-                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
-                    )}
-                >
-                    <HugeiconsIcon icon={MailSetting01Icon} className="size-5 shrink-0" />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Email templates
-                    </span>
-                </Link>
-
-                <Link
-                    href="/secrets"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                        activeHref.startsWith("/secrets") &&
-                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
-                    )}
-                >
-                    <HugeiconsIcon icon={AuthorizedIcon} className="size-5 shrink-0" />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Secrets
-                    </span>
-                </Link>
-
-                {/* Services group — hidden entirely when the sidebar is
-                    collapsed; these are external links that only make sense
-                    with their labels shown. */}
-                {!collapsed && (
-                  <>
-                <div className="relative h-10 flex items-center overflow-hidden">
-                    <div className="absolute top-1/2 h-px w-full bg-sidebar-border" />
-                    <span className="absolute px-3 text-[11px] font-medium tracking-[0.03em] text-sidebar-secondary-foreground bg-sidebar ml-5">
-                        SERVICES
-                    </span>
-                </div>
-
-                <a
-                    href="https://aistudio.google.com/usage?timeRange=last-7-days&project=gen-lang-client-0756755976"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="ai_studio"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Google AI Studio
-                    </span>
-                </a>
-
-                <a
-                    href="https://platform.claude.com/usage"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="claude"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Claude Console
-                    </span>
-                </a>
-
-                <a
-                    href="https://dash.cloudflare.com/17efea3963b045025b9ecbdcad609273/r2/overview"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="cloudflare"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Cloudflare R2
-                    </span>
-                </a>
-
-                <a
-                    href="https://zernio.com/dashboard/connections"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="zernio"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Zernio
-                    </span>
-                </a>
-
-                <a
-                    href="https://railway.com/project/e475ca33-45d9-4dd1-b996-b4292ff20378"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="railway"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        Railway
-                    </span>
-                </a>
-
-                <a
-                    href="https://riverui-development.up.railway.app/jobs"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <WavesIcon className="size-5 shrink-0" />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        River Queue
-                    </span>
-                </a>
-
-                <a
-                    href="https://github.com/ogen-app"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
-                        collapsed ? "justify-center gap-0" : "gap-2.5",
-                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
-                    )}
-                >
-                    <Icon
-                        name="github"
-                        className="size-5 shrink-0 stroke-[1.5]"
-                    />
-                    <span
-                        className={cn(
-                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
-                            collapsed ? "w-0 opacity-0" : "opacity-100",
-                        )}
-                    >
-                        GitHub
-                    </span>
-                </a>
-                  </>
-                )}
+                        {group.items.map((item) => {
+                            const isActive = activeHref.startsWith(item.href);
+                            return (
+                                <Link
+                                    key={item.href}
+                                    href={item.href}
+                                    className={cn(
+                                        "flex items-center rounded-xs px-2.5 py-2 text-sm transition-colors",
+                                        collapsed
+                                            ? "justify-center gap-0"
+                                            : "gap-2.5",
+                                        "text-gray-500 hover:bg-sidebar-secondary hover:text-secondary-foreground",
+                                        isActive &&
+                                            "bg-sidebar-secondary text-sidebar-primary-foreground icon-sidebar-active",
+                                    )}
+                                >
+                                    <HugeiconsIcon
+                                        icon={item.icon}
+                                        className="size-5 shrink-0"
+                                    />
+                                    <span
+                                        className={cn(
+                                            "uppercase font-semibold whitespace-nowrap overflow-hidden transition-all duration-200 text-[12px]",
+                                            collapsed
+                                                ? "w-0 opacity-0"
+                                                : "opacity-100",
+                                        )}
+                                    >
+                                        {item.label}
+                                    </span>
+                                </Link>
+                            );
+                        })}
+                    </div>
+                ))}
             </nav>
 
             {/* Footer / User */}
