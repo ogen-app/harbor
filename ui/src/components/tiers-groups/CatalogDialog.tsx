@@ -1,14 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogFooter,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  PencilEdit02Icon,
+  PlusSignSquareIcon,
+} from "@hugeicons/core-free-icons";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -28,10 +34,10 @@ interface CatalogDialogProps {
   onSaved: (name: string, created: boolean) => void;
 }
 
-// CatalogDialog is the shared add/edit form for a tier or a group. The form body
-// lives in CatalogForm, which Radix mounts fresh each time the dialog opens — so
-// its state resets from the current entry without an effect (mirrors
-// SecretDialog).
+// CatalogDialog is the shared add/edit form for a tier or a group, presented as
+// a right-side drawer (matching /tier-entitlements). The form body lives in
+// CatalogForm, which Radix mounts fresh each time the drawer opens — so its
+// state resets from the current entry without an effect (mirrors SecretDialog).
 export function CatalogDialog({
   open,
   onOpenChange,
@@ -40,9 +46,25 @@ export function CatalogDialog({
   entry,
   onSaved,
 }: CatalogDialogProps) {
+  const kindLower = config.singular.toLowerCase();
+  const title = mode === "edit" ? `Edit ${kindLower}` : `New ${kindLower}`;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle className="flex items-center gap-2">
+            <HugeiconsIcon
+              icon={mode === "edit" ? PencilEdit02Icon : PlusSignSquareIcon}
+              className="size-5 text-tertiary-foreground"
+            />
+            {title}
+          </DrawerTitle>
+          <DrawerDescription>
+            {mode === "edit"
+              ? `Update this ${kindLower}’s name, color, or description.`
+              : `Add a new ${kindLower} to the catalog.`}
+          </DrawerDescription>
+        </DrawerHeader>
         <CatalogForm
           mode={mode}
           config={config}
@@ -53,8 +75,8 @@ export function CatalogDialog({
             onOpenChange(false);
           }}
         />
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -123,72 +145,70 @@ function CatalogForm({
     }
   };
 
-  const title = mode === "edit" ? `Edit ${kindLower}` : `New ${kindLower}`;
-
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>
-          {mode === "edit"
-            ? `Update this ${kindLower}’s name, color, or description.`
-            : `Add a new ${kindLower} to the catalog.`}
-        </DialogDescription>
-      </DialogHeader>
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      <DrawerBody className="space-y-4">
+        <div className="grid gap-1.5">
+          <Label htmlFor="entry-name">Name</Label>
+          <Input
+            id="entry-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={`e.g. ${config.kind === "tier" ? "Pro" : "Beta testers"}`}
+            autoFocus
+            autoComplete="off"
+          />
+        </div>
 
-      <div className="grid gap-1.5">
-        <Label htmlFor="entry-name">Name</Label>
-        <Input
-          id="entry-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={`e.g. ${config.kind === "tier" ? "Pro" : "Beta testers"}`}
-          autoFocus
-          autoComplete="off"
-        />
-      </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="entry-color">Color</Label>
+          <ColorPicker id="entry-color" value={color} onChange={setColor} />
+        </div>
 
-      <div className="grid gap-1.5">
-        <Label htmlFor="entry-color">Color</Label>
-        <ColorPicker id="entry-color" value={color} onChange={setColor} />
-      </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="entry-description">Description</Label>
+          <textarea
+            id="entry-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            autoComplete="off"
+            placeholder="Optional — what this is for"
+            className="w-full resize-y rounded-none border-b border-quaternary bg-input px-4 py-2 text-sm text-foreground outline-none focus:border-foreground"
+          />
+        </div>
 
-      <div className="grid gap-1.5">
-        <Label htmlFor="entry-description">Description</Label>
-        <textarea
-          id="entry-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={3}
-          autoComplete="off"
-          placeholder="Optional — what this is for"
-          className="w-full resize-y rounded-none border-b border-quaternary bg-input px-4 py-2 text-sm text-foreground outline-none focus:border-foreground"
-        />
-      </div>
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+      </DrawerBody>
 
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-
-      <DialogFooter>
+      <DrawerFooter>
         <Button
           type="button"
           variant="ghost"
+          size="sm"
           onClick={onCancel}
           disabled={submitting}
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button
+          type="submit"
+          variant="defaultInverted"
+          size="sm"
+          className="font-semibold"
+          disabled={submitting}
+        >
           {submitting
             ? "Saving…"
             : mode === "edit"
               ? "Save changes"
               : `Add ${kindLower}`}
         </Button>
-      </DialogFooter>
+      </DrawerFooter>
     </form>
   );
 }

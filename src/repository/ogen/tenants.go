@@ -27,19 +27,19 @@ var ErrUnavailable = errors.New("ogen database not configured")
 // (user count, connected Zernio/social profiles, R2 storage bytes). AI spend is
 // merged separately from the analytics pool.
 type TenantMetrics struct {
-	ID             string    `bun:"id"`
-	Name           string    `bun:"name"`
-	Slug           string    `bun:"slug"`
-	CreatedAt      time.Time `bun:"created_at"`
+	ID        string    `bun:"id"`
+	Name      string    `bun:"name"`
+	Slug      string    `bun:"slug"`
+	CreatedAt time.Time `bun:"created_at"`
 	// Status / StatusReason are the tenant lifecycle fields (CON-190):
 	// active | suspended | deleted, plus an operator note (set on suspend). Read
 	// from the Ogen DB; written over gRPC. Both fall back to 'active'/'' when the
 	// live Ogen is un-migrated (no status column) — see metricsSelectSQL.
-	Status         string    `bun:"status"`
-	StatusReason   string    `bun:"status_reason"`
-	Users          int       `bun:"users"`
-	ZernioProfiles int       `bun:"zernio_profiles"`
-	R2Bytes        int64     `bun:"r2_bytes"`
+	Status         string `bun:"status"`
+	StatusReason   string `bun:"status_reason"`
+	Users          int    `bun:"users"`
+	ZernioProfiles int    `bun:"zernio_profiles"`
+	R2Bytes        int64  `bun:"r2_bytes"`
 }
 
 // Registration is a single tenant creation (UTC day + name), used to build the
@@ -143,6 +143,10 @@ type TenantRepository interface {
 	ListGroups(ctx context.Context) ([]Group, error)
 	TenantTiers(ctx context.Context) (map[string]Tier, error)
 	TenantGroups(ctx context.Context) (map[string][]Group, error)
+	// TenantTierVersions returns the tier VERSION each tenant is currently pinned
+	// to (its open tenant_tier_assignments row), keyed by tenant id. Empty (no
+	// error) when the CON-243 versioned-entitlement tables are absent.
+	TenantTierVersions(ctx context.Context) (map[string]TenantVersion, error)
 
 	// ── overview aggregates ──────────────────────────────────────────────
 	Headline(ctx context.Context) (OverviewHeadline, error)
@@ -166,7 +170,7 @@ func (r *tenantRepository) Available() bool { return r.db != nil }
 //
 // The lifecycle status columns (CON-190) are adapted to the live Ogen schema:
 // when tenants.status is absent (un-migrated Ogen) the projection falls back to
-// a constant 'active'/'' so the tenants list never breaks — mirroring the
+// a constant 'active'/” so the tenants list never breaks — mirroring the
 // column-adaptive reads elsewhere in this package (ZernioAccounts,
 // classificationEnabled).
 func (r *tenantRepository) metricsSelectSQL(ctx context.Context) string {
@@ -523,6 +527,56 @@ func (r *tenantRepository) TenantTiers(ctx context.Context) (map[string]Tier, er
 	out := make(map[string]Tier, len(rows))
 	for _, row := range rows {
 		out[row.TenantID] = Tier{ID: row.ID, Name: row.Name, Color: row.Color}
+	}
+	return out, nil
+}
+
+// TenantVersion is the tier version a tenant is currently pinned to (its open
+// tenant_tier_assignments row). Only populated once CON-243 versioned
+// entitlements exist and a tenant has a versioned assignment.
+type TenantVersion struct {
+	Version int    `json:"version"`
+	Status  string `json:"status"` // draft | active | retired
+}
+
+// versioningEnabled reports whether the CON-243 versioned-entitlement tables
+// (tenant_tier_versions + tenant_tier_assignments) are present, so the version
+// read degrades to empty on an un-migrated Ogen instead of erroring.
+func (r *tenantRepository) versioningEnabled(ctx context.Context) bool {
+	if r.db == nil {
+		return false
+	}
+	var present int
+	err := r.db.NewRaw(`
+		SELECT count(DISTINCT table_name) FROM information_schema.tables
+		WHERE table_name IN ('tenant_tier_versions', 'tenant_tier_assignments')`).Scan(ctx, &present)
+	return err == nil && present == 2
+}
+
+func (r *tenantRepository) TenantTierVersions(ctx context.Context) (map[string]TenantVersion, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	if !r.versioningEnabled(ctx) {
+		return map[string]TenantVersion{}, nil
+	}
+	var rows []struct {
+		TenantID string `bun:"tenant_id"`
+		Version  int    `bun:"version"`
+		Status   string `bun:"status"`
+	}
+	// The open assignment (upper(valid) IS NULL) is the version in force now.
+	err := r.db.NewRaw(`
+		SELECT a.tenant_id, v.version, v.status
+		FROM tenant_tier_assignments a
+		JOIN tenant_tier_versions v ON v.id = a.tier_version_id
+		WHERE upper(a.valid) IS NULL`).Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]TenantVersion, len(rows))
+	for _, row := range rows {
+		out[row.TenantID] = TenantVersion{Version: row.Version, Status: row.Status}
 	}
 	return out, nil
 }

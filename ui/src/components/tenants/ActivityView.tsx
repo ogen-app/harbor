@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ActivityCard } from "@/components/tenants/ActivityCard";
+import {
+  ActivityCard,
+  ACTIVITY_CHART_H,
+} from "@/components/tenants/ActivityCard";
 import { type ActivityFilterToken } from "@/components/tenants/ActivityFilterBar";
 import {
   type Tenant,
@@ -113,6 +116,8 @@ export function ActivityView() {
           onFiltersChange={setFilters}
           infoText={scope ? ONE_INFO : ALL_INFO}
           className="flex-1"
+          // 0.75× the default plot height so the table gets more of the page.
+          chartHeight={Math.round(ACTIVITY_CHART_H * 0.75)}
         />
       </div>
     </main>

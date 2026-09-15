@@ -1,0 +1,431 @@
+package handlers
+
+import (
+	"errors"
+	"log/slog"
+	"math"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/ogen-app/harbor/src/logging"
+	"github.com/ogen-app/harbor/src/repository/ogenplans"
+	"github.com/ogen-app/harbor/src/repository/ogentenants"
+)
+
+// TierEntitlementsHandler is the REST surface Harbor's UI calls to manage Ogen's
+// versioned tier entitlements (CON-243/CON-294/CON-296). It is a thin adapter
+// over two gRPC clients: ogenplans (PlanAdminService — versions, prices,
+// entitlements, assignment) and ogentenants (TenantAdminService — the tier
+// catalog that supplies the matrix columns; PlanAdminService has no ListTiers).
+// The data model, feature catalog, immutability rules, and all validation live
+// in Ogen behind the wire.
+type TierEntitlementsHandler struct {
+	plans   *ogenplans.Client
+	tenants *ogentenants.Client
+}
+
+func NewTierEntitlementsHandler(plans *ogenplans.Client, tenants *ogentenants.Client) *TierEntitlementsHandler {
+	return &TierEntitlementsHandler{plans: plans, tenants: tenants}
+}
+
+// Register mounts the tier-entitlement routes behind auth. Only signed-in Harbor
+// operators may reach them; Harbor→Ogen is separately authenticated by the
+// shared gRPC token. Static sub-paths are registered before parameterised ones
+// so Fiber doesn't capture a literal segment as a path param.
+func (h *TierEntitlementsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
+	// The matrix: catalog rows + every tier's versions.
+	app.Get("/api/tier-entitlements", requireAuth, h.Matrix)
+
+	// Version authoring.
+	app.Post("/api/tier-entitlements/tiers/:tierId/versions", requireAuth, h.CreateVersion)
+	app.Put("/api/tier-entitlements/versions/:id", requireAuth, h.UpdateDraft)
+	app.Post("/api/tier-entitlements/versions/:id/publish", requireAuth, h.Publish)
+	app.Post("/api/tier-entitlements/versions/:id/retire", requireAuth, h.Retire)
+	app.Delete("/api/tier-entitlements/versions/:id", requireAuth, h.DeleteVersion)
+	// Live tenant assignments on a version (drives the retire reassignment picker).
+	app.Get("/api/tier-entitlements/versions/:id/assignments", requireAuth, h.Assignments)
+
+	// Tenant assignment + resolved view.
+	app.Get("/api/tier-entitlements/tenants/:tenantId", requireAuth, h.TenantEntitlements)
+	app.Put("/api/tier-entitlements/tenants/:tenantId/version", requireAuth, h.AssignTenant)
+}
+
+// matrixTier is one tier column: its identity (from the tenant tier catalog)
+// plus every version (newest first) the UI can render or drill into. The UI
+// picks which version to show per tier (latest active by default).
+type matrixTier struct {
+	TierID    string                  `json:"tierId"`
+	TierName  string                  `json:"tierName"`
+	TierColor string                  `json:"tierColor"`
+	Versions  []ogenplans.TierVersion `json:"versions"`
+}
+
+// matrixResponse is the whole feature × tier-version matrix. `available` flags a
+// down/unconfigured upstream (either gRPC client) so the page renders a soft
+// "unavailable" state instead of an error — mirroring the platforms/tiers list.
+type matrixResponse struct {
+	Available bool                `json:"available"`
+	Features  []ogenplans.Feature `json:"features"`
+	Tiers     []matrixTier        `json:"tiers"`
+}
+
+// unavailableMatrix is the soft-fail body: available=false with non-nil empty
+// slices so the UI can render the "unavailable" state and still map safely.
+func unavailableMatrix() matrixResponse {
+	return matrixResponse{Available: false, Features: []ogenplans.Feature{}, Tiers: []matrixTier{}}
+}
+
+// Matrix godoc
+// @Summary  The feature × tier-version entitlement matrix
+// @Tags     tier-entitlements
+// @Produce  json
+// @Success  200  {object}  matrixResponse
+// @Router   /api/tier-entitlements [get]
+func (h *TierEntitlementsHandler) Matrix(c *fiber.Ctx) error {
+	start := time.Now()
+
+	features, err := h.plans.ListFeatures(c.Context())
+	if err != nil {
+		logPlans(c, start, err)
+		if isPlansUnavailable(err) {
+			return c.JSON(unavailableMatrix())
+		}
+		return mapPlanError(err)
+	}
+
+	tiers, err := h.tenants.ListTiers(c.Context())
+	if err != nil {
+		logPlans(c, start, err)
+		if isPlansUnavailable(err) {
+			return c.JSON(unavailableMatrix())
+		}
+		return mapPlanError(err)
+	}
+
+	cols := make([]matrixTier, 0, len(tiers))
+	for _, t := range tiers {
+		versions, verr := h.plans.ListTierVersions(c.Context(), t.ID)
+		if verr != nil {
+			logPlans(c, start, verr)
+			if isPlansUnavailable(verr) {
+				return c.JSON(unavailableMatrix())
+			}
+			return mapPlanError(verr)
+		}
+		if versions == nil {
+			versions = []ogenplans.TierVersion{}
+		}
+		cols = append(cols, matrixTier{
+			TierID:    t.ID,
+			TierName:  t.Name,
+			TierColor: t.Color,
+			Versions:  versions,
+		})
+	}
+
+	logPlans(c, start, nil)
+	if features == nil {
+		features = []ogenplans.Feature{}
+	}
+	return c.JSON(matrixResponse{Available: true, Features: features, Tiers: cols})
+}
+
+// CreateVersion godoc
+// @Summary  Create a draft tier version (optionally cloned)
+// @Tags     tier-entitlements
+// @Accept   json
+// @Produce  json
+// @Param    tierId  path  string  true  "Tier id"
+// @Success  201  {object}  ogenplans.TierVersion
+// @Router   /api/tier-entitlements/tiers/{tierId}/versions [post]
+func (h *TierEntitlementsHandler) CreateVersion(c *fiber.Ctx) error {
+	start := time.Now()
+	body, err := parseDraftBody(c)
+	if err != nil {
+		logPlans(c, start, err)
+		return err
+	}
+	out, cerr := h.plans.CreateTierVersion(c.Context(), c.Params("tierId"), body)
+	logPlans(c, start, cerr)
+	if cerr != nil {
+		return mapPlanError(cerr)
+	}
+	return c.Status(fiber.StatusCreated).JSON(out)
+}
+
+// UpdateDraft godoc
+// @Summary  Replace a draft version's body (purchasable + entitlements + prices)
+// @Tags     tier-entitlements
+// @Accept   json
+// @Produce  json
+// @Param    id  path  string  true  "Tier version id"
+// @Success  200  {object}  ogenplans.TierVersion
+// @Router   /api/tier-entitlements/versions/{id} [put]
+func (h *TierEntitlementsHandler) UpdateDraft(c *fiber.Ctx) error {
+	start := time.Now()
+	body, err := parseDraftBody(c)
+	if err != nil {
+		logPlans(c, start, err)
+		return err
+	}
+	out, uerr := h.plans.UpdateTierVersionDraft(c.Context(), c.Params("id"), body)
+	logPlans(c, start, uerr)
+	if uerr != nil {
+		return mapPlanError(uerr)
+	}
+	return c.JSON(out)
+}
+
+type publishRequest struct {
+	ChangeReason string `json:"changeReason"`
+}
+
+// Publish godoc
+// @Summary  Publish a draft version (draft → active; change_reason required)
+// @Tags     tier-entitlements
+// @Accept   json
+// @Produce  json
+// @Param    id  path  string  true  "Tier version id"
+// @Success  200  {object}  ogenplans.TierVersion
+// @Router   /api/tier-entitlements/versions/{id}/publish [post]
+func (h *TierEntitlementsHandler) Publish(c *fiber.Ctx) error {
+	start := time.Now()
+	var req publishRequest
+	if err := c.BodyParser(&req); err != nil {
+		logPlans(c, start, err)
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	out, err := h.plans.PublishTierVersion(c.Context(), c.Params("id"), req.ChangeReason)
+	logPlans(c, start, err)
+	if err != nil {
+		return mapPlanError(err)
+	}
+	return c.JSON(out)
+}
+
+// retireRequest carries the operator's choice when live assignments remain:
+// grandfather them (force), or migrate them onto another active version first
+// (reassignToVersionId). The two are mutually exclusive — Ogen rejects both.
+type retireRequest struct {
+	Force               bool   `json:"force"`
+	ReassignToVersionID string `json:"reassignToVersionId"`
+}
+
+// Retire godoc
+// @Summary  Retire an active version (guarded; reassign or force on live assignments)
+// @Tags     tier-entitlements
+// @Accept   json
+// @Produce  json
+// @Param    id  path  string  true  "Tier version id"
+// @Success  200  {object}  ogenplans.RetireResult
+// @Router   /api/tier-entitlements/versions/{id}/retire [post]
+func (h *TierEntitlementsHandler) Retire(c *fiber.Ctx) error {
+	start := time.Now()
+	// The body is optional: an empty POST retires a version with no live
+	// assignments. Only reject a body that's present but malformed.
+	var req retireRequest
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			logPlans(c, start, err)
+			return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+		}
+	}
+	out, err := h.plans.RetireTierVersion(c.Context(), c.Params("id"), req.Force, req.ReassignToVersionID)
+	logPlans(c, start, err)
+	if err != nil {
+		return mapPlanError(err)
+	}
+	return c.JSON(out)
+}
+
+// DeleteVersion godoc
+// @Summary  Delete a draft version (draft-only; published versions are immutable)
+// @Tags     tier-entitlements
+// @Param    id  path  string  true  "Tier version id"
+// @Success  204  "No Content"
+// @Router   /api/tier-entitlements/versions/{id} [delete]
+func (h *TierEntitlementsHandler) DeleteVersion(c *fiber.Ctx) error {
+	start := time.Now()
+	err := h.plans.DeleteTierVersion(c.Context(), c.Params("id"))
+	logPlans(c, start, err)
+	if err != nil {
+		return mapPlanError(err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// assignmentsResponse is the paged live-assignment list for a version.
+// `available` is false when the upstream is unreachable (a read route degrades
+// softly, like the matrix, rather than hard-failing).
+type assignmentsResponse struct {
+	Available   bool                          `json:"available"`
+	Assignments []ogenplans.VersionAssignment `json:"assignments"`
+	Total       int32                         `json:"total"`
+}
+
+// int32QueryParam reads a non-negative pagination query param that fits in
+// int32. Missing → 0. ok is false for a negative or out-of-range value, so the
+// caller can reject it — a plain int32() narrowing would silently wrap a value
+// like 4294967296 to 0 on a 64-bit build.
+func int32QueryParam(c *fiber.Ctx, name string) (int32, bool) {
+	v := c.QueryInt(name, 0)
+	if v < 0 || v > math.MaxInt32 {
+		return 0, false
+	}
+	return int32(v), true
+}
+
+// Assignments godoc
+// @Summary  List the tenants with a live assignment on a version
+// @Tags     tier-entitlements
+// @Produce  json
+// @Param    id      path   string  true   "Tier version id"
+// @Param    limit   query  int     false  "Page size (0 = server default)"
+// @Param    offset  query  int     false  "Page offset"
+// @Success  200  {object}  assignmentsResponse
+// @Router   /api/tier-entitlements/versions/{id}/assignments [get]
+func (h *TierEntitlementsHandler) Assignments(c *fiber.Ctx) error {
+	start := time.Now()
+	limit, ok := int32QueryParam(c, "limit")
+	if !ok {
+		logPlans(c, start, nil)
+		return fiber.NewError(fiber.StatusBadRequest, "limit out of range")
+	}
+	offset, ok := int32QueryParam(c, "offset")
+	if !ok {
+		logPlans(c, start, nil)
+		return fiber.NewError(fiber.StatusBadRequest, "offset out of range")
+	}
+	items, total, err := h.plans.ListTierVersionAssignments(c.Context(), c.Params("id"), limit, offset)
+	logPlans(c, start, err)
+	if err != nil {
+		// A read route degrades softly when the upstream is down (mirrors Matrix)
+		// so the retire picker still renders from the version's own count.
+		if isPlansUnavailable(err) {
+			return c.JSON(assignmentsResponse{
+				Available:   false,
+				Assignments: []ogenplans.VersionAssignment{},
+				Total:       0,
+			})
+		}
+		return mapPlanError(err)
+	}
+	return c.JSON(assignmentsResponse{Available: true, Assignments: items, Total: total})
+}
+
+// TenantEntitlements godoc
+// @Summary  The version + entitlements in force for a tenant now
+// @Tags     tier-entitlements
+// @Produce  json
+// @Param    tenantId  path  string  true  "Tenant id"
+// @Success  200  {object}  ogenplans.TierVersion
+// @Router   /api/tier-entitlements/tenants/{tenantId} [get]
+func (h *TierEntitlementsHandler) TenantEntitlements(c *fiber.Ctx) error {
+	start := time.Now()
+	out, err := h.plans.GetTenantEntitlements(c.Context(), c.Params("tenantId"))
+	logPlans(c, start, err)
+	if err != nil {
+		return mapPlanError(err)
+	}
+	return c.JSON(out)
+}
+
+type assignRequest struct {
+	TierVersionID string `json:"tierVersionId"`
+	Reason        string `json:"reason"`
+}
+
+// AssignTenant godoc
+// @Summary  Bind a tenant to a specific tier version
+// @Tags     tier-entitlements
+// @Accept   json
+// @Produce  json
+// @Param    tenantId  path  string  true  "Tenant id"
+// @Success  200  {object}  ogenplans.TierVersion
+// @Router   /api/tier-entitlements/tenants/{tenantId}/version [put]
+func (h *TierEntitlementsHandler) AssignTenant(c *fiber.Ctx) error {
+	start := time.Now()
+	var req assignRequest
+	if err := c.BodyParser(&req); err != nil {
+		logPlans(c, start, err)
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	out, err := h.plans.SetTenantTierVersion(c.Context(), c.Params("tenantId"), req.TierVersionID, req.Reason)
+	logPlans(c, start, err)
+	if err != nil {
+		return mapPlanError(err)
+	}
+	return c.JSON(out)
+}
+
+// parseDraftBody decodes the whole draft body (purchasable + entitlements +
+// prices, plus cloneFromVersionId on create). A parse failure returns a
+// fixed-shape 400 (never the body).
+func parseDraftBody(c *fiber.Ctx) (ogenplans.DraftBody, error) {
+	var b ogenplans.DraftBody
+	if err := c.BodyParser(&b); err != nil {
+		return b, fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	return b, nil
+}
+
+// isPlansUnavailable reports whether err means "the plan/tenant-admin service
+// can't be reached right now" — an unconfigured (nil) client, or a gRPC call
+// that failed with Unavailable / a deadline. Checks both clients' sentinels
+// because the matrix needs both.
+func isPlansUnavailable(err error) bool {
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	}
+	return errors.Is(err, ogenplans.ErrUnavailable) || errors.Is(err, ogentenants.ErrUnavailable)
+}
+
+// mapPlanError translates client/gRPC errors to HTTP statuses, matching the
+// platforms/tiers contract. Publish without a change_reason → 400; mutating a
+// published version or retiring one with live assignments → 409 (with Ogen's
+// message, which carries the blocking tenant list); unknown ids → 404;
+// Unauthenticated (Harbor's shared token is wrong) → 502; Unavailable → 503.
+func mapPlanError(err error) error {
+	if errors.Is(err, ogenplans.ErrUnavailable) || errors.Is(err, ogentenants.ErrUnavailable) {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "tier-entitlement service unavailable")
+	}
+	// A deadline is an availability problem, not a server fault: status.FromError
+	// reports ok=false for it, so handle it before the ok check below.
+	if status.Code(err) == codes.DeadlineExceeded {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "tier-entitlement service unavailable")
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return err
+	}
+	switch st.Code() {
+	case codes.InvalidArgument:
+		return fiber.NewError(fiber.StatusBadRequest, st.Message())
+	case codes.NotFound:
+		return fiber.NewError(fiber.StatusNotFound, st.Message())
+	case codes.AlreadyExists:
+		return fiber.NewError(fiber.StatusConflict, st.Message())
+	case codes.FailedPrecondition:
+		return fiber.NewError(fiber.StatusConflict, st.Message())
+	case codes.Unauthenticated:
+		return fiber.NewError(fiber.StatusBadGateway, "tier-entitlement service authentication failed")
+	case codes.Unavailable:
+		return fiber.NewError(fiber.StatusServiceUnavailable, "tier-entitlement service unavailable")
+	default:
+		return fiber.NewError(fiber.StatusInternalServerError, "tier-entitlement request failed")
+	}
+}
+
+// logPlans emits a structured line with the method/path + status class. There is
+// no secret material on this surface.
+func logPlans(c *fiber.Ctx, start time.Time, err error) {
+	attrs := []any{logging.AttrComponent, "tier-entitlements", "method", c.Method(), "path", c.Path(), "duration_ms", time.Since(start).Milliseconds()}
+	if err != nil {
+		attrs = append(attrs, "code", status.Code(err).String())
+	}
+	slog.InfoContext(c.Context(), "tier-entitlements request", attrs...)
+}

@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { bytesToMB, mbToBytes, formatBytes } from "./bytes";
 
@@ -40,23 +41,28 @@ export function Field({
   );
 }
 
-// Toggle is an accessible on/off switch (role="switch") with a trailing label,
-// matching the emerald/neutral status colors used elsewhere. Pass `description`
-// to stack an explanatory line under the label (switch aligns to the top).
+// Toggle pairs the shared Switch (the /tier-entitlements form switcher) with a
+// trailing label — and an optional description line stacked under it (switch
+// aligns to the top). `variant` picks the on-colour: default (dark) mirrors the
+// per-feature entitlement switches; "success" fills #6B8068 green.
 export function Toggle({
   checked,
   onChange,
   label,
   description,
   disabled,
+  variant = "default",
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   description?: React.ReactNode;
   disabled?: boolean;
+  variant?: "default" | "success" | "warning";
 }) {
   return (
+    // A <label> (not a <div>) so clicking the visible text/description forwards
+    // to the wrapped Switch button — the Switch's `label` is only its aria-label.
     <label
       className={cn(
         "flex gap-2.5 text-sm",
@@ -64,25 +70,13 @@ export function Toggle({
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
       )}
     >
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
+      <Switch
+        checked={checked}
+        onChange={onChange}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          "relative h-5 w-9 shrink-0 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          description && "mt-0.5",
-          checked ? "bg-emerald-500" : "bg-quaternary",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 left-0.5 size-4 rounded-full bg-white transition-transform",
-            checked && "translate-x-4",
-          )}
-        />
-      </button>
+        label={label}
+        variant={variant}
+      />
       {description ? (
         <span className="min-w-0">
           <span className="block font-medium text-foreground">{label}</span>

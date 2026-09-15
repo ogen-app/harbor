@@ -18,10 +18,11 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
-  DotsThreeOutlineVerticalIcon,
   NotePencilIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { MoreVerticalSquare02Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import { SecretDialog } from "./SecretDialog";
 import type { SecretMeta, SecretsListResponse } from "./types";
@@ -405,27 +406,18 @@ function SecretActions({
           variant="ghost"
           size="smIcon"
           aria-label={`Actions for ${name}`}
-          className="text-tertiary-foreground data-[state=open]:border-quaternary data-[state=open]:bg-quaternary data-[state=open]:text-primary-foreground"
+          className="h-9 w-9 text-tertiary-foreground data-[state=open]:border-quaternary data-[state=open]:bg-quaternary data-[state=open]:text-primary-foreground"
         >
-          <DotsThreeOutlineVerticalIcon className="size-4" />
+          <HugeiconsIcon icon={MoreVerticalSquare02Icon} className="size-5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        side="bottom"
-        align="end"
-        sideOffset={6}
-        className="min-w-40 rounded-none border border-border py-1 shadow-xl"
-      >
-        <DropdownMenuItem className="gap-3 px-4 py-2.5" onClick={onEdit}>
+      <DropdownMenuContent side="bottom" align="end" sideOffset={6} className="min-w-44">
+        <DropdownMenuItem onClick={onEdit}>
           <NotePencilIcon className="size-4" />
           Rotate value
         </DropdownMenuItem>
-        <DropdownMenuSeparator className="my-1 h-px bg-border" />
-        <DropdownMenuItem
-          variant="destructive"
-          className="gap-3 px-4 py-2.5"
-          onClick={onDelete}
-        >
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
           <TrashIcon className="size-4" />
           Delete
         </DropdownMenuItem>

@@ -1,14 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { SlidersHorizontalIcon } from "@hugeicons/core-free-icons";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogFooter,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/loader";
 import { ByteField, NumberField, FIELD_GRID } from "./fields";
@@ -20,27 +23,31 @@ interface GlobalLimitsDialogProps {
   onSaved: () => void;
 }
 
-// GlobalLimitsDialog reads and writes the five cross-platform ceilings. Radix
-// only mounts the content while open, so LimitsBody fetches on open; the form
-// remounts (keyed on the loaded values) so its fields seed without an effect.
+// GlobalLimitsDialog reads and writes the five cross-platform ceilings in a
+// right-side drawer (matching /tier-entitlements). Radix only mounts the content
+// while open, so LimitsBody fetches on open; the form remounts (keyed on the
+// loaded values) so its fields seed without an effect.
 export function GlobalLimitsDialog({
   open,
   onOpenChange,
   onSaved,
 }: GlobalLimitsDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Global limits</DialogTitle>
-          <DialogDescription>
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle className="flex items-center gap-2">
+            <HugeiconsIcon
+              icon={SlidersHorizontalIcon}
+              className="size-5 text-tertiary-foreground"
+            />
+            Global limits
+          </DrawerTitle>
+          <DrawerDescription>
             Cross-platform ceilings. A per-platform file-size limit can’t exceed
             the matching ceiling here.
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Pale full-bleed divider under the description. */}
-        <div className="-mx-6 border-b border-border" />
+          </DrawerDescription>
+        </DrawerHeader>
 
         {open && (
           <LimitsBody
@@ -51,8 +58,8 @@ export function GlobalLimitsDialog({
             }}
           />
         )}
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -98,23 +105,27 @@ function LimitsBody({
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 py-8 text-sm text-tertiary-foreground">
-        <Loader className="size-4 border-[1.5px]" />
-        Loading limits…
-      </div>
+      <DrawerBody>
+        <div className="flex items-center gap-2 py-8 text-sm text-tertiary-foreground">
+          <Loader className="size-4 border-[1.5px]" />
+          Loading limits…
+        </div>
+      </DrawerBody>
     );
   }
   if (error || !limits) {
     return (
       <>
-        <p className="py-6 text-sm text-destructive" role="alert">
-          {error ?? "Limits unavailable."}
-        </p>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onCancel}>
+        <DrawerBody>
+          <p className="py-6 text-sm text-destructive" role="alert">
+            {error ?? "Limits unavailable."}
+          </p>
+        </DrawerBody>
+        <DrawerFooter>
+          <Button variant="ghost" size="sm" onClick={onCancel}>
             Close
           </Button>
-        </DialogFooter>
+        </DrawerFooter>
       </>
     );
   }
@@ -170,48 +181,50 @@ function LimitsForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
-      <div className={FIELD_GRID}>
-        <ByteField
-          label="Max image upload"
-          bytes={maxImageUploadBytes}
-          onChange={setImage}
-        />
-        <ByteField
-          label="Max PDF upload"
-          bytes={maxPdfUploadBytes}
-          onChange={setPdf}
-        />
-        <ByteField
-          label="Max video upload"
-          bytes={maxVideoUploadBytes}
-          onChange={setVideo}
-        />
-        <NumberField
-          label="Max alt-text characters"
-          value={maxAltTextChars}
-          onChange={setAlt}
-        />
-        <NumberField
-          label="Max thread segments"
-          value={maxThreadSegments}
-          onChange={setThread}
-        />
-      </div>
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      <DrawerBody>
+        <div className={FIELD_GRID}>
+          <ByteField
+            label="Max image upload"
+            bytes={maxImageUploadBytes}
+            onChange={setImage}
+          />
+          <ByteField
+            label="Max PDF upload"
+            bytes={maxPdfUploadBytes}
+            onChange={setPdf}
+          />
+          <ByteField
+            label="Max video upload"
+            bytes={maxVideoUploadBytes}
+            onChange={setVideo}
+          />
+          <NumberField
+            label="Max alt-text characters"
+            value={maxAltTextChars}
+            onChange={setAlt}
+          />
+          <NumberField
+            label="Max thread segments"
+            value={maxThreadSegments}
+            onChange={setThread}
+          />
+        </div>
 
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
+        {error && (
+          <p className="mt-4 text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+      </DrawerBody>
 
-      {/* Full-bleed divider above the footer, and the same button treatment as
-          the platform Add/Edit form (ghost Cancel + inverted, semibold save). */}
-      <div className="-mx-6 border-t border-border" />
-      <DialogFooter>
+      {/* Same button treatment as the platform Add/Edit form (ghost Cancel +
+          inverted, semibold save). */}
+      <DrawerFooter>
         <Button
           type="button"
           variant="ghost"
+          size="sm"
           onClick={onCancel}
           disabled={submitting}
         >
@@ -220,12 +233,13 @@ function LimitsForm({
         <Button
           type="submit"
           variant="defaultInverted"
+          size="sm"
           className="font-semibold"
           disabled={submitting}
         >
           {submitting ? "Saving…" : "Save limits"}
         </Button>
-      </DialogFooter>
+      </DrawerFooter>
     </form>
   );
 }

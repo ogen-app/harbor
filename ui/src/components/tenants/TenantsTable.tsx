@@ -1,6 +1,14 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type ComponentProps,
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   SquareSplitHorizontalIcon,
   CaretUpIcon,
@@ -24,6 +32,7 @@ import { useRowKeyboardNav } from "@/lib/useRowKeyboardNav";
 import { InfoIcon } from "@/components/dashboard/primitives";
 import { Loader } from "@/components/ui/loader";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -33,8 +42,6 @@ import {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -317,42 +324,10 @@ function loadColumnPrefs(): ColumnPref[] {
 // ColumnSwitch is a small accessible on/off toggle (no external dependency),
 // styled to the app tokens: black track when on, beige when off, white knob with
 // a check when on.
-function ColumnSwitch({
-  checked,
-  onChange,
-  disabled,
-  label,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-foreground/30 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-foreground" : "bg-quaternary",
-      )}
-    >
-      <span
-        className={cn(
-          "inline-flex size-4 items-center justify-center rounded-full bg-primary shadow-sm transition-transform",
-          checked ? "translate-x-[18px]" : "translate-x-0.5",
-        )}
-      >
-        {checked && (
-          <CheckIcon className="size-2.5 text-foreground" weight="bold" />
-        )}
-      </span>
-    </button>
-  );
+// Thin alias kept so the ColumnSelector call sites read the same; the switch
+// itself is the shared ui/switch component.
+function ColumnSwitch(props: ComponentProps<typeof Switch>) {
+  return <Switch {...props} />;
 }
 
 // ColumnSelector is the "Edit columns" popover: a drag-to-reorder list of the
@@ -541,18 +516,37 @@ function GroupsCell({ groups }: { groups: ClassificationLabel[] }) {
 // write over gRPC via the parent's optimistic handlers. stopPropagation keeps
 // the trigger / portaled menu clicks from toggling row expansion (the row is a
 // role="button" and portal clicks bubble through the React tree).
+// One authorable tier version, and the versions grouped under their tier — used
+// by the row menu's "Version" picker (SetTenantTierVersion). Fetched from
+// /api/tier-entitlements.
+type TierVersionOption = { id: string; version: number; status: string };
+type TierVersionGroup = {
+  tierId: string;
+  tierName: string;
+  tierColor: string;
+  versions: TierVersionOption[];
+};
+
 function ActionsMenu({
   tenant,
   allTiers,
   allGroups,
+  tierVersions,
   onSetTier,
+  onSetTierVersion,
   onToggleGroup,
   onStatusAction,
 }: {
   tenant: Tenant;
   allTiers: ClassificationLabel[];
   allGroups: ClassificationLabel[];
+  tierVersions: TierVersionGroup[];
   onSetTier: (tenant: Tenant, tierId: string) => void;
+  onSetTierVersion: (
+    tenant: Tenant,
+    tierId: string,
+    version: TierVersionOption,
+  ) => void;
   onToggleGroup: (
     tenant: Tenant,
     group: ClassificationLabel,
@@ -584,41 +578,40 @@ function ActionsMenu({
         align="end"
         sideOffset={6}
         onClick={(e) => e.stopPropagation()}
-        className="min-w-48 rounded-none border border-border py-1 shadow-xl"
+        className="min-w-52"
       >
-        <DropdownMenuItem asChild className="gap-3 px-4 py-2.5">
+        <DropdownMenuItem asChild>
           <Link href={`/tenants/${encodeURIComponent(tenant.id)}`}>
             <ArrowSquareOutIcon className="size-4" />
             View details
           </Link>
         </DropdownMenuItem>
 
-        <DropdownMenuSeparator className="my-1 h-px bg-border" />
+        <DropdownMenuSeparator />
 
         {/* Lifecycle status (CON-190): suspend / reactivate / soft-delete /
             restore. Which transitions are offered depends on the current status;
             each opens a confirm dialog (suspend also captures a reason). */}
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+          <DropdownMenuSubTrigger>
             <PulseIcon className="size-4" />
             Status
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent
             onClick={(e) => e.stopPropagation()}
-            className="min-w-48 rounded-none border border-border py-1 shadow-xl"
+            className="min-w-52"
           >
-            <div className="flex items-center gap-2 px-4 py-2">
+            <div className="flex items-center gap-2 px-3 py-2">
               <span className="text-[11px] uppercase tracking-wide text-tertiary-foreground">
                 Current
               </span>
               <StatusLabel status={status} reason={tenant.statusReason} />
             </div>
-            <DropdownMenuSeparator className="my-1 h-px bg-border" />
+            <DropdownMenuSeparator />
 
             {status !== "active" && (
               <DropdownMenuItem
                 onSelect={() => onStatusAction(tenant, "active")}
-                className="gap-3 px-4 py-2.5"
               >
                 {status === "deleted" ? (
                   <>
@@ -637,7 +630,6 @@ function ActionsMenu({
             {status === "active" && !protectedTenant && (
               <DropdownMenuItem
                 onSelect={() => onStatusAction(tenant, "suspended")}
-                className="gap-3 px-4 py-2.5"
               >
                 <PauseIcon className="size-4" />
                 Suspend…
@@ -646,8 +638,8 @@ function ActionsMenu({
 
             {status !== "deleted" && !protectedTenant && (
               <DropdownMenuItem
+                variant="destructive"
                 onSelect={() => onStatusAction(tenant, "deleted")}
-                className="gap-3 px-4 py-2.5 text-destructive focus:text-destructive"
               >
                 <TrashIcon className="size-4" />
                 Delete…
@@ -655,7 +647,7 @@ function ActionsMenu({
             )}
 
             {protectedTenant && status === "active" && (
-              <div className="px-4 py-2 text-xs text-tertiary-foreground">
+              <div className="px-3 py-2 text-xs text-tertiary-foreground">
                 Protected tenant
               </div>
             )}
@@ -663,47 +655,87 @@ function ActionsMenu({
         </DropdownMenuSub>
 
         {(allTiers.length > 0 || allGroups.length > 0) && (
-          <DropdownMenuSeparator className="my-1 h-px bg-border" />
+          <DropdownMenuSeparator />
         )}
 
+        {/* Tier / Version: pick a tier (coarse, SetTenantTier) or one of its
+            specific versions (SetTenantTierVersion). Both write tenants.tier_id,
+            so the tier pointer updates either way. The current tier is checked. */}
         {allTiers.length > 0 && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+            <DropdownMenuSubTrigger>
               <StackIcon className="size-4" />
-              Tier
+              Tier / Version
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               onClick={(e) => e.stopPropagation()}
-              className="max-h-72 min-w-44 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+              className="max-h-80 min-w-56 overflow-y-auto"
             >
-              <DropdownMenuRadioGroup
-                value={tenant.tier?.id ?? ""}
-                onValueChange={(id) => onSetTier(tenant, id)}
-              >
-                {allTiers.map((t) => (
-                  <DropdownMenuRadioItem
-                    key={t.id}
-                    value={t.id}
-                    className="gap-2 pr-3"
-                  >
-                    <ColorDot color={t.color} />
-                    {t.name}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
+              {allTiers.map((t) => {
+                const versions =
+                  tierVersions.find((tv) => tv.tierId === t.id)?.versions ?? [];
+                const onTier = tenant.tier?.id === t.id;
+                // The tier row is checked only when the tenant is on this tier
+                // with NO versioned assignment; otherwise the exact version is.
+                const tierChecked = onTier && !tenant.tierVersion;
+                return (
+                  <Fragment key={t.id}>
+                    <DropdownMenuItem
+                      onSelect={() => onSetTier(tenant, t.id)}
+                      className="font-medium"
+                    >
+                      <ColorDot color={t.color} />
+                      <span className="flex-1 truncate">{t.name}</span>
+                      {tierChecked && (
+                        <CheckIcon
+                          weight="bold"
+                          className="size-3.5 shrink-0 text-foreground"
+                        />
+                      )}
+                    </DropdownMenuItem>
+                    {versions.map((v) => {
+                      const versionChecked =
+                        onTier && tenant.tierVersion?.version === v.version;
+                      return (
+                        <DropdownMenuItem
+                          key={v.id}
+                          onSelect={() => onSetTierVersion(tenant, t.id, v)}
+                          className="pl-8 text-secondary-foreground"
+                        >
+                          <span className="flex-1">
+                            v{v.version}
+                            {v.status !== "active" && (
+                              <span className="text-tertiary-foreground">
+                                {" · "}
+                                {v.status}
+                              </span>
+                            )}
+                          </span>
+                          {versionChecked && (
+                            <CheckIcon
+                              weight="bold"
+                              className="size-3.5 shrink-0 text-foreground"
+                            />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         )}
 
         {allGroups.length > 0 && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+            <DropdownMenuSubTrigger>
               <UsersThreeIcon className="size-4" />
               Groups
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               onClick={(e) => e.stopPropagation()}
-              className="max-h-72 min-w-44 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+              className="max-h-72 min-w-52 overflow-y-auto"
             >
               {allGroups.map((g) => (
                 <DropdownMenuCheckboxItem
@@ -713,7 +745,6 @@ function ActionsMenu({
                     onToggleGroup(tenant, g, checked === true)
                   }
                   onSelect={(e) => e.preventDefault()}
-                  className="gap-2"
                 >
                   <ColorDot color={g.color} />
                   {g.name}
@@ -945,6 +976,8 @@ export function TenantsTable() {
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(
     null,
   );
+  // Authorable tier versions for the row menu's Version picker.
+  const [tierVersions, setTierVersions] = useState<TierVersionGroup[]>([]);
   // The pending lifecycle change awaiting confirmation in the status dialog.
   const [statusAction, setStatusAction] = useState<{
     tenant: Tenant;
@@ -980,6 +1013,46 @@ export function TenantsTable() {
       });
     return () => controller.abort();
   }, [filters]);
+
+  // The authorable tier versions (for the row menu's Version picker). Loaded
+  // once from the tier-entitlements matrix; degrades silently if unavailable.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/tier-entitlements", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          j: {
+            available?: boolean;
+            tiers?: {
+              tierId: string;
+              tierName: string;
+              tierColor: string;
+              versions?: { id: string; version: number; status: string }[];
+            }[];
+          } | null,
+        ) => {
+          if (!j?.available) return;
+          const groups = (j.tiers ?? [])
+            .map((t) => ({
+              tierId: t.tierId,
+              tierName: t.tierName,
+              tierColor: t.tierColor,
+              versions: [...(t.versions ?? [])]
+                .sort((a, b) => a.version - b.version)
+                .map((v) => ({
+                  id: v.id,
+                  version: v.version,
+                  status: v.status,
+                })),
+            }))
+            .filter((t) => t.versions.length > 0);
+          setTierVersions(groups);
+        },
+      )
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   // Load the persisted preferences once on the client, after hydration, so the
   // first render still matches the server (defaults) and no mismatch is logged.
@@ -1096,11 +1169,17 @@ export function TenantsTable() {
   // setTier reassigns a tenant's (single) tier via gRPC. Optimistic: apply, then
   // revert on failure.
   const setTier = async (tenant: Tenant, tierId: string) => {
-    if (tenant.tier?.id === tierId) return;
+    // Only skip when the tenant is ALREADY in the plain-tier state: this tier
+    // and no pinned version. A tenant on a *version* of this same tier still
+    // needs the request so picking the plain tier drops the version pin.
+    if (tenant.tier?.id === tierId && !tenant.tierVersion) return;
     const tier = allTiers.find((t) => t.id === tierId);
     if (!tier) return;
     const previous = tenant.tier ?? null;
-    mutateTenant(tenant.id, (t) => ({ ...t, tier }));
+    const previousVersion = tenant.tierVersion ?? null;
+    // Selecting a plain tier drops any pinned version — reflect both optimistically
+    // (Ogen's SetTenantTier reassigns the coarse tier), and restore both on failure.
+    mutateTenant(tenant.id, (t) => ({ ...t, tier, tierVersion: null }));
     try {
       const res = await fetch(
         `/api/tenants/${encodeURIComponent(tenant.id)}/tier`,
@@ -1113,8 +1192,54 @@ export function TenantsTable() {
       if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
       flash(`${tenant.name}: tier set to ${tier.name}`);
     } catch (e) {
-      mutateTenant(tenant.id, (t) => ({ ...t, tier: previous }));
+      mutateTenant(tenant.id, (t) => ({
+        ...t,
+        tier: previous,
+        tierVersion: previousVersion,
+      }));
       flash(e instanceof Error ? e.message : "Failed to set tier", true);
+    }
+  };
+
+  // setTierVersion pins a tenant to a specific tier version
+  // (SetTenantTierVersion). Optimistic on the denormalised tier (the assignment
+  // updates tenants.tier_id in the same transaction); reverts on failure.
+  const setTierVersion = async (
+    tenant: Tenant,
+    tierId: string,
+    version: TierVersionOption,
+  ) => {
+    const tier = allTiers.find((t) => t.id === tierId);
+    const prevTier = tenant.tier ?? null;
+    const prevVersion = tenant.tierVersion ?? null;
+    // Optimistic: reflect both the tier chip and the version (the Tier column +
+    // the menu checkmark) immediately; revert on failure.
+    mutateTenant(tenant.id, (t) => ({
+      ...t,
+      tier: tier ?? t.tier,
+      tierVersion: { version: version.version, status: version.status },
+    }));
+    try {
+      const res = await fetch(
+        `/api/tier-entitlements/tenants/${encodeURIComponent(tenant.id)}/version`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          // A manual operator assignment; "upgrade" is a valid audit reason.
+          body: JSON.stringify({ tierVersionId: version.id, reason: "upgrade" }),
+        },
+      );
+      if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
+      flash(
+        `${tenant.name}: set to ${tier?.name ?? "tier"} v${version.version}`,
+      );
+    } catch (e) {
+      mutateTenant(tenant.id, (t) => ({
+        ...t,
+        tier: prevTier,
+        tierVersion: prevVersion,
+      }));
+      flash(e instanceof Error ? e.message : "Failed to set version", true);
     }
   };
 
@@ -1516,7 +1641,16 @@ export function TenantsTable() {
                     )}
                   >
                     {t.tier ? (
-                      <LabelChip label={t.tier.name} color={t.tier.color} />
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <LabelChip label={t.tier.name} color={t.tier.color} />
+                        {t.tierVersion && (
+                          <span className="shrink-0 text-xs tabular-nums text-tertiary-foreground">
+                            v{t.tierVersion.version}
+                            {t.tierVersion.status !== "active" &&
+                              ` / ${t.tierVersion.status}`}
+                          </span>
+                        )}
+                      </span>
                     ) : (
                       <span className="text-xs text-tertiary-foreground">—</span>
                     )}
@@ -1531,7 +1665,9 @@ export function TenantsTable() {
                       tenant={t}
                       allTiers={allTiers}
                       allGroups={allGroups}
+                      tierVersions={tierVersions}
                       onSetTier={setTier}
+                      onSetTierVersion={setTierVersion}
                       onToggleGroup={toggleGroup}
                       onStatusAction={(tenant, target) =>
                         setStatusAction({ tenant, target })

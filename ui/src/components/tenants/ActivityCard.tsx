@@ -55,7 +55,7 @@ function fmtDay(date: string): string {
 
 // px — matches CHART_H (the plot height) in DailyTokenCostChart so the two
 // charts on the detail page share the same height and x-axis treatment.
-const ACTIVITY_CHART_H = 240;
+export const ACTIVITY_CHART_H = 240;
 
 // Per-category colours: fixed, semantic hues for the known CON-125 categories,
 // with a stable per-id hash into a fallback palette for anything else, so a
@@ -135,11 +135,13 @@ function ActivityChart({
   categories,
   selected,
   onSelect,
+  height = ACTIVITY_CHART_H,
 }: {
   series: ActivityDay[];
   categories: string[];
   selected: ActivitySelection | null;
   onSelect: (next: ActivitySelection) => void;
+  height?: number;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const colorOf = new Map(categories.map((c) => [c, categoryColor(c)]));
@@ -160,7 +162,7 @@ function ActivityChart({
       <div className="flex gap-2">
         <div
           className="relative w-8 shrink-0"
-          style={{ height: ACTIVITY_CHART_H }}
+          style={{ height }}
           aria-hidden
         >
           {ticks.map((t) => (
@@ -174,7 +176,7 @@ function ActivityChart({
           ))}
         </div>
 
-        <div className="relative flex-1" style={{ height: ACTIVITY_CHART_H }}>
+        <div className="relative flex-1" style={{ height }}>
           {/* Gridlines */}
           {ticks.map((t) => (
             <div
@@ -231,7 +233,7 @@ function ActivityChart({
                               : "opacity-100",
                           )}
                           style={{
-                            height: `${Math.max((s.count / axisMax) * ACTIVITY_CHART_H, 2)}px`,
+                            height: `${Math.max((s.count / axisMax) * height, 2)}px`,
                           }}
                         />
                       ))}
@@ -652,6 +654,7 @@ export function ActivityCard({
   filters: controlledFilters,
   onFiltersChange,
   className,
+  chartHeight = ACTIVITY_CHART_H,
 }: {
   state: ActivityState;
   endpoint: string;
@@ -668,6 +671,9 @@ export function ActivityCard({
   // calc tuned for that page's chrome; the global /activity page passes a flex
   // class so the card fills its full-height parent instead.
   className?: string;
+  // Plot height of the chart in px (defaults to ACTIVITY_CHART_H); the /activity
+  // page passes a smaller value so the table gets more of the page.
+  chartHeight?: number;
 }) {
   const [internalFilters, setInternalFilters] = useState<ActivityFilterToken[]>(
     [],
@@ -910,6 +916,7 @@ export function ActivityCard({
               categories={categories}
               selected={selection}
               onSelect={onSelect}
+              height={chartHeight}
             />
           </div>
           {/* Active chart selection — shown only when the table is focused on a

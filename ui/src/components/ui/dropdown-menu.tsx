@@ -36,9 +36,9 @@ function DropdownMenuContent({
         alignOffset={alignOffset}
         style={{ zIndex: 300 }}
         className={cn(
-          'bg-popover text-popover-foreground rounded-sm border-0 p-0 py-1 shadow-md',
+          'bg-popover text-popover-foreground rounded-none border border-border p-1.5 shadow-lg',
           'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
-          'max-h-(--radix-dropdown-menu-content-available-height) min-w-32 overflow-x-hidden overflow-y-auto',
+          'max-h-(--radix-dropdown-menu-content-available-height) min-w-40 overflow-x-hidden overflow-y-auto',
           className
         )}
         {...props}
@@ -52,16 +52,18 @@ function DropdownMenuGroup({ ...props }: React.ComponentProps<typeof DropdownMen
 }
 
 const dropdownMenuItemVariants = cva(
-  'relative flex cursor-pointer items-center gap-2 rounded-sm outline-none select-none ' +
+  'relative flex cursor-pointer items-center gap-3 rounded-none outline-none select-none ' +
     'data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        default: 'hover:bg-secondary',
-        destructive: 'text-destructive hover:bg-secondary',
+        default:
+          'text-foreground hover:bg-popover-hover focus:bg-popover-hover data-[highlighted]:bg-popover-hover',
+        destructive:
+          'text-destructive hover:bg-popover-hover focus:bg-popover-hover data-[highlighted]:bg-popover-hover',
       },
       size: {
-        default: "px-2 py-1.5 text-sm leading-4 [&_svg:not([class*='size-'])]:size-4",
+        default: "px-3 py-2.5 text-sm leading-4 [&_svg:not([class*='size-'])]:size-4",
         lg: "px-4 py-3 text-sm leading-none [&_svg:not([class*='size-'])]:size-4",
       },
     },
@@ -99,7 +101,7 @@ function DropdownMenuCheckboxItem({
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 hover:bg-secondary",
+        "relative flex cursor-pointer items-center gap-2 rounded-none py-2.5 pr-3 pl-8 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 hover:bg-popover-hover focus:bg-popover-hover data-[highlighted]:bg-popover-hover",
         className
       )}
       checked={checked}
@@ -130,7 +132,7 @@ function DropdownMenuRadioItem({
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-none select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 hover:bg-secondary",
+        "relative flex cursor-pointer items-center gap-2 rounded-none py-2.5 pr-3 pl-8 text-sm outline-none select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 hover:bg-popover-hover focus:bg-popover-hover data-[highlighted]:bg-popover-hover",
         className
       )}
       {...props}
@@ -170,7 +172,7 @@ function DropdownMenuSeparator({
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn('bg-background h-0.5', className)}
+      className={cn('-mx-1.5 my-1.5 h-px bg-border', className)}
       {...props}
     />
   )
@@ -201,7 +203,7 @@ function DropdownMenuSubTrigger({
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       className={cn(
-        'flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-secondary data-[state=open]:bg-secondary',
+        'flex cursor-pointer items-center gap-3 rounded-none px-3 py-2.5 text-sm text-foreground outline-none select-none hover:bg-popover-hover focus:bg-popover-hover data-[highlighted]:bg-popover-hover data-[state=open]:bg-popover-hover',
         className
       )}
       {...props}
@@ -221,7 +223,7 @@ function DropdownMenuSubContent({
       data-slot="dropdown-menu-sub-content"
       style={{ zIndex: 310 }}
       className={cn(
-        'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 min-w-32 overflow-hidden rounded-md border p-1 shadow-lg',
+        'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 min-w-40 overflow-hidden rounded-none border border-border p-1.5 shadow-lg',
         className
       )}
       {...props}

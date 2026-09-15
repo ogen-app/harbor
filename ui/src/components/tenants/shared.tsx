@@ -37,6 +37,9 @@ export interface Tenant {
   // Classification (CON-208). tier is null when unassigned/unavailable; groups
   // is always an array (possibly empty).
   tier?: ClassificationLabel | null;
+  // Versioned entitlement version the tenant is pinned to (CON-243); null when
+  // there's no versioned assignment.
+  tierVersion?: { version: number; status: string } | null;
   groups?: ClassificationLabel[];
   // Trailing 30-day daily activity-event counts (oldest→newest) for the row
   // sparkline (CON-223). null/undefined when analytics is unavailable; a
