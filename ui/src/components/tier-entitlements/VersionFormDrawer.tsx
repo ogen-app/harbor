@@ -339,7 +339,7 @@ export function VersionFormDrawer({
           </div>
 
           {/* Prices */}
-          <section className="space-y-2">
+          <section className="space-y-2 border-t-[3px] border-border pt-6">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
               Prices (net, minor units)
             </h3>
@@ -405,7 +405,7 @@ export function VersionFormDrawer({
           </section>
 
           {/* Entitlements */}
-          <section className="space-y-4">
+          <section className="space-y-4 border-t-[3px] border-border pt-6">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
               Entitlements
             </h3>

@@ -39,13 +39,13 @@ export function Switch({
               };
     const onBg =
         variant === "success"
-            ? "bg-emerald-500"
+            ? "bg-[#6B8068]"
             : variant === "warning"
               ? "bg-amber-500"
               : "bg-foreground";
     const iconColor =
         variant === "success"
-            ? "text-emerald-600"
+            ? "text-[#6B8068]"
             : variant === "warning"
               ? "text-amber-600"
               : "text-foreground";
