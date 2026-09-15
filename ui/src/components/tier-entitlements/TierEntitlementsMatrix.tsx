@@ -132,28 +132,46 @@ function cell(
   return { text: String(value), muted: false };
 }
 
-// VersionPill is the segmented info pill under a tier column header: the version
-// (with its draft/retired status when not active) and the number of tenants
-// currently assigned to it, split by a thin divider.
-function VersionPill({ version }: { version: TierVersion }) {
-  const label =
-    version.status === "active"
-      ? `v${version.version}`
-      : `v${version.version} ${version.status}`;
-  const n = version.liveAssignmentCount;
+// VersionStatusLabel is the small chip under a version header: draft / retired,
+// or Purchasable / Active for a published version.
+function VersionStatusLabel({ version }: { version: TierVersion }) {
+  const { text, className } =
+    version.status === "draft"
+      ? { text: "Draft", className: "bg-amber-100 text-amber-800" }
+      : version.status === "retired"
+        ? { text: "Retired", className: "bg-gray-100 text-gray-600 line-through" }
+        : version.purchasable
+          ? { text: "Purchasable", className: "bg-[#6B8068]/15 text-[#4d5c48]" }
+          : { text: "Active", className: "bg-gray-100 text-gray-600" };
   return (
-    <span className="inline-flex items-center rounded-full bg-secondary text-[11px] font-medium text-secondary-foreground">
-      <span
-        className={cn(
-          "px-2 py-0.5",
-          version.status === "retired" && "line-through",
-        )}
-      >
-        {label}
+    <span
+      className={cn(
+        "w-fit rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
+        className,
+      )}
+    >
+      {text}
+    </span>
+  );
+}
+
+// VersionInfoPill is the segmented pill under a version header: the headline
+// price (mono, #6B8068) and the number of tenants assigned, split by a divider.
+function VersionInfoPill({
+  price,
+  tenants,
+}: {
+  price: Price | null;
+  tenants: number;
+}) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-secondary text-[11px] font-medium">
+      <span className="px-2 py-0.5 font-mono text-base font-semibold text-[#6B8068]">
+        {price ? formatMoney(price) : "—"}
       </span>
       <span aria-hidden className="h-3.5 w-px bg-border" />
-      <span className="px-2 py-0.5 tabular-nums">
-        {n} {n === 1 ? "tenant" : "tenants"}
+      <span className="px-2 py-0.5 tabular-nums text-secondary-foreground">
+        {tenants} {tenants === 1 ? "tenant" : "tenants"}
       </span>
     </span>
   );
@@ -297,13 +315,15 @@ export function TierEntitlementsMatrix() {
     }
     return groups;
   }, [columns]);
-  // The first version column of each new tier (not the very first) starts a
-  // tier — drawn with a 3px rule down the whole table; versions within a tier
-  // are divided by the normal 1px rule.
-  const tierStart = (i: number) =>
-    i > 0 && columns[i].tier.tierId !== columns[i - 1].tier.tierId;
-  const colBorder = (i: number) =>
-    tierStart(i) ? "border-l-[3px] border-border" : "border-l border-border";
+  // A tier boundary is the Status→first-version edge (i === 0) or a tier→tier
+  // edge — drawn with a 3px rule down the whole table. Header/band cells have no
+  // rule between same-tier versions; feature-row cells keep the 1px divider.
+  const tierBoundary = (i: number) =>
+    i === 0 || columns[i].tier.tierId !== columns[i - 1].tier.tierId;
+  const groupBorder = (i: number) =>
+    tierBoundary(i) ? "border-l-[3px] border-border" : "";
+  const cellBorder = (i: number) =>
+    tierBoundary(i) ? "border-l-[3px] border-border" : "border-l border-border";
 
   // Contiguous tracks: Feature (frozen) · Status (frozen) · the tier columns
   // sharing the remaining width (minmax floor + 1fr). Fixed frozen widths keep
@@ -377,10 +397,7 @@ export function TierEntitlementsMatrix() {
                 {tierGroups.map((g) => (
                   <div
                     key={g.tier.tierId}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 pt-2.5 pb-1 text-sm font-semibold text-foreground",
-                      g.start > 0 && "border-l-[3px] border-border",
-                    )}
+                    className="flex items-center gap-1.5 border-l-[3px] border-border px-3 pt-2.5 pb-1 text-sm font-semibold text-foreground"
                     style={{ gridColumn: `${g.start + 3} / span ${g.span}` }}
                   >
                     {g.tier.tierColor && (
@@ -414,54 +431,61 @@ export function TierEntitlementsMatrix() {
                     <div
                       key={v?.id ?? `${t.tierId}-empty-${ci}`}
                       className={cn(
-                        "flex flex-col items-start justify-end gap-1.5 px-3 pb-2.5 pt-0.5 text-left",
-                        colBorder(ci),
+                        "flex flex-col items-start gap-1.5 px-3 pb-2.5 pt-1 text-left",
+                        groupBorder(ci),
                       )}
                     >
-                      <span className="text-lg font-semibold font-mono text-foreground">
-                        {price ? formatMoney(price) : "—"}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        {v && <VersionPill version={v} />}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={`${t.tierName} version actions`}
-                              className="cursor-pointer rounded text-tertiary-foreground outline-none transition-colors hover:text-foreground data-[state=open]:text-foreground"
-                            >
-                              <HugeiconsIcon
-                                icon={MoreHorizontalSquare02Icon}
-                                className="size-5"
-                              />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="start"
-                            className="min-w-44"
-                          >
-                            <DropdownMenuItem
-                              onClick={() => openDrawer("create", t, v)}
-                            >
-                              <HugeiconsIcon
-                                icon={GitBranchPlusIcon}
-                                className="size-4"
-                              />
-                              Create new version
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              disabled={!v || v.status !== "draft"}
-                              onClick={() => openDrawer("update", t, v)}
-                            >
-                              <HugeiconsIcon
-                                icon={PencilEdit02Icon}
-                                className="size-4"
-                              />
-                              Update this version
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                      {/* version name + status on one line */}
+                      <div className="flex w-full items-center gap-1.5">
+                        <span className="text-sm font-semibold text-foreground">
+                          {v ? `v${v.version}` : "—"}
+                        </span>
+                        {v && <VersionStatusLabel version={v} />}
                       </div>
+                      {/* price + tenants info pill */}
+                      {v && (
+                        <VersionInfoPill
+                          price={price}
+                          tenants={v.liveAssignmentCount}
+                        />
+                      )}
+                      {/* actions button, pinned to the bottom of the cell */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`${t.tierName} version actions`}
+                            className="mt-auto flex cursor-pointer items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-tertiary-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground"
+                          >
+                            <HugeiconsIcon
+                              icon={MoreHorizontalSquare02Icon}
+                              className="size-3.5"
+                            />
+                            Actions
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="min-w-44">
+                          <DropdownMenuItem
+                            onClick={() => openDrawer("create", t, v)}
+                          >
+                            <HugeiconsIcon
+                              icon={GitBranchPlusIcon}
+                              className="size-4"
+                            />
+                            Create new version
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!v || v.status !== "draft"}
+                            onClick={() => openDrawer("update", t, v)}
+                          >
+                            <HugeiconsIcon
+                              icon={PencilEdit02Icon}
+                              className="size-4"
+                            />
+                            Update this version
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   );
                 })}
@@ -504,7 +528,7 @@ export function TierEntitlementsMatrix() {
                   {columns.map(({ tier: t, version: v }, ci) => (
                     <div
                       key={v?.id ?? `${t.tierId}-empty-${ci}`}
-                      className={cn(tierStart(ci) && "border-l-[3px] border-border")}
+                      className={groupBorder(ci)}
                       style={{ backgroundColor: BAND_BG }}
                     />
                   ))}
@@ -573,7 +597,7 @@ export function TierEntitlementsMatrix() {
                             key={v?.id ?? `${t.tierId}-empty-${ci}`}
                             className={cn(
                               "flex items-center justify-center px-2 py-3 text-center tabular-nums transition-colors group-hover:bg-secondary",
-                              colBorder(ci),
+                              cellBorder(ci),
                               c.muted
                                 ? "text-tertiary-foreground"
                                 : "text-foreground",
