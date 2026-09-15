@@ -43,6 +43,9 @@ func (h *TierEntitlementsHandler) Register(app *fiber.App, requireAuth fiber.Han
 	app.Put("/api/tier-entitlements/versions/:id", requireAuth, h.UpdateDraft)
 	app.Post("/api/tier-entitlements/versions/:id/publish", requireAuth, h.Publish)
 	app.Post("/api/tier-entitlements/versions/:id/retire", requireAuth, h.Retire)
+	app.Delete("/api/tier-entitlements/versions/:id", requireAuth, h.DeleteVersion)
+	// Live tenant assignments on a version (drives the retire reassignment picker).
+	app.Get("/api/tier-entitlements/versions/:id/assignments", requireAuth, h.Assignments)
 
 	// Tenant assignment + resolved view.
 	app.Get("/api/tier-entitlements/tenants/:tenantId", requireAuth, h.TenantEntitlements)
@@ -202,22 +205,82 @@ func (h *TierEntitlementsHandler) Publish(c *fiber.Ctx) error {
 	return c.JSON(out)
 }
 
+// retireRequest carries the operator's choice when live assignments remain:
+// grandfather them (force), or migrate them onto another active version first
+// (reassignToVersionId). The two are mutually exclusive — Ogen rejects both.
+type retireRequest struct {
+	Force               bool   `json:"force"`
+	ReassignToVersionID string `json:"reassignToVersionId"`
+}
+
 // Retire godoc
-// @Summary  Retire an active version (guarded; force overrides live assignments)
+// @Summary  Retire an active version (guarded; reassign or force on live assignments)
 // @Tags     tier-entitlements
+// @Accept   json
 // @Produce  json
-// @Param    id     path   string  true   "Tier version id"
-// @Param    force  query  bool    false  "Retire even if live assignments remain"
-// @Success  200  {object}  ogenplans.TierVersion
+// @Param    id  path  string  true  "Tier version id"
+// @Success  200  {object}  ogenplans.RetireResult
 // @Router   /api/tier-entitlements/versions/{id}/retire [post]
 func (h *TierEntitlementsHandler) Retire(c *fiber.Ctx) error {
 	start := time.Now()
-	out, err := h.plans.RetireTierVersion(c.Context(), c.Params("id"), c.QueryBool("force", false))
+	// The body is optional: an empty POST retires a version with no live
+	// assignments. Only reject a body that's present but malformed.
+	var req retireRequest
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			logPlans(c, start, err)
+			return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+		}
+	}
+	out, err := h.plans.RetireTierVersion(c.Context(), c.Params("id"), req.Force, req.ReassignToVersionID)
 	logPlans(c, start, err)
 	if err != nil {
 		return mapPlanError(err)
 	}
 	return c.JSON(out)
+}
+
+// DeleteVersion godoc
+// @Summary  Delete a draft version (draft-only; published versions are immutable)
+// @Tags     tier-entitlements
+// @Param    id  path  string  true  "Tier version id"
+// @Success  204  "No Content"
+// @Router   /api/tier-entitlements/versions/{id} [delete]
+func (h *TierEntitlementsHandler) DeleteVersion(c *fiber.Ctx) error {
+	start := time.Now()
+	err := h.plans.DeleteTierVersion(c.Context(), c.Params("id"))
+	logPlans(c, start, err)
+	if err != nil {
+		return mapPlanError(err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// assignmentsResponse is the paged live-assignment list for a version.
+type assignmentsResponse struct {
+	Assignments []ogenplans.VersionAssignment `json:"assignments"`
+	Total       int32                         `json:"total"`
+}
+
+// Assignments godoc
+// @Summary  List the tenants with a live assignment on a version
+// @Tags     tier-entitlements
+// @Produce  json
+// @Param    id      path   string  true   "Tier version id"
+// @Param    limit   query  int     false  "Page size (0 = server default)"
+// @Param    offset  query  int     false  "Page offset"
+// @Success  200  {object}  assignmentsResponse
+// @Router   /api/tier-entitlements/versions/{id}/assignments [get]
+func (h *TierEntitlementsHandler) Assignments(c *fiber.Ctx) error {
+	start := time.Now()
+	limit := int32(c.QueryInt("limit", 0))
+	offset := int32(c.QueryInt("offset", 0))
+	items, total, err := h.plans.ListTierVersionAssignments(c.Context(), c.Params("id"), limit, offset)
+	logPlans(c, start, err)
+	if err != nil {
+		return mapPlanError(err)
+	}
+	return c.JSON(assignmentsResponse{Assignments: items, Total: total})
 }
 
 // TenantEntitlements godoc

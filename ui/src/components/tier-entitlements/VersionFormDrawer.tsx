@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  Delete02Icon,
   GitBranchPlusIcon,
   InfinitySquareIcon,
   PencilEdit02Icon,
@@ -124,12 +125,19 @@ export function VersionFormDrawer({
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Draft delete (danger zone) — a two-step inline confirm.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
 
   // (Re)seed the form each time it opens — a one-time reset when the drawer is
   // shown, not derived render state.
   useEffect(() => {
     if (!open) return;
     /* eslint-disable react-hooks/set-state-in-effect */
+    setConfirmingDelete(false);
+    setDeleteBusy(false);
+    setDeleteErr(null);
     setPurchasable(baseVersion?.purchasable ?? false);
     setPrices(
       baseVersion?.prices?.length
@@ -257,6 +265,26 @@ export function VersionFormDrawer({
       setErr(e instanceof Error ? e.message : "Save failed.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // deleteDraft hard-deletes this draft version (Ogen refuses anything published).
+  async function deleteDraft() {
+    if (!baseVersion) return;
+    setDeleteBusy(true);
+    setDeleteErr(null);
+    try {
+      const r = await fetch(
+        `/api/tier-entitlements/versions/${encodeURIComponent(baseVersion.id)}`,
+        { method: "DELETE" },
+      );
+      if (!r.ok && r.status !== 204) throw new Error(await errorText(r));
+      onOpenChange(false);
+      onSaved();
+    } catch (e) {
+      setDeleteErr(e instanceof Error ? e.message : "Delete failed.");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -448,6 +476,68 @@ export function VersionFormDrawer({
               </div>
             ))}
           </section>
+
+          {/* Danger zone — hard-delete a draft (published versions are immutable
+              audit artifacts and can't be deleted). Only shown when editing a
+              draft. */}
+          {mode === "update" && isDraft && (
+            <section className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-destructive">
+                  Danger zone
+                </h3>
+                <p className="mt-0.5 text-xs text-tertiary-foreground">
+                  Permanently delete this draft version and its prices. This
+                  can’t be undone.
+                </p>
+              </div>
+              {deleteErr && (
+                <p className="text-xs text-destructive" role="alert">
+                  {deleteErr}
+                </p>
+              )}
+              {confirmingDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="mr-auto text-xs font-medium text-foreground">
+                    Delete v{baseVersion?.version} for good?
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setConfirmingDelete(false)}
+                    disabled={deleteBusy}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructiveInverted"
+                    size="sm"
+                    className="font-semibold"
+                    onClick={deleteDraft}
+                    disabled={deleteBusy}
+                  >
+                    {deleteBusy && <Loader className="size-3.5 border-[1.5px]" />}
+                    Delete version
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    setDeleteErr(null);
+                    setConfirmingDelete(true);
+                  }}
+                >
+                  <HugeiconsIcon icon={Delete02Icon} className="size-4" />
+                  Delete version
+                </Button>
+              )}
+            </section>
+          )}
         </DrawerBody>
 
         <DrawerFooter>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  Archive02Icon,
   CheckmarkSquare02Icon,
   GitBranchPlusIcon,
   InfinitySquareIcon,
@@ -20,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { FEATURE_STATUS } from "./legend";
 import { VersionFormDrawer } from "./VersionFormDrawer";
+import { RetireVersionDrawer } from "./RetireVersionDrawer";
 import type {
   EntitlementValue,
   Feature,
@@ -242,6 +244,18 @@ export function TierEntitlementsMatrix() {
     setDrawerOpen(true);
   };
 
+  // Retire drawer (CON-297 guarded retire). Kept separate from the authoring
+  // drawer since it targets active versions and runs its own reassign/force flow.
+  const [retireOpen, setRetireOpen] = useState(false);
+  const [retireTarget, setRetireTarget] = useState<{
+    tier: MatrixTier;
+    version: TierVersion;
+  } | null>(null);
+  const openRetire = (tier: MatrixTier, version: TierVersion) => {
+    setRetireTarget({ tier, version });
+    setRetireOpen(true);
+  };
+
   const reload = useCallback((signal?: AbortSignal) => {
     return fetch("/api/tier-entitlements", { signal })
       .then((r) => {
@@ -397,7 +411,7 @@ export function TierEntitlementsMatrix() {
                 {tierGroups.map((g) => (
                   <div
                     key={g.tier.tierId}
-                    className="flex items-center gap-1.5 border-l-[3px] border-border px-3 pt-2.5 pb-1 text-sm font-semibold text-foreground"
+                    className="flex items-center gap-1.5 border-b border-l-[3px] border-border px-3 pt-2.5 pb-2.5 text-sm font-semibold text-foreground"
                     style={{ gridColumn: `${g.start + 3} / span ${g.span}` }}
                   >
                     {g.tier.tierColor && (
@@ -431,7 +445,7 @@ export function TierEntitlementsMatrix() {
                     <div
                       key={v?.id ?? `${t.tierId}-empty-${ci}`}
                       className={cn(
-                        "flex flex-col items-start gap-1.5 px-3 pb-2.5 pt-1 text-left",
+                        "flex flex-col items-start gap-1.5 px-3 pb-2.5 pt-2.5 text-left",
                         groupBorder(ci),
                       )}
                     >
@@ -483,6 +497,17 @@ export function TierEntitlementsMatrix() {
                               className="size-4"
                             />
                             Update this version
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            disabled={!v || v.status !== "active"}
+                            onClick={() => v && openRetire(t, v)}
+                          >
+                            <HugeiconsIcon
+                              icon={Archive02Icon}
+                              className="size-4"
+                            />
+                            Retire version
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -658,6 +683,16 @@ export function TierEntitlementsMatrix() {
         siblingVersions={drawer?.tier.versions ?? []}
         features={features}
         onSaved={() => reload()}
+      />
+
+      {/* Guarded retire drawer (active versions). */}
+      <RetireVersionDrawer
+        open={retireOpen}
+        onOpenChange={setRetireOpen}
+        version={retireTarget?.version ?? null}
+        siblingVersions={retireTarget?.tier.versions ?? []}
+        tierName={retireTarget?.tier.tierName ?? ""}
+        onDone={() => reload()}
       />
     </div>
   );

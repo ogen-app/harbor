@@ -55,3 +55,24 @@ export interface MatrixResponse {
   features: Feature[];
   tiers: MatrixTier[];
 }
+
+// One tenant's live (open-ended) assignment on a version — the enumerated form
+// behind TierVersion.liveAssignmentCount, used to name the tenants blocking a
+// retire (GET /versions/{id}/assignments).
+export interface VersionAssignment {
+  tenantId: string;
+  tenantName: string;
+  validFrom: string;
+}
+
+export interface AssignmentsResponse {
+  assignments: VersionAssignment[];
+  total: number;
+}
+
+// The outcome of a retire: the now-retired version plus how many tenants were
+// migrated when a reassignment target was supplied (0 otherwise).
+export interface RetireResult {
+  version: TierVersion;
+  reassignedCount: number;
+}

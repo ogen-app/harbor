@@ -53,9 +53,10 @@ tidy:
 # tenants.v1 + secrets.v1 + platforms.v1 + plans.v1 live in the shared
 # buf.build/ogen-app/proto module (CON-220). Generate the client stubs from a
 # pinned version; bump PROTO_VERSION to adopt a new contract, then `make proto`
-# and commit gen/. plans.v1 (PlanAdminService, CON-294) landed in v1.4.0.
+# and commit gen/. plans.v1 (PlanAdminService, CON-294) landed in v1.4.0; v1.5.0
+# added tier-version retire/delete + assignment listing (CON-297).
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.4.0
+PROTO_VERSION := v1.5.0
 
 proto:
 	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \

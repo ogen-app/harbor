@@ -11,8 +11,9 @@
 // into outgoing gRPC metadata by a client interceptor and is never logged.
 //
 // A published (active or retired) version is immutable in Ogen; the only writes
-// are: create a draft, replace a draft's body, publish, retire, and assign a
-// tenant. The entitlements blob is a proto Struct on the wire and a
+// are: create a draft, replace a draft's body, publish, retire (optionally
+// reassigning live tenants first), delete a draft, and assign a tenant. The
+// entitlements blob is a proto Struct on the wire and a
 // map[string]any here — a numeric value, a bool, or nil for an unlimited
 // numeric — matching the feature catalog's value_type.
 package ogenplans
@@ -79,6 +80,15 @@ type Feature struct {
 	IsMaterial  bool   `json:"isMaterial"`
 	Reset       string `json:"reset"` // numeric only: standing | monthly | total | per_post
 	Description string `json:"description"`
+}
+
+// VersionAssignment is one tenant's live (open-ended) assignment on a version —
+// the enumerated form behind TierVersion.LiveAssignmentCount, used to name the
+// tenants blocking a retire.
+type VersionAssignment struct {
+	TenantID   string    `json:"tenantId"`
+	TenantName string    `json:"tenantName"`
+	ValidFrom  time.Time `json:"validFrom"`
 }
 
 // Client is a thin, safe wrapper over the generated PlanAdminServiceClient.
@@ -269,21 +279,81 @@ func (c *Client) PublishTierVersion(ctx context.Context, id, changeReason string
 	return versionFromProto(resp.GetVersion()), nil
 }
 
-// RetireTierVersion transitions an active version to retired. Ogen returns
-// FailedPrecondition if any tenant still has a live assignment on it, unless
-// force is set.
-func (c *Client) RetireTierVersion(ctx context.Context, id string, force bool) (TierVersion, error) {
+// RetireResult is the outcome of a retire: the now-retired version plus the
+// number of tenants migrated when a reassignment target was supplied (0
+// otherwise).
+type RetireResult struct {
+	Version         TierVersion `json:"version"`
+	ReassignedCount int32       `json:"reassignedCount"`
+}
+
+// RetireTierVersion transitions an active version to retired (CON-297). When
+// live assignments remain, Ogen refuses with FailedPrecondition and names the
+// blocking tenants, unless the operator either supplies reassignToVersionID
+// (migrate them onto another active version, atomic with the retire) or sets
+// force (grandfather them onto the now-retired version). force and
+// reassignToVersionID are mutually exclusive — Ogen rejects both together with
+// InvalidArgument.
+func (c *Client) RetireTierVersion(ctx context.Context, id string, force bool, reassignToVersionID string) (RetireResult, error) {
 	if c == nil {
-		return TierVersion{}, ErrUnavailable
+		return RetireResult{}, ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	resp, err := c.rpc.RetireTierVersion(ctx, &plansv1.RetireTierVersionRequest{Id: id, Force: force})
+	resp, err := c.rpc.RetireTierVersion(ctx, &plansv1.RetireTierVersionRequest{
+		Id:                  id,
+		Force:               force,
+		ReassignToVersionId: reassignToVersionID,
+	})
 	if err != nil {
-		return TierVersion{}, err
+		return RetireResult{}, err
 	}
-	return versionFromProto(resp.GetVersion()), nil
+	return RetireResult{
+		Version:         versionFromProto(resp.GetVersion()),
+		ReassignedCount: resp.GetReassignedCount(),
+	}, nil
+}
+
+// DeleteTierVersion hard-deletes a DRAFT version and its price rows (CON-297).
+// Ogen returns FailedPrecondition for a published (active/retired) version —
+// those are immutable audit artifacts — and NotFound for an unknown id.
+func (c *Client) DeleteTierVersion(ctx context.Context, id string) error {
+	if c == nil {
+		return ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.rpc.DeleteTierVersion(ctx, &plansv1.DeleteTierVersionRequest{Id: id})
+	return err
+}
+
+// ListTierVersionAssignments enumerates the tenants currently holding a live
+// (open-ended) assignment on a version (CON-297) — the enumerated form of
+// TierVersion.LiveAssignmentCount, driving the reassignment picker before a
+// retire. limit/offset page the result; a 0 limit lets Ogen clamp to its
+// default. Returns the page plus the total live-assignment count.
+func (c *Client) ListTierVersionAssignments(ctx context.Context, versionID string, limit, offset int32) ([]VersionAssignment, int32, error) {
+	if c == nil {
+		return nil, 0, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.ListTierVersionAssignments(ctx, &plansv1.ListTierVersionAssignmentsRequest{
+		TierVersionId: versionID,
+		Limit:         limit,
+		Offset:        offset,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]VersionAssignment, 0, len(resp.GetAssignments()))
+	for _, a := range resp.GetAssignments() {
+		out = append(out, versionAssignmentFromProto(a))
+	}
+	return out, resp.GetTotal(), nil
 }
 
 // ── Tenant assignment ──────────────────────────────────────────────────────
@@ -346,6 +416,18 @@ func versionFromProto(v *plansv1.TierVersion) TierVersion {
 		CreatedAt:           v.GetCreatedAt().AsTime(),
 		PublishedAt:         optTime(v.GetPublishedAt()),
 		RetiredAt:           optTime(v.GetRetiredAt()),
+	}
+}
+
+// versionAssignmentFromProto maps a proto VersionAssignment to its JSON shape.
+func versionAssignmentFromProto(a *plansv1.VersionAssignment) VersionAssignment {
+	if a == nil {
+		return VersionAssignment{}
+	}
+	return VersionAssignment{
+		TenantID:   a.GetTenantId(),
+		TenantName: a.GetTenantName(),
+		ValidFrom:  a.GetValidFrom().AsTime(),
 	}
 }
 
