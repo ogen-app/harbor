@@ -19,12 +19,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Loader } from "@/components/ui/loader";
 import {
-  DotsThreeOutlineVerticalIcon,
   DotsSixVerticalIcon,
   NotePencilIcon,
   TrashIcon,
   SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { MoreVerticalSquare02Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import { PlatformIcon } from "./PlatformIcon";
 import { PlatformDialog } from "./PlatformDialog";
@@ -39,7 +40,7 @@ import type { Platform, PlatformsListResponse } from "./types";
 // Tracks are minmax(0,fr) so they always fit the card (no overflow) and text
 // truncates instead of colliding; numeric columns are right-aligned.
 const GRID =
-  "grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.15fr)_2.25rem] items-center gap-3";
+  "grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.15fr)_2.75rem] items-center gap-3";
 
 function bySortOrder(a: Platform, b: Platform): number {
   if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
@@ -621,27 +622,18 @@ function PlatformActions({
           variant="ghost"
           size="smIcon"
           aria-label={`Actions for ${name}`}
-          className="justify-self-end text-tertiary-foreground data-[state=open]:border-quaternary data-[state=open]:bg-quaternary data-[state=open]:text-primary-foreground"
+          className="h-9 w-9 justify-self-end text-tertiary-foreground data-[state=open]:border-quaternary data-[state=open]:bg-quaternary data-[state=open]:text-primary-foreground"
         >
-          <DotsThreeOutlineVerticalIcon className="size-4" />
+          <HugeiconsIcon icon={MoreVerticalSquare02Icon} className="size-5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        side="bottom"
-        align="end"
-        sideOffset={6}
-        className="min-w-40 rounded-none border border-border py-1 shadow-xl"
-      >
-        <DropdownMenuItem className="gap-3 px-4 py-2.5" onClick={onEdit}>
+      <DropdownMenuContent side="bottom" align="end" sideOffset={6} className="min-w-44">
+        <DropdownMenuItem onClick={onEdit}>
           <NotePencilIcon className="size-4" />
           Edit
         </DropdownMenuItem>
-        <DropdownMenuSeparator className="my-1 h-px bg-border" />
-        <DropdownMenuItem
-          variant="destructive"
-          className="gap-3 px-4 py-2.5"
-          onClick={onDelete}
-        >
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
           <TrashIcon className="size-4" />
           Delete
         </DropdownMenuItem>

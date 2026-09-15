@@ -1,17 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogFooter,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  PencilEdit02Icon,
+  PlusSignSquareIcon,
+} from "@hugeicons/core-free-icons";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerTitle,
+  DrawerDescription,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import {
@@ -126,12 +130,12 @@ interface PlatformDialogProps {
   onSaved: (name: string, created: boolean) => void;
 }
 
-// PlatformDialog is the whole-resource Add/Edit form. The body lives in
-// PlatformForm, which Radix mounts fresh each open — so it seeds from the
-// current platform without an effect and resets between opens (mirrors
-// CatalogDialog/SecretDialog). It's a fixed-height (75vh), ~50vw tabbed dialog
-// whose middle scrolls: one tab per area (identity+guidance / post types /
-// media & text limits).
+// PlatformDialog is the whole-resource Add/Edit form, presented as a right-side
+// drawer (matching /tier-entitlements). The body lives in PlatformForm, which
+// Radix mounts fresh each open — so it seeds from the current platform without
+// an effect and resets between opens (mirrors CatalogDialog/SecretDialog). The
+// drawer fills the screen height; its middle scrolls, with one tab per area
+// (identity+guidance / post types / media & text limits).
 export function PlatformDialog({
   open,
   onOpenChange,
@@ -140,8 +144,8 @@ export function PlatformDialog({
   onSaved,
 }: PlatformDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[75vh] w-[50vw] min-w-[640px] max-w-none flex-col gap-0 p-0">
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent className="max-w-[min(46rem,calc(100vw-2.5rem))] gap-0 p-0">
         <PlatformForm
           mode={mode}
           platform={platform}
@@ -151,8 +155,8 @@ export function PlatformDialog({
             onOpenChange(false);
           }}
         />
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -331,16 +335,20 @@ function PlatformForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-      {/* Header (fixed) */}
-      <div className="shrink-0 px-6 pt-6">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {mode === "edit"
-              ? "Update this platform’s post types, media/text limits, guidance, and enabled state."
-              : "Add a platform. It starts disabled — verify the Zernio slug connects, then enable it from the list."}
-          </DialogDescription>
-        </DialogHeader>
+      {/* Header (fixed) — pr-12 clears the drawer's close button. */}
+      <div className="shrink-0 px-6 pt-6 pr-12">
+        <DrawerTitle className="flex items-center gap-2">
+          <HugeiconsIcon
+            icon={mode === "edit" ? PencilEdit02Icon : PlusSignSquareIcon}
+            className="size-5 text-tertiary-foreground"
+          />
+          {title}
+        </DrawerTitle>
+        <DrawerDescription className="mt-1">
+          {mode === "edit"
+            ? "Update this platform’s post types, media/text limits, guidance, and enabled state."
+            : "Add a platform. It starts disabled — verify the Zernio slug connects, then enable it from the list."}
+        </DrawerDescription>
       </div>
 
       {/* Pale full-bleed divider under the description. */}
@@ -464,12 +472,14 @@ function PlatformForm({
                 <Toggle
                   checked={connectSupported}
                   onChange={setConnectSupported}
+                  variant="success"
                   label="Connect supported"
                   description="Whether operators can connect and manage accounts for this platform."
                 />
                 <Toggle
                   checked={enabled}
                   onChange={setEnabled}
+                  variant="success"
                   label="Enabled"
                   description="Whether the platform is active and available for publishing. Turn off to retire it without deleting."
                 />
@@ -508,17 +518,14 @@ function PlatformForm({
                     placeholder="Label"
                     autoComplete="off"
                   />
-                  <label className="flex shrink-0 items-center gap-1.5 text-xs text-secondary-foreground">
-                    <input
-                      type="checkbox"
+                  <span className="flex shrink-0 items-center gap-2 text-xs text-secondary-foreground">
+                    <Switch
                       checked={row.publishable}
-                      onChange={(e) =>
-                        setPostType(i, { publishable: e.target.checked })
-                      }
-                      className="size-4 accent-emerald-600"
+                      onChange={(v) => setPostType(i, { publishable: v })}
+                      label={`Publishable — post type ${i + 1}`}
                     />
                     Publishable
-                  </label>
+                  </span>
                   <button
                     type="button"
                     onClick={() => removePostType(i)}
@@ -794,29 +801,29 @@ function PlatformForm({
       )}
 
       {/* Footer (fixed) */}
-      <div className="shrink-0 border-t border-border px-6 py-4">
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onCancel}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            variant="defaultInverted"
-            className="font-semibold"
-            disabled={submitting}
-          >
-            {submitting
-              ? "Saving…"
-              : mode === "edit"
-                ? "Save changes"
-                : "Add platform"}
-          </Button>
-        </DialogFooter>
+      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-4">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant="defaultInverted"
+          size="sm"
+          className="font-semibold"
+          disabled={submitting}
+        >
+          {submitting
+            ? "Saving…"
+            : mode === "edit"
+              ? "Save changes"
+              : "Add platform"}
+        </Button>
       </div>
     </form>
   );
