@@ -578,41 +578,40 @@ function ActionsMenu({
         align="end"
         sideOffset={6}
         onClick={(e) => e.stopPropagation()}
-        className="min-w-48 rounded-none border border-border py-1 shadow-xl"
+        className="min-w-52"
       >
-        <DropdownMenuItem asChild className="gap-3 px-4 py-2.5">
+        <DropdownMenuItem asChild>
           <Link href={`/tenants/${encodeURIComponent(tenant.id)}`}>
             <ArrowSquareOutIcon className="size-4" />
             View details
           </Link>
         </DropdownMenuItem>
 
-        <DropdownMenuSeparator className="my-1 h-px bg-border" />
+        <DropdownMenuSeparator />
 
         {/* Lifecycle status (CON-190): suspend / reactivate / soft-delete /
             restore. Which transitions are offered depends on the current status;
             each opens a confirm dialog (suspend also captures a reason). */}
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+          <DropdownMenuSubTrigger>
             <PulseIcon className="size-4" />
             Status
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent
             onClick={(e) => e.stopPropagation()}
-            className="min-w-48 rounded-none border border-border py-1 shadow-xl"
+            className="min-w-52"
           >
-            <div className="flex items-center gap-2 px-4 py-2">
+            <div className="flex items-center gap-2 px-3 py-2">
               <span className="text-[11px] uppercase tracking-wide text-tertiary-foreground">
                 Current
               </span>
               <StatusLabel status={status} reason={tenant.statusReason} />
             </div>
-            <DropdownMenuSeparator className="my-1 h-px bg-border" />
+            <DropdownMenuSeparator />
 
             {status !== "active" && (
               <DropdownMenuItem
                 onSelect={() => onStatusAction(tenant, "active")}
-                className="gap-3 px-4 py-2.5"
               >
                 {status === "deleted" ? (
                   <>
@@ -631,7 +630,6 @@ function ActionsMenu({
             {status === "active" && !protectedTenant && (
               <DropdownMenuItem
                 onSelect={() => onStatusAction(tenant, "suspended")}
-                className="gap-3 px-4 py-2.5"
               >
                 <PauseIcon className="size-4" />
                 Suspend…
@@ -640,8 +638,8 @@ function ActionsMenu({
 
             {status !== "deleted" && !protectedTenant && (
               <DropdownMenuItem
+                variant="destructive"
                 onSelect={() => onStatusAction(tenant, "deleted")}
-                className="gap-3 px-4 py-2.5 text-destructive focus:text-destructive"
               >
                 <TrashIcon className="size-4" />
                 Delete…
@@ -649,7 +647,7 @@ function ActionsMenu({
             )}
 
             {protectedTenant && status === "active" && (
-              <div className="px-4 py-2 text-xs text-tertiary-foreground">
+              <div className="px-3 py-2 text-xs text-tertiary-foreground">
                 Protected tenant
               </div>
             )}
@@ -657,7 +655,7 @@ function ActionsMenu({
         </DropdownMenuSub>
 
         {(allTiers.length > 0 || allGroups.length > 0) && (
-          <DropdownMenuSeparator className="my-1 h-px bg-border" />
+          <DropdownMenuSeparator />
         )}
 
         {/* Tier / Version: pick a tier (coarse, SetTenantTier) or one of its
@@ -665,13 +663,13 @@ function ActionsMenu({
             so the tier pointer updates either way. The current tier is checked. */}
         {allTiers.length > 0 && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+            <DropdownMenuSubTrigger>
               <StackIcon className="size-4" />
               Tier / Version
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               onClick={(e) => e.stopPropagation()}
-              className="max-h-80 min-w-56 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+              className="max-h-80 min-w-56 overflow-y-auto"
             >
               {allTiers.map((t) => {
                 const versions =
@@ -684,7 +682,7 @@ function ActionsMenu({
                   <Fragment key={t.id}>
                     <DropdownMenuItem
                       onSelect={() => onSetTier(tenant, t.id)}
-                      className="gap-2 py-2 pr-3 font-medium"
+                      className="font-medium"
                     >
                       <ColorDot color={t.color} />
                       <span className="flex-1 truncate">{t.name}</span>
@@ -702,7 +700,7 @@ function ActionsMenu({
                         <DropdownMenuItem
                           key={v.id}
                           onSelect={() => onSetTierVersion(tenant, t.id, v)}
-                          className="gap-2 py-1.5 pl-8 pr-3 text-sm text-secondary-foreground"
+                          className="pl-8 text-secondary-foreground"
                         >
                           <span className="flex-1">
                             v{v.version}
@@ -731,13 +729,13 @@ function ActionsMenu({
 
         {allGroups.length > 0 && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-3 px-4 py-2.5">
+            <DropdownMenuSubTrigger>
               <UsersThreeIcon className="size-4" />
               Groups
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               onClick={(e) => e.stopPropagation()}
-              className="max-h-72 min-w-44 overflow-y-auto rounded-none border border-border py-1 shadow-xl"
+              className="max-h-72 min-w-52 overflow-y-auto"
             >
               {allGroups.map((g) => (
                 <DropdownMenuCheckboxItem
@@ -747,7 +745,6 @@ function ActionsMenu({
                     onToggleGroup(tenant, g, checked === true)
                   }
                   onSelect={(e) => e.preventDefault()}
-                  className="gap-2"
                 >
                   <ColorDot color={g.color} />
                   {g.name}
@@ -1203,8 +1200,15 @@ export function TenantsTable() {
     version: TierVersionOption,
   ) => {
     const tier = allTiers.find((t) => t.id === tierId);
-    const previous = tenant.tier ?? null;
-    if (tier) mutateTenant(tenant.id, (t) => ({ ...t, tier }));
+    const prevTier = tenant.tier ?? null;
+    const prevVersion = tenant.tierVersion ?? null;
+    // Optimistic: reflect both the tier chip and the version (the Tier column +
+    // the menu checkmark) immediately; revert on failure.
+    mutateTenant(tenant.id, (t) => ({
+      ...t,
+      tier: tier ?? t.tier,
+      tierVersion: { version: version.version, status: version.status },
+    }));
     try {
       const res = await fetch(
         `/api/tier-entitlements/tenants/${encodeURIComponent(tenant.id)}/version`,
@@ -1220,7 +1224,11 @@ export function TenantsTable() {
         `${tenant.name}: set to ${tier?.name ?? "tier"} v${version.version}`,
       );
     } catch (e) {
-      mutateTenant(tenant.id, (t) => ({ ...t, tier: previous }));
+      mutateTenant(tenant.id, (t) => ({
+        ...t,
+        tier: prevTier,
+        tierVersion: prevVersion,
+      }));
       flash(e instanceof Error ? e.message : "Failed to set version", true);
     }
   };
