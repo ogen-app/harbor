@@ -468,7 +468,7 @@ export function TierEntitlementsMatrix() {
                         <DropdownMenuTrigger asChild>
                           <button
                             type="button"
-                            aria-label={`${t.tierName} version actions`}
+                            aria-label={`${t.tierName} ${v ? `v${v.version}` : "new version"} actions`}
                             className="mt-auto flex cursor-pointer items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-tertiary-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground"
                           >
                             <HugeiconsIcon

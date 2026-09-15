@@ -125,6 +125,10 @@ export function VersionFormDrawer({
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // In create mode, the id of the draft already created this session — so a
+  // publish failure doesn't spawn a second draft on retry (we update + republish
+  // the existing one instead).
+  const [createdId, setCreatedId] = useState<string | null>(null);
   // Draft delete (danger zone) — a two-step inline confirm.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -135,6 +139,7 @@ export function VersionFormDrawer({
   useEffect(() => {
     if (!open) return;
     /* eslint-disable react-hooks/set-state-in-effect */
+    setCreatedId(null);
     setConfirmingDelete(false);
     setDeleteBusy(false);
     setDeleteErr(null);
@@ -222,9 +227,11 @@ export function VersionFormDrawer({
     }
     const body = { purchasable, entitlements, prices };
     try {
-      // 1. Create or replace the draft body.
-      let versionId = baseVersion?.id ?? "";
-      if (mode === "create") {
+      // 1. Create or replace the draft body. In create mode we POST once; if a
+      // later step (publish) fails, `createdId` holds the new draft so a retry
+      // updates that same draft (PUT) rather than creating another one.
+      let versionId = baseVersion?.id ?? createdId ?? "";
+      if (mode === "create" && !createdId) {
         const r = await fetch(
           `/api/tier-entitlements/tiers/${encodeURIComponent(tierId)}/versions`,
           {
@@ -236,6 +243,7 @@ export function VersionFormDrawer({
         if (!r.ok) throw new Error(await errorText(r));
         const created = (await r.json()) as { id: string };
         versionId = created.id;
+        setCreatedId(created.id);
       } else {
         const r = await fetch(
           `/api/tier-entitlements/versions/${encodeURIComponent(versionId)}`,
@@ -299,8 +307,18 @@ export function VersionFormDrawer({
         : "Creates a new draft version for this tier."
       : "Replaces this draft's prices and entitlements. Only drafts can be edited.";
 
+  // save() and deleteDraft() both mutate baseVersion.id, so treat them as one
+  // in-flight lock: neither control fires while the other runs.
+  const mutationBusy = busy || deleteBusy;
+  // Block user-initiated closes (Esc / overlay / ✕) while a mutation is in
+  // flight; the success paths call onOpenChange(false) directly and bypass this.
+  const handleOpenChange = (next: boolean) => {
+    if (!next && mutationBusy) return;
+    onOpenChange(next);
+  };
+
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={handleOpenChange}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
@@ -369,7 +387,7 @@ export function VersionFormDrawer({
           {/* Prices */}
           <section className="space-y-2 border-t-[3px] border-border pt-6">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-              Prices (net, minor units)
+              Prices (net, major units)
             </h3>
             <div className="space-y-2">
               {prices.map((p, i) => (
@@ -516,7 +534,7 @@ export function VersionFormDrawer({
                     size="sm"
                     className="font-semibold"
                     onClick={deleteDraft}
-                    disabled={deleteBusy}
+                    disabled={mutationBusy}
                   >
                     {deleteBusy && <Loader className="size-3.5 border-[1.5px]" />}
                     Delete version
@@ -527,6 +545,7 @@ export function VersionFormDrawer({
                   type="button"
                   variant="destructive"
                   size="sm"
+                  disabled={mutationBusy}
                   onClick={() => {
                     setDeleteErr(null);
                     setConfirmingDelete(true);
@@ -546,8 +565,8 @@ export function VersionFormDrawer({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => onOpenChange(false)}
-            disabled={busy}
+            onClick={() => handleOpenChange(false)}
+            disabled={mutationBusy}
           >
             Cancel
           </Button>
@@ -557,7 +576,7 @@ export function VersionFormDrawer({
             size="sm"
             className="font-semibold"
             onClick={save}
-            disabled={busy || blockedUpdate}
+            disabled={mutationBusy || blockedUpdate}
           >
             {busy && <Loader className="size-3.5 border-[1.5px]" />}
             {mode === "create"

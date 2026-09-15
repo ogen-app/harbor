@@ -1169,11 +1169,17 @@ export function TenantsTable() {
   // setTier reassigns a tenant's (single) tier via gRPC. Optimistic: apply, then
   // revert on failure.
   const setTier = async (tenant: Tenant, tierId: string) => {
-    if (tenant.tier?.id === tierId) return;
+    // Only skip when the tenant is ALREADY in the plain-tier state: this tier
+    // and no pinned version. A tenant on a *version* of this same tier still
+    // needs the request so picking the plain tier drops the version pin.
+    if (tenant.tier?.id === tierId && !tenant.tierVersion) return;
     const tier = allTiers.find((t) => t.id === tierId);
     if (!tier) return;
     const previous = tenant.tier ?? null;
-    mutateTenant(tenant.id, (t) => ({ ...t, tier }));
+    const previousVersion = tenant.tierVersion ?? null;
+    // Selecting a plain tier drops any pinned version — reflect both optimistically
+    // (Ogen's SetTenantTier reassigns the coarse tier), and restore both on failure.
+    mutateTenant(tenant.id, (t) => ({ ...t, tier, tierVersion: null }));
     try {
       const res = await fetch(
         `/api/tenants/${encodeURIComponent(tenant.id)}/tier`,
@@ -1186,7 +1192,11 @@ export function TenantsTable() {
       if (!res.ok && res.status !== 204) throw new Error(await errorText(res));
       flash(`${tenant.name}: tier set to ${tier.name}`);
     } catch (e) {
-      mutateTenant(tenant.id, (t) => ({ ...t, tier: previous }));
+      mutateTenant(tenant.id, (t) => ({
+        ...t,
+        tier: previous,
+        tierVersion: previousVersion,
+      }));
       flash(e instanceof Error ? e.message : "Failed to set tier", true);
     }
   };

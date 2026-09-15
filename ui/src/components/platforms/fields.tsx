@@ -61,11 +61,13 @@ export function Toggle({
   variant?: "default" | "success" | "warning";
 }) {
   return (
-    <div
+    // A <label> (not a <div>) so clicking the visible text/description forwards
+    // to the wrapped Switch button — the Switch's `label` is only its aria-label.
+    <label
       className={cn(
         "flex gap-2.5 text-sm",
         description ? "items-start" : "items-center",
-        disabled && "opacity-50",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
       )}
     >
       <Switch
@@ -85,7 +87,7 @@ export function Toggle({
       ) : (
         <span className="text-foreground">{label}</span>
       )}
-    </div>
+    </label>
   );
 }
 

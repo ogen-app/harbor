@@ -66,6 +66,8 @@ export interface VersionAssignment {
 }
 
 export interface AssignmentsResponse {
+  // false when the upstream is unreachable (the read route degrades softly).
+  available: boolean;
   assignments: VersionAssignment[];
   total: number;
 }

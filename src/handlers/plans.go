@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -257,9 +258,24 @@ func (h *TierEntitlementsHandler) DeleteVersion(c *fiber.Ctx) error {
 }
 
 // assignmentsResponse is the paged live-assignment list for a version.
+// `available` is false when the upstream is unreachable (a read route degrades
+// softly, like the matrix, rather than hard-failing).
 type assignmentsResponse struct {
+	Available   bool                          `json:"available"`
 	Assignments []ogenplans.VersionAssignment `json:"assignments"`
 	Total       int32                         `json:"total"`
+}
+
+// int32QueryParam reads a non-negative pagination query param that fits in
+// int32. Missing → 0. ok is false for a negative or out-of-range value, so the
+// caller can reject it — a plain int32() narrowing would silently wrap a value
+// like 4294967296 to 0 on a 64-bit build.
+func int32QueryParam(c *fiber.Ctx, name string) (int32, bool) {
+	v := c.QueryInt(name, 0)
+	if v < 0 || v > math.MaxInt32 {
+		return 0, false
+	}
+	return int32(v), true
 }
 
 // Assignments godoc
@@ -273,14 +289,31 @@ type assignmentsResponse struct {
 // @Router   /api/tier-entitlements/versions/{id}/assignments [get]
 func (h *TierEntitlementsHandler) Assignments(c *fiber.Ctx) error {
 	start := time.Now()
-	limit := int32(c.QueryInt("limit", 0))
-	offset := int32(c.QueryInt("offset", 0))
+	limit, ok := int32QueryParam(c, "limit")
+	if !ok {
+		logPlans(c, start, nil)
+		return fiber.NewError(fiber.StatusBadRequest, "limit out of range")
+	}
+	offset, ok := int32QueryParam(c, "offset")
+	if !ok {
+		logPlans(c, start, nil)
+		return fiber.NewError(fiber.StatusBadRequest, "offset out of range")
+	}
 	items, total, err := h.plans.ListTierVersionAssignments(c.Context(), c.Params("id"), limit, offset)
 	logPlans(c, start, err)
 	if err != nil {
+		// A read route degrades softly when the upstream is down (mirrors Matrix)
+		// so the retire picker still renders from the version's own count.
+		if isPlansUnavailable(err) {
+			return c.JSON(assignmentsResponse{
+				Available:   false,
+				Assignments: []ogenplans.VersionAssignment{},
+				Total:       0,
+			})
+		}
 		return mapPlanError(err)
 	}
-	return c.JSON(assignmentsResponse{Assignments: items, Total: total})
+	return c.JSON(assignmentsResponse{Available: true, Assignments: items, Total: total})
 }
 
 // TenantEntitlements godoc

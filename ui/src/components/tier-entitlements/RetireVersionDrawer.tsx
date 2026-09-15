@@ -90,6 +90,8 @@ export function RetireVersionDrawer({
           : Promise.reject(new Error(String(r.status))),
       )
       .then((j) => {
+        // On a soft-fail (upstream down) keep the count from the version prop.
+        if (j.available === false) return;
         setAssignments(j.assignments ?? []);
         setTotal(j.total);
       })
@@ -126,8 +128,15 @@ export function RetireVersionDrawer({
     }
   }
 
+  // Block user-initiated closes (Esc / overlay / ✕) while the retire is in
+  // flight; the success path calls onOpenChange(false) directly and bypasses this.
+  const handleOpenChange = (next: boolean) => {
+    if (!next && busy) return;
+    onOpenChange(next);
+  };
+
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={handleOpenChange}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
@@ -239,7 +248,7 @@ export function RetireVersionDrawer({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={busy}
           >
             Cancel
