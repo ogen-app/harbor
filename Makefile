@@ -50,18 +50,20 @@ tidy:
 	go mod tidy
 
 # ── Protobuf / gRPC ───────────────────────────────────────────────────────────
-# tenants.v1 + secrets.v1 + platforms.v1 + plans.v1 live in the shared
+# tenants.v1 + secrets.v1 + platforms.v1 + plans.v1 + email.v1 live in the shared
 # buf.build/ogen-app/proto module (CON-220). Generate the client stubs from a
 # pinned version; bump PROTO_VERSION to adopt a new contract, then `make proto`
 # and commit gen/. plans.v1 (PlanAdminService, CON-294) landed in v1.4.0; v1.5.0
-# added tier-version retire/delete + assignment listing (CON-297).
+# added tier-version retire/delete + assignment listing (CON-297); email.v1
+# (EmailAdminService, CON-298 — the per-tenant Emails tab, CON-192) lands in v1.7.0.
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.5.0
+PROTO_VERSION := v1.7.0
 
 proto:
 	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \
 		--path tenants/v1/tenants.proto --path secrets/v1/secrets.proto \
-		--path platforms/v1/platforms.proto --path plans/v1/plans.proto
+		--path platforms/v1/platforms.proto --path plans/v1/plans.proto \
+		--path email/v1/email.proto
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 docker:

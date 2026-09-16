@@ -44,6 +44,7 @@ import {
   DetailRow,
 } from "@/components/tenants/shared";
 import { ActivityCard } from "@/components/tenants/ActivityCard";
+import { EmailsCard } from "@/components/tenants/EmailsCard";
 
 interface DetailResponse {
   available: boolean;
@@ -437,7 +438,7 @@ function ZernioSection({ state, total }: { state: ZernioState; total: number }) 
 
 // Section tabs on the detail page. "General information" holds the profile,
 // users, Zernio accounts and token cost; "Recent activity" the activity card;
-// "Emails" is a placeholder for now.
+// "Emails" the per-tenant email log (CON-192).
 const DETAIL_TABS = ["General information", "Recent activity", "Emails"] as const;
 
 // Stable, consistently-derived ids linking each tab to its panel (ARIA).
@@ -736,14 +737,8 @@ export function TenantDetail() {
             id={tabPanelId(2)}
             aria-labelledby={tabId(2)}
             tabIndex={0}
-            className="rounded-lg bg-primary p-6"
           >
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-              Emails
-            </h2>
-            <p className="mt-3 text-sm text-tertiary-foreground">
-              No emails yet.
-            </p>
+            <EmailsCard tenantId={t.id} />
           </div>
         )}
       </div>
