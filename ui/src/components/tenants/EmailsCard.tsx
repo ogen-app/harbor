@@ -72,6 +72,13 @@ interface EmailDetailResponse {
 
 const PAGE_SIZE = 25;
 
+// EMAIL_CSP is prepended to the rendered email document so the browser applies it
+// before any resource in the body loads. It blocks every remote fetch — tracking
+// pixels, remote images, fonts, beacons — which would otherwise leak the
+// operator's IP and confirm Harbor opened the message. Inline styles (emails
+// depend on them) and data: URIs still render.
+const EMAIL_CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:">`;
+
 // Status → badge classes. Green for good delivery, blue/violet for engagement,
 // red/amber for negative outcomes, muted grey for pending/skipped. Unknown falls
 // back to neutral.
@@ -274,11 +281,15 @@ function EmailBody({ detail }: { detail: EmailDetail }) {
       )}
       {view === "html" && hasHtml ? (
         // Sandboxed with no allow-scripts / allow-same-origin: arbitrary email
-        // HTML renders but can neither run script nor reach Harbor's origin.
+        // HTML renders but can neither run script nor reach Harbor's origin. The
+        // prepended CSP additionally blocks all remote resources (tracking
+        // pixels); no-referrer keeps the origin out of any request that slips
+        // through.
         <iframe
           title="Email HTML body"
           sandbox=""
-          srcDoc={detail.html}
+          referrerPolicy="no-referrer"
+          srcDoc={`${EMAIL_CSP}${detail.html}`}
           className="h-[28rem] w-full rounded-md border border-border bg-white"
         />
       ) : (
@@ -461,6 +472,9 @@ export function EmailsCard({ tenantId }: { tenantId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
+    // A filter change supersedes any in-flight loadMore; clear its flag so the
+    // new list's Load more button isn't left stuck disabled by the stale request.
+    setLoadingMore(false);
     fetch(buildURL(""), { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`request failed (${r.status})`);
@@ -499,19 +513,25 @@ export function EmailsCard({ tenantId }: { tenantId: string }) {
       .catch(() => setLoadingMore(false));
   }, [cursor, loadingMore, buildURL]);
 
-  // Load a single email's detail (body + timeline) when its row is opened.
+  // Load a single email's detail (body + timeline) when its row is opened. A
+  // request counter drops a slow response once a newer email has been opened, so
+  // the drawer body always matches the selected email (including stale
+  // errors/loading updates).
+  const detailReqId = useRef(0);
   const openEmail = useCallback(
     (e: EmailSummary) => {
       setSelected(e);
       setDetail(null);
       setDetailError(null);
       setDetailLoading(true);
+      const id = ++detailReqId.current;
       fetch(`/api/tenants/${enc}/emails/${encodeURIComponent(e.id)}`)
         .then((r) => {
           if (!r.ok) throw new Error(`request failed (${r.status})`);
           return r.json();
         })
         .then((j: EmailDetailResponse) => {
+          if (id !== detailReqId.current) return; // superseded by a newer open
           if (j.available && j.email) {
             setDetail(j.email);
           } else {
@@ -520,6 +540,7 @@ export function EmailsCard({ tenantId }: { tenantId: string }) {
           setDetailLoading(false);
         })
         .catch((err: unknown) => {
+          if (id !== detailReqId.current) return;
           setDetailError(err instanceof Error ? err.message : "Failed to load");
           setDetailLoading(false);
         });
