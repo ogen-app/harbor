@@ -33,6 +33,7 @@ import {
     FactoryIcon,
     ConferenceIcon,
     LinkSquare01Icon,
+    Megaphone02Icon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
@@ -61,6 +62,11 @@ const NAV_GROUPS: { header: string; items: NavItem[] }[] = [
                 icon: ConferenceIcon,
                 label: "Tier entitlements",
                 href: "/tier-entitlements",
+            },
+            {
+                icon: Megaphone02Icon,
+                label: "Announcements",
+                href: "/announcements",
             },
         ],
     },
@@ -151,6 +157,9 @@ export function AppSidebar({
     useHotkeys("g>s", () => router.push("/secrets"), { preventDefault: true });
     useHotkeys("g>p", () => router.push("/platforms"), { preventDefault: true });
     useHotkeys("g>e", () => router.push("/tier-entitlements"), {
+        preventDefault: true,
+    });
+    useHotkeys("g>n", () => router.push("/announcements"), {
         preventDefault: true,
     });
     useHotkeys("g>l", () => router.push("/links"), { preventDefault: true });

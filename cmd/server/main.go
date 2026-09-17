@@ -20,6 +20,7 @@ import (
 	"github.com/ogen-app/harbor/src/config"
 	"github.com/ogen-app/harbor/src/database"
 	"github.com/ogen-app/harbor/src/logging"
+	"github.com/ogen-app/harbor/src/repository/ogenannouncements"
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
 	"github.com/ogen-app/harbor/src/repository/ogenplans"
 	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
@@ -150,12 +151,26 @@ func main() {
 		slog.Info("ogen email-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
+	// AnnouncementAdminService (author/target/schedule/measure tenant
+	// announcements — CON-230, the Announcements page CON-300). Shares
+	// OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN with the other Ogen clients — all on the same
+	// bearer-gated listener — so it's enabled/disabled on the same condition and
+	// likewise never blocks boot.
+	announcementsClient, err := ogenannouncements.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen announcement-admin client", err)
+	}
+	if announcementsClient != nil {
+		defer announcementsClient.Close()
+		slog.Info("ogen announcement-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}
