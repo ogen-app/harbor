@@ -12,7 +12,7 @@ import {
 import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
 import type { CatalogEntry } from "@/components/tiers-groups/types";
-import { StatusBadge, audienceSummary, formatWindow } from "./format";
+import { StatusBadge, audienceSummary, formatWindow, safeHref } from "./format";
 import type { AnnouncementWithStats } from "./types";
 
 interface AnnouncementStatsDrawerProps {
@@ -199,14 +199,22 @@ function StatsBody({
                   <span className="font-medium text-foreground">
                     {a.ctaLabel}
                   </span>{" "}
-                  <a
-                    href={a.ctaUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-mono text-xs text-secondary-foreground underline underline-offset-2 hover:text-foreground"
-                  >
-                    {a.ctaUrl}
-                  </a>
+                  {safeHref(a.ctaUrl) ? (
+                    <a
+                      href={safeHref(a.ctaUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-xs text-secondary-foreground underline underline-offset-2 hover:text-foreground"
+                    >
+                      {a.ctaUrl}
+                    </a>
+                  ) : (
+                    // Not a safe http(s) URL — show it as inert text, never a
+                    // clickable link (guards against a javascript:/data: URI).
+                    <span className="font-mono text-xs text-tertiary-foreground">
+                      {a.ctaUrl}
+                    </span>
+                  )}
                 </div>
               )}
             </section>

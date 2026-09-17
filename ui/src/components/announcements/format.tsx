@@ -80,6 +80,21 @@ export function audienceCount(a: Announcement): string {
   return parts.join(" · ");
 }
 
+// safeHref returns the URL only when it parses and uses an http(s) scheme —
+// otherwise undefined, so callers never render a `javascript:`/`data:` URI into
+// an href (a stored-XSS sink, since CTA/image URLs are operator-authored). Ogen
+// and the form validate too; this is the last line of defense at the render site.
+export function safeHref(u: string): string | undefined {
+  try {
+    const url = new URL(u);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function fmt(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

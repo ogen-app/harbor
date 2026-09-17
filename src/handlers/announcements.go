@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -194,13 +195,37 @@ func (h *AnnouncementsHandler) Delete(c *fiber.Ctx) error {
 }
 
 // parseAnnouncementBody decodes the whole-resource JSON the create/edit form
-// sends. A parse failure returns a fixed-shape 400 (never the body).
+// sends. A parse failure returns a fixed-shape 400 (never the body). The CTA and
+// image URLs are scheme-checked here as defense in depth: they're rendered into
+// hrefs/img-src downstream, so a javascript:/data: URI would be a stored-XSS
+// vector. Ogen validates too; this stops a dangerous value from ever being
+// stored via Harbor.
 func parseAnnouncementBody(c *fiber.Ctx) (ogenannouncements.Announcement, error) {
 	var a ogenannouncements.Announcement
 	if err := c.BodyParser(&a); err != nil {
 		return a, fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
+	if !isHTTPURL(a.CtaURL) {
+		return a, fiber.NewError(fiber.StatusBadRequest, "cta url must be an http(s) URL")
+	}
+	if !isHTTPURL(a.ImageURL) {
+		return a, fiber.NewError(fiber.StatusBadRequest, "image url must be an http(s) URL")
+	}
 	return a, nil
+}
+
+// isHTTPURL reports whether a URL is safe to later render into an href/src: empty
+// (the field is optional) or an absolute http(s) URL. Anything else — a
+// javascript:/data: URI, a scheme-relative or relative ref — is rejected.
+func isHTTPURL(raw string) bool {
+	if raw == "" {
+		return true
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
 }
 
 // isAnnouncementsUnavailable reports whether err means "announcement-admin

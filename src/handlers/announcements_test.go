@@ -88,6 +88,49 @@ func TestAnnouncements_UnreachableIsSoftUnavailable(t *testing.T) {
 	}
 }
 
+// A javascript:/data: (or otherwise non-http) CTA or image URL is rejected with
+// a 400 before the request ever reaches Ogen — defense in depth against a
+// stored-XSS URL that downstream views render into an href/src. The scheme check
+// runs in parseAnnouncementBody, so a nil client still yields 400 (not 503).
+func TestAnnouncements_RejectsUnsafeURLs(t *testing.T) {
+	app := fiber.New()
+	NewAnnouncementsHandler(nil).Register(app, passAuth)
+
+	cases := []struct {
+		name, method, path, body string
+	}{
+		{
+			"create js cta",
+			"POST",
+			"/api/announcements",
+			`{"title":"Hi","body":"There","ctaLabel":"Go","ctaUrl":"javascript:alert(1)"}`,
+		},
+		{
+			"create data image",
+			"POST",
+			"/api/announcements",
+			`{"title":"Hi","body":"There","imageUrl":"data:text/html,<script>"}`,
+		},
+		{
+			"update js cta",
+			"PUT",
+			"/api/announcements/a1",
+			`{"title":"Hi","ctaLabel":"Go","ctaUrl":"javascript:alert(1)"}`,
+		},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if resp.StatusCode != fiber.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400 (unsafe URL rejected)", tc.name, resp.StatusCode)
+		}
+	}
+}
+
 // Writes and the single-resource read against an unconfigured client are hard
 // 503s (not soft states): the operator must know the action didn't land. Covers
 // create/update/status/delete + the detail read, and the /:id vs /:id/status
