@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FIELD_GRID } from "@/components/platforms/fields";
 import { cn } from "@/lib/utils";
 import { AudiencePicker } from "./AudiencePicker";
+import { safeHref } from "./format";
 import type { Announcement, AnnouncementInput } from "./types";
 
 type Mode = "create" | "edit";
@@ -130,11 +131,25 @@ function AnnouncementForm({
       setFormTab("Content");
       return;
     }
+    // The image URL, when set, must be a real http(s) URL — a javascript:/data:
+    // URI would be a stored-XSS vector for anything that renders it.
+    if (imageUrl.trim() && !safeHref(imageUrl.trim())) {
+      setError("The image URL must be a valid http(s) URL.");
+      setFormTab("Content");
+      return;
+    }
     // CTA is both-or-neither: a label needs a url and vice versa.
     const hasLabel = ctaLabel.trim() !== "";
     const hasUrl = ctaUrl.trim() !== "";
     if (hasLabel !== hasUrl) {
       setError("A call-to-action needs both a label and a URL, or neither.");
+      setFormTab("Content");
+      return;
+    }
+    // The CTA URL is rendered into an href downstream; reject any non-http(s)
+    // scheme so a javascript:/data: URI can never be stored.
+    if (hasUrl && !safeHref(ctaUrl.trim())) {
+      setError("The call-to-action URL must be a valid http(s) URL.");
       setFormTab("Content");
       return;
     }
