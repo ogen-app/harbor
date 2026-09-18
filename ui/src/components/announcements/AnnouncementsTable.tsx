@@ -28,7 +28,12 @@ import {
   PlusIcon,
 } from "@phosphor-icons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { MoreVerticalSquare02Icon } from "@hugeicons/core-free-icons";
+import {
+  MoreVerticalSquare02Icon,
+  MessageDone02Icon,
+  MessageEdit02Icon,
+  MessageLock01Icon,
+} from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import { AnnouncementDialog } from "./AnnouncementDialog";
 import { AnnouncementStatsDrawer } from "./AnnouncementStatsDrawer";
@@ -353,22 +358,27 @@ export function AnnouncementsTable() {
                   busyId === a.id && "opacity-60",
                 )}
               >
-                {/* Title (+ dim body preview) */}
+                {/* Status glyph + title (+ dim body preview) */}
                 <button
                   type="button"
                   onClick={() => openStats(a)}
-                  className="flex min-w-0 flex-col items-start text-left"
+                  className="flex min-w-0 cursor-pointer items-center gap-2.5 text-left"
                 >
-                  <span className="truncate font-medium text-foreground">
-                    {a.title || (
-                      <span className="text-tertiary-foreground">Untitled</span>
+                  <StatusGlyph status={a.status} />
+                  <span className="flex min-w-0 flex-col items-start">
+                    <span className="truncate font-medium text-foreground">
+                      {a.title || (
+                        <span className="text-tertiary-foreground">
+                          Untitled
+                        </span>
+                      )}
+                    </span>
+                    {a.body && (
+                      <span className="mt-0.5 line-clamp-1 text-xs text-tertiary-foreground">
+                        {a.body}
+                      </span>
                     )}
                   </span>
-                  {a.body && (
-                    <span className="mt-0.5 line-clamp-1 text-xs text-tertiary-foreground">
-                      {a.body}
-                    </span>
-                  )}
                 </button>
 
                 <StatusBadge status={a.status} />
@@ -515,6 +525,28 @@ export function AnnouncementsTable() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Per-status lifecycle glyph shown at the head of each row, tinted to match the
+// StatusBadge colours (neutral draft, emerald published, amber archived).
+const STATUS_GLYPH: Record<
+  AnnouncementStatus,
+  { icon: typeof MessageDone02Icon; className: string }
+> = {
+  draft: { icon: MessageEdit02Icon, className: "text-tertiary-foreground" },
+  published: { icon: MessageDone02Icon, className: "text-emerald-600" },
+  archived: { icon: MessageLock01Icon, className: "text-amber-600" },
+};
+
+function StatusGlyph({ status }: { status: AnnouncementStatus }) {
+  const g = STATUS_GLYPH[status] ?? STATUS_GLYPH.draft;
+  return (
+    <HugeiconsIcon
+      icon={g.icon}
+      className={cn("size-5 shrink-0", g.className)}
+      aria-hidden
+    />
   );
 }
 
