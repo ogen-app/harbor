@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Field, FIELD_GRID } from "@/components/platforms/fields";
 import { cn } from "@/lib/utils";
 import { AudiencePicker } from "./AudiencePicker";
@@ -25,21 +26,16 @@ type Mode = "create" | "edit";
 const FORM_TABS = ["Content", "Audience & schedule"] as const;
 type FormTab = (typeof FORM_TABS)[number];
 
-// datetime-local <input> speaks "YYYY-MM-DDThh:mm" in the operator's local zone;
-// the API speaks RFC3339 (UTC). These convert both ways so the stored instant
+// The DateTimePicker edits a `Date | null` in the operator's local zone; the API
+// speaks RFC3339 (UTC). These convert both ways so the stored instant
 // round-trips through an edit without drifting.
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
+function toLocalDate(iso: string | null): Date | null {
+  if (!iso) return null;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
-function fromLocalInput(local: string): string | null {
-  if (!local) return null;
-  const d = new Date(local);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+function toIso(d: Date | null): string | null {
+  return d ? d.toISOString() : null;
 }
 
 interface AnnouncementDialogProps {
@@ -107,11 +103,11 @@ function AnnouncementForm({
     () => announcement?.targetGroupIds ?? [],
   );
 
-  const [starts, setStarts] = useState(() =>
-    toLocalInput(announcement?.startsAt ?? null),
+  const [starts, setStarts] = useState<Date | null>(() =>
+    toLocalDate(announcement?.startsAt ?? null),
   );
-  const [ends, setEnds] = useState(() =>
-    toLocalInput(announcement?.endsAt ?? null),
+  const [ends, setEnds] = useState<Date | null>(() =>
+    toLocalDate(announcement?.endsAt ?? null),
   );
 
   const [formTab, setFormTab] = useState<FormTab>("Content");
@@ -160,9 +156,9 @@ function AnnouncementForm({
       setFormTab("Audience & schedule");
       return;
     }
-    const startsAt = fromLocalInput(starts);
-    const endsAt = fromLocalInput(ends);
-    if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt)) {
+    const startsAt = toIso(starts);
+    const endsAt = toIso(ends);
+    if (starts && ends && ends.getTime() <= starts.getTime()) {
       setError("The end of the showing window must be after its start.");
       setFormTab("Audience & schedule");
       return;
@@ -374,11 +370,11 @@ function AnnouncementForm({
                   htmlFor="an-starts"
                   hint="Leave blank to go live as soon as it’s published."
                 >
-                  <Input
+                  <DateTimePicker
                     id="an-starts"
-                    type="datetime-local"
+                    aria-label="Showing window start"
                     value={starts}
-                    onChange={(e) => setStarts(e.target.value)}
+                    onChange={setStarts}
                   />
                 </Field>
                 <Field
@@ -386,11 +382,11 @@ function AnnouncementForm({
                   htmlFor="an-ends"
                   hint="Leave blank for no expiry."
                 >
-                  <Input
+                  <DateTimePicker
                     id="an-ends"
-                    type="datetime-local"
+                    aria-label="Showing window end"
                     value={ends}
-                    onChange={(e) => setEnds(e.target.value)}
+                    onChange={setEnds}
                   />
                 </Field>
               </div>
