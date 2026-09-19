@@ -6,6 +6,7 @@ import ClaudeIcon from '@/assets/icons/claude.svg'
 import CloudflareIcon from '@/assets/icons/cloudflare.svg'
 import ZernioIcon from '@/assets/icons/zernio.svg'
 import GithubIcon from '@/assets/icons/github.svg'
+import SentryIcon from '@/assets/icons/sentry.svg'
 import ArrowDownPointedIcon from '@/assets/icons/arrow_down_pointed.svg'
 import ArrowLeftIcon from '@/assets/icons/arrow_left.svg'
 import ArrowRightIcon from '@/assets/icons/arrow_right.svg'
@@ -60,6 +61,7 @@ export type IconName =
   | 'cloudflare'
   | 'zernio'
   | 'github'
+  | 'sentry'
   | 'arrow_down_pointed'
   | 'arrow_left'
   | 'arrow_right'
@@ -121,6 +123,7 @@ const icons: Record<IconName, SvgComponent> = {
   cloudflare: CloudflareIcon,
   zernio: ZernioIcon,
   github: GithubIcon,
+  sentry: SentryIcon,
   arrow_down_pointed: ArrowDownPointedIcon,
   arrow_left: ArrowLeftIcon,
   arrow_right: ArrowRightIcon,
