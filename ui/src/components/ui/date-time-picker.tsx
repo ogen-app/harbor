@@ -183,7 +183,9 @@ export function DateTimePicker({
           </button>
         </PopoverTrigger>
 
-        <PopoverContent align="start" className="w-auto p-0">
+        {/* z-[210] so the popover floats above the drawer/dialog it's used in
+            (those are z-[200]); the base PopoverContent z-50 sits behind them. */}
+        <PopoverContent align="start" className="z-[210] w-auto p-0">
           <div className="flex divide-x divide-border">
             {/* Calendar */}
             <div className="p-3">
