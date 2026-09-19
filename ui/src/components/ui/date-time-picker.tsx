@@ -33,7 +33,7 @@ const MONTHS = [
 
 // Descending hours (12 → 1) and 5-minute steps, matching the reference layout.
 const HOURS_12 = Array.from({ length: 12 }, (_, i) => 12 - i);
-const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
+const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => i * 5);
 const MERIDIEMS = ["AM", "PM"] as const;
 type Meridiem = (typeof MERIDIEMS)[number];
 
@@ -108,6 +108,15 @@ export function DateTimePicker({
   const sel = value
     ? { ...to12h(value.getHours()), minute: value.getMinutes() }
     : null;
+
+  // 5-minute steps by default; if the stored instant carries an off-step minute
+  // (e.g. an announcement scheduled before this picker existed, or one set via
+  // the API), fold it in so it stays selectable and scrolls into view instead of
+  // silently having no highlighted cell.
+  const minuteItems =
+    sel == null || MINUTE_STEPS.includes(sel.minute)
+      ? MINUTE_STEPS
+      : [...MINUTE_STEPS, sel.minute].sort((a, b) => a - b);
 
   // The instant to mutate when only one field is touched: the current value, or
   // today at midnight so a first click has a sane date+time.
@@ -221,6 +230,8 @@ export function DateTimePicker({
                     <button
                       key={day.toISOString()}
                       type="button"
+                      aria-label={`${MONTHS[day.getMonth()]} ${day.getDate()}, ${day.getFullYear()}`}
+                      aria-pressed={isSel}
                       onClick={() => commitDay(day)}
                       className={cn(
                         "flex size-9 items-center justify-center rounded-md text-sm transition-colors",
@@ -252,7 +263,7 @@ export function DateTimePicker({
               />
               <TimeColumn
                 open={open}
-                items={MINUTES}
+                items={minuteItems}
                 selected={sel?.minute ?? null}
                 render={(m) => pad2(m)}
                 onSelect={commitMinute}
