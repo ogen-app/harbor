@@ -12,6 +12,7 @@ type ServiceIcon =
   | "zernio"
   | "railway"
   | "github"
+  | "sentry"
   | "waves";
 
 type ServiceLink = {
@@ -63,6 +64,12 @@ const LINKS: ServiceLink[] = [
     href: "https://github.com/ogen-app",
     description: "Source repositories",
     icon: "github",
+  },
+  {
+    name: "Sentry",
+    href: "https://ogen.sentry.io/issues/?project=4512106293100544",
+    description: "Error monitoring & issues",
+    icon: "sentry",
   },
 ];
 
