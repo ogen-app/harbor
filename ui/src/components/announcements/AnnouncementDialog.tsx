@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   PencilEdit02Icon,
@@ -113,6 +113,31 @@ function AnnouncementForm({
   const [formTab, setFormTab] = useState<FormTab>("Content");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Number keys 1..N switch the drawer's tabs (mirrors /secrets). This form is
+  // only mounted while the drawer is open, so the listener is scoped to it.
+  // Ignored while typing in a field, so it never eats a keystroke.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+          target.closest?.('[role="combobox"],[role="textbox"]'))
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= FORM_TABS.length) {
+        e.preventDefault();
+        setFormTab(FORM_TABS[n - 1]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

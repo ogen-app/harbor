@@ -142,12 +142,38 @@ export function AnnouncementsTable() {
     window.setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const changeFilter = (value: AnnouncementStatus | "") => {
+  const changeFilter = useCallback((value: AnnouncementStatus | "") => {
     setStatusFilter(value);
     setPageToken("");
     setPrevTokens([]);
     setLoading(true);
-  };
+  }, []);
+
+  // Number keys 1..N jump straight to a status tab (mirrors /secrets and the
+  // tenant-detail tabs). Ignored while typing in a field, and while a modal
+  // drawer/dialog is open — the create/edit drawer has its own tab switching.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+          target.closest?.('[role="combobox"],[role="textbox"]'))
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= FILTERS.length) {
+        e.preventDefault();
+        changeFilter(FILTERS[n - 1].value);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [changeFilter]);
 
   const goNext = () => {
     const next = data?.nextPageToken;
