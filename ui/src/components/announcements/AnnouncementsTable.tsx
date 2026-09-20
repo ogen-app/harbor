@@ -142,12 +142,20 @@ export function AnnouncementsTable() {
     window.setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const changeFilter = useCallback((value: AnnouncementStatus | "") => {
-    setStatusFilter(value);
-    setPageToken("");
-    setPrevTokens([]);
-    setLoading(true);
-  }, []);
+  const changeFilter = useCallback(
+    (value: AnnouncementStatus | "") => {
+      // Re-selecting the active filter on the first page changes neither
+      // statusFilter nor pageToken, so the reload effect wouldn't run — but
+      // setLoading(true) would still fire and strand skeleton rows. Bail when
+      // nothing would change.
+      if (value === statusFilter && pageToken === "") return;
+      setStatusFilter(value);
+      setPageToken("");
+      setPrevTokens([]);
+      setLoading(true);
+    },
+    [statusFilter, pageToken],
+  );
 
   // Number keys 1..N jump straight to a status tab (mirrors /secrets and the
   // tenant-detail tabs). Ignored while typing in a field, and while a modal
