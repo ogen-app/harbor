@@ -16,6 +16,10 @@ import (
 type UserRepository interface {
 	GetByID(ctx context.Context, id string) (*models.User, error)
 	GetByEmail(ctx context.Context, email string) (*models.User, error)
+	// List returns every operator who has signed in at least once, ordered by
+	// email. Used (with the AUTH_ALLOWED_EMAILS allowlist) to resolve the
+	// admin-notification recipient set (CON-229).
+	List(ctx context.Context) ([]models.User, error)
 	// Upsert inserts the user, or on a google_sub conflict refreshes the
 	// profile fields. The stored row (including its canonical id) is scanned
 	// back into user.
@@ -40,6 +44,14 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*models.
 		return nil, err
 	}
 	return user, nil
+}
+
+func (r *userRepository) List(ctx context.Context) ([]models.User, error) {
+	var users []models.User
+	if err := r.db.NewSelect().Model(&users).Order("u.email").Scan(ctx); err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
 func (r *userRepository) Upsert(ctx context.Context, user *models.User) error {
