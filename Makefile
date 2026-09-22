@@ -57,10 +57,11 @@ tidy:
 # in v1.4.0; v1.5.0 added tier-version retire/delete + assignment listing
 # (CON-297); email.v1 (EmailAdminService, CON-298 — the per-tenant Emails tab,
 # CON-192) landed in v1.7.0; announcements.v1 (AnnouncementAdminService, CON-230 —
-# the tenant announcements screens, CON-300) lands in v1.8.0; modelconfig.v1
-# (ModelConfigAdminService, CON-308 — the Model assignment screens, CON-309)
-# lands in v1.10.0; its vision_input/audio_input + FlowSlot.vendors (the vision
-# and transcribe slot pickers, CON-310) in v1.11.0; billing.v1
+# the tenant announcements screens, CON-300) lands in v1.8.0; email.v1's
+# NotifyOperatorsTenantRegistered (CON-229 admin registration email) lands in
+# v1.9.0; modelconfig.v1 (ModelConfigAdminService, CON-308 — the Model
+# assignment screens, CON-309) lands in v1.10.0; its vision_input/audio_input +
+# FlowSlot.vendors (the vision and transcribe slot pickers, CON-310) in v1.11.0; billing.v1
 # (BillingAdminService, CON-326 — the Billing screens, CON-327) plus
 # tenants.v1 Tenant.billing_status land in v1.17.0 (v1.12–v1.16 only add
 # jobs.v1/jobrpc.v1, which Harbor doesn't generate); tenantinvites.v1
