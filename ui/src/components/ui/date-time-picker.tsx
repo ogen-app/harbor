@@ -154,7 +154,16 @@ export function DateTimePicker({
 
   return (
     <div className="relative">
-      <Popover open={open} onOpenChange={handleOpenChange}>
+      {/* `modal` is essential when this lives inside the announcement drawer (a
+          Radix Dialog with a trapped focus scope). The popover content is
+          portalled to <body>, outside the drawer's DOM; a non-modal popover
+          would have every day/time click yank focus back into the drawer — its
+          focus-trap fires on the portalled target it doesn't contain — which
+          dismisses the non-modal popover mid-click, so nothing ever commits. A
+          modal popover pauses the drawer's focus scope and prevents
+          focus-outside dismissal, matching how Radix Select survives in a
+          dialog. */}
+      <Popover open={open} onOpenChange={handleOpenChange} modal>
         <PopoverTrigger asChild>
           <button
             id={id}
