@@ -59,7 +59,15 @@ type tenantRegisteredPayload struct {
 // (tenant, recipient), so a retry never double-sends.
 func (h *WebhooksHandler) TenantRegistered(c *fiber.Ctx) error {
 	body := c.Body()
-	if h.secret != "" && !validHMAC(h.secret, body, c.Get("X-Ogen-Signature")) {
+	// This endpoint is public (Ogen has no operator session), so the HMAC
+	// signature is the ONLY gate — fail closed. An unconfigured secret rejects
+	// with 503 (rather than silently accepting unsigned requests); Ogen keeps the
+	// webhook job and retries once the secret is set on both sides.
+	if h.secret == "" {
+		slog.ErrorContext(c.Context(), "tenant-registered webhook: OGEN_WEBHOOK_SECRET not configured; rejecting", logging.AttrComponent, "webhooks")
+		return fiber.NewError(fiber.StatusServiceUnavailable, "webhook authentication unavailable")
+	}
+	if !validHMAC(h.secret, body, c.Get("X-Ogen-Signature")) {
 		slog.WarnContext(c.Context(), "tenant-registered webhook: bad signature", logging.AttrComponent, "webhooks")
 		return fiber.NewError(fiber.StatusUnauthorized, "invalid signature")
 	}
@@ -77,7 +85,14 @@ func (h *WebhooksHandler) TenantRegistered(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusServiceUnavailable, "email service unavailable")
 	}
 
-	recipients := h.resolveRecipients(c.Context())
+	recipients, err := h.resolveRecipients(c.Context())
+	if err != nil {
+		// A transient recipient-lookup failure must not silently drop the notice
+		// (Ogen wouldn't retry a 2xx): 5xx so the webhook job retries. The send is
+		// idempotent per (tenant, recipient), so the retry never double-sends.
+		slog.WarnContext(c.Context(), "tenant-registered webhook: resolve recipients failed", logging.AttrComponent, "webhooks", "tenant_id", tenantID, logging.AttrError, err)
+		return fiber.NewError(fiber.StatusServiceUnavailable, "recipient lookup failed")
+	}
 	if len(recipients) == 0 {
 		// No operators to notify — accept (200) so Ogen doesn't retry a no-op.
 		slog.InfoContext(c.Context(), "tenant-registered webhook: no recipients", logging.AttrComponent, "webhooks", "tenant_id", tenantID)
@@ -97,8 +112,10 @@ func (h *WebhooksHandler) TenantRegistered(c *fiber.Ctx) error {
 // resolveRecipients is the full operator set: the AUTH_ALLOWED_EMAILS allowlist
 // (authoritative — includes operators who never signed in) unioned with the
 // users table (real signed-in operators), de-duplicated case-insensitively. A
-// users-table read failure is non-fatal: the allowlist alone is a valid set.
-func (h *WebhooksHandler) resolveRecipients(ctx context.Context) []string {
+// users-table read failure is returned to the caller (→ 5xx → Ogen retries)
+// rather than swallowed, so users-table-only recipients are never silently
+// dropped on a transient DB blip.
+func (h *WebhooksHandler) resolveRecipients(ctx context.Context) ([]string, error) {
 	seen := make(map[string]struct{})
 	var out []string
 	add := func(e string) {
@@ -116,15 +133,15 @@ func (h *WebhooksHandler) resolveRecipients(ctx context.Context) []string {
 		add(e)
 	}
 	if h.users != nil {
-		if users, err := h.users.List(ctx); err != nil {
-			slog.WarnContext(ctx, "tenant-registered webhook: list operator users failed", logging.AttrComponent, "webhooks", logging.AttrError, err)
-		} else {
-			for i := range users {
-				add(users[i].Email)
-			}
+		users, err := h.users.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for i := range users {
+			add(users[i].Email)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // validHMAC constant-time verifies an "sha256=<hex>" signature over body. It
