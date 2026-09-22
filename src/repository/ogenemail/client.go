@@ -177,6 +177,29 @@ func (c *Client) GetTenantEmail(ctx context.Context, tenantID, emailID string) (
 	return detailFromProto(resp.GetEmail()), nil
 }
 
+// NotifyOperatorsTenantRegistered asks Ogen to send the admin_tenant_registered
+// notification email to the given operator recipients for a newly-registered
+// tenant (CON-229). Ogen re-loads the tenant (authoritative), renders the
+// template, and enqueues one durable send per recipient; it returns how many
+// were enqueued. Recipient trim/lower/dedupe happens server-side, so the caller
+// may pass the raw operator set.
+func (c *Client) NotifyOperatorsTenantRegistered(ctx context.Context, tenantID string, recipients []string) (int, error) {
+	if c == nil {
+		return 0, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.NotifyOperatorsTenantRegistered(ctx, &emailv1.NotifyOperatorsTenantRegisteredRequest{
+		TenantId:        tenantID,
+		RecipientEmails: recipients,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return int(resp.GetEnqueued()), nil
+}
+
 // ── proto -> JSON conversion ─────────────────────────────────────────────────
 
 // summaryFromProto maps a proto EmailSummary to the JSON shape the UI holds,
