@@ -18,6 +18,8 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
 )
 
+const testWebhookSecret = "shh"
+
 // fakeNotifier records the notify call and returns a canned result.
 type fakeNotifier struct {
 	gotTenantID   string
@@ -36,6 +38,21 @@ func (f *fakeNotifier) NotifyOperatorsTenantRegistered(_ context.Context, tenant
 	}
 	return f.enqueued, nil
 }
+
+// erroringUserRepo implements harbor.UserRepository but fails List, to exercise
+// the recipient-lookup-failure path. The other methods are unused here.
+type erroringUserRepo struct{}
+
+func (erroringUserRepo) GetByID(context.Context, string) (*models.User, error) {
+	return nil, errors.New("unused")
+}
+func (erroringUserRepo) GetByEmail(context.Context, string) (*models.User, error) {
+	return nil, errors.New("unused")
+}
+func (erroringUserRepo) List(context.Context) ([]models.User, error) {
+	return nil, errors.New("db down")
+}
+func (erroringUserRepo) Upsert(context.Context, *models.User) error { return errors.New("unused") }
 
 func sign(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -68,15 +85,14 @@ func newWebhookApp(h *WebhooksHandler) *fiber.App {
 }
 
 func TestWebhookTenantRegistered_HappyPath(t *testing.T) {
-	const secret = "shh"
 	users := newFakeUserRepo()
 	_ = users.Upsert(context.Background(), &models.User{ID: "u1", Email: "Dev@Ogen.app", GoogleSub: "g1"})
 	notifier := &fakeNotifier{enqueued: 2}
-	h := NewWebhooksHandler(notifier, users, []string{"ops@ogen.app", " ops@ogen.app "}, secret)
+	h := NewWebhooksHandler(notifier, users, []string{"ops@ogen.app", " ops@ogen.app "}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"event": "tenant.registered", "tenant_id": "tn-1"})
-	code, out := postWebhook(t, app, body, sign(secret, body))
+	code, out := postWebhook(t, app, body, sign(testWebhookSecret, body))
 	if code != fiber.StatusOK {
 		t.Fatalf("status: got %d want 200 (%v)", code, out)
 	}
@@ -92,7 +108,7 @@ func TestWebhookTenantRegistered_HappyPath(t *testing.T) {
 
 func TestWebhookTenantRegistered_BadSignature(t *testing.T) {
 	notifier := &fakeNotifier{enqueued: 1}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, "shh")
+	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
@@ -105,28 +121,44 @@ func TestWebhookTenantRegistered_BadSignature(t *testing.T) {
 	}
 }
 
-func TestWebhookTenantRegistered_NoSecretSkipsVerify(t *testing.T) {
+func TestWebhookTenantRegistered_MissingSignatureHeader(t *testing.T) {
+	notifier := &fakeNotifier{enqueued: 1}
+	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
+	app := newWebhookApp(h)
+
+	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
+	code, _ := postWebhook(t, app, body, "") // no signature header at all
+	if code != fiber.StatusUnauthorized {
+		t.Fatalf("status: got %d want 401", code)
+	}
+	if notifier.calls != 0 {
+		t.Fatal("notify must not run without a signature")
+	}
+}
+
+func TestWebhookTenantRegistered_NoSecretFailsClosed(t *testing.T) {
+	// A public endpoint with no secret configured must reject (503), not skip auth.
 	notifier := &fakeNotifier{enqueued: 1}
 	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, "") // no secret
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
-	code, _ := postWebhook(t, app, body, "") // no signature header
-	if code != fiber.StatusOK {
-		t.Fatalf("status: got %d want 200", code)
+	code, _ := postWebhook(t, app, body, "")
+	if code != fiber.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503", code)
 	}
-	if notifier.calls != 1 {
-		t.Fatalf("notify calls: got %d want 1", notifier.calls)
+	if notifier.calls != 0 {
+		t.Fatal("notify must not run when the webhook secret is unset")
 	}
 }
 
 func TestWebhookTenantRegistered_NoRecipientsIsNoOp(t *testing.T) {
 	notifier := &fakeNotifier{enqueued: 5}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"", "  "}, "") // no real recipients
+	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"", "  "}, testWebhookSecret) // no real recipients
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
-	code, out := postWebhook(t, app, body, "")
+	code, out := postWebhook(t, app, body, sign(testWebhookSecret, body))
 	if code != fiber.StatusOK {
 		t.Fatalf("status: got %d want 200", code)
 	}
@@ -139,28 +171,45 @@ func TestWebhookTenantRegistered_NoRecipientsIsNoOp(t *testing.T) {
 }
 
 func TestWebhookTenantRegistered_MissingTenantID(t *testing.T) {
-	h := NewWebhooksHandler(&fakeNotifier{}, newFakeUserRepo(), []string{"ops@ogen.app"}, "")
+	h := NewWebhooksHandler(&fakeNotifier{}, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"event": "tenant.registered"})
-	code, _ := postWebhook(t, app, body, "")
+	code, _ := postWebhook(t, app, body, sign(testWebhookSecret, body))
 	if code != fiber.StatusBadRequest {
 		t.Fatalf("status: got %d want 400", code)
 	}
 }
 
-func TestWebhookTenantRegistered_Unavailable(t *testing.T) {
-	// A nil client surfaces ErrUnavailable → 503 so Ogen retries.
-	notifier := &fakeNotifier{err: ogenemail.ErrUnavailable}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, "")
+func TestWebhookTenantRegistered_RecipientLookupFails(t *testing.T) {
+	// A users-table read failure must 5xx (so Ogen retries), not silently drop
+	// users-table recipients by proceeding with the allowlist alone.
+	notifier := &fakeNotifier{enqueued: 1}
+	h := NewWebhooksHandler(notifier, erroringUserRepo{}, []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
-	code, _ := postWebhook(t, app, body, "")
+	code, _ := postWebhook(t, app, body, sign(testWebhookSecret, body))
 	if code != fiber.StatusServiceUnavailable {
 		t.Fatalf("status: got %d want 503", code)
 	}
-	if !errors.Is(notifier.err, ogenemail.ErrUnavailable) {
-		t.Fatal("sanity: fake should carry ErrUnavailable")
+	if notifier.calls != 0 {
+		t.Fatal("notify must not run when recipient resolution failed")
+	}
+}
+
+func TestWebhookTenantRegistered_Unavailable(t *testing.T) {
+	// The notifier surfaces ErrUnavailable → 503 so Ogen retries.
+	notifier := &fakeNotifier{err: ogenemail.ErrUnavailable}
+	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
+	app := newWebhookApp(h)
+
+	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
+	code, _ := postWebhook(t, app, body, sign(testWebhookSecret, body))
+	if code != fiber.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503", code)
+	}
+	if notifier.calls != 1 {
+		t.Fatalf("notify calls: got %d want 1", notifier.calls)
 	}
 }

@@ -48,10 +48,10 @@ type Config struct {
 
 	// OgenWebhookSecret authenticates Ogen's inbound "new tenant registered"
 	// webhook (CON-229): POST /api/webhooks/tenant-registered is public (Ogen has
-	// no operator session), so the body is HMAC-SHA256 signed with this shared
-	// secret and verified constant-time. When set, an unsigned/invalid request is
-	// rejected; when empty, verification is skipped (only acceptable on a trusted
-	// network) — matching Ogen's HARBOR_WEBHOOK_SECRET, which must hold the same value.
+	// no operator session), so the HMAC-SHA256 signature is the only gate. The
+	// handler FAILS CLOSED: empty ⇒ every request is rejected with 503 (the public
+	// endpoint is never left open to unsigned requests); a bad signature is 401.
+	// Must be set to enable the feature and must equal Ogen's HARBOR_WEBHOOK_SECRET.
 	OgenWebhookSecret string `envconfig:"OGEN_WEBHOOK_SECRET" default:""`
 
 	// CORS allowlist for a decoupled UI origin. Empty (the default) disables
