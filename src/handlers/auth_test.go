@@ -40,6 +40,14 @@ func (f *fakeUserRepo) GetByEmail(_ context.Context, email string) (*models.User
 	return nil, sql.ErrNoRows
 }
 
+func (f *fakeUserRepo) List(_ context.Context) ([]models.User, error) {
+	out := make([]models.User, 0, len(f.byID))
+	for _, u := range f.byID {
+		out = append(out, *u)
+	}
+	return out, nil
+}
+
 func (f *fakeUserRepo) Upsert(_ context.Context, u *models.User) error {
 	if existing, ok := f.byEmail[u.Email]; ok {
 		u.ID = existing.ID // mirror the DB returning the canonical id

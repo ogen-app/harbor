@@ -80,6 +80,16 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 
 	// ── API routes ────────────────────────────────────────────────────────
 	handlers.NewHealthHandler(healthRepo).Register(app)
+	// CON-229: Ogen's inbound "new tenant registered" webhook. Public (no operator
+	// session) — authenticity is the shared HMAC signature; it resolves the
+	// operator recipient set and asks Ogen to send the notification. A genuinely
+	// nil notifier when the email client is unconfigured, so the handler reports
+	// "unavailable" (503, Ogen retries) rather than dialling a nil client.
+	var notifier handlers.OperatorNotifier
+	if emailClient != nil {
+		notifier = emailClient
+	}
+	handlers.NewWebhooksHandler(notifier, userRepo, strings.Split(cfg.AuthAllowedEmails, ","), cfg.OgenWebhookSecret).Register(app)
 	handlers.NewAuthHandler(
 		userRepo, sessionRepo, verifier,
 		strings.Split(cfg.AuthAllowedEmails, ","),
