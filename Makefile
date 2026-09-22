@@ -57,9 +57,10 @@ tidy:
 # in v1.4.0; v1.5.0 added tier-version retire/delete + assignment listing
 # (CON-297); email.v1 (EmailAdminService, CON-298 — the per-tenant Emails tab,
 # CON-192) landed in v1.7.0; announcements.v1 (AnnouncementAdminService, CON-230 —
-# the tenant announcements screens, CON-300) lands in v1.8.0.
+# the tenant announcements screens, CON-300) lands in v1.8.0; email.v1's
+# NotifyOperatorsTenantRegistered (CON-229 admin registration email) lands in v1.9.0.
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.8.0
+PROTO_VERSION := v1.9.0
 
 proto:
 	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \
