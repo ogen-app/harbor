@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CheckmarkSquare02Icon,
+  MinusSignSquareIcon,
   Alert01Icon,
   PencilEdit02Icon,
   AiGenerateIcon,
@@ -24,7 +25,7 @@ import type {
 // Column template shared by the header and every slot row so they stay aligned:
 // Slot · Default model · Capability · Global-only · Pricing · (edit).
 const GRID =
-  "grid grid-cols-[minmax(0,1.7fr)_minmax(0,1.9fr)_5.5rem_6rem_minmax(0,1.2fr)_2.5rem] items-center gap-3";
+  "grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_5.5rem_6rem_minmax(0,1.1fr)_2.5rem] items-center gap-3";
 
 interface DrawerTarget {
   flow: Flow;
@@ -127,10 +128,11 @@ export function ModelAssignmentTab() {
         <div
           className={cn(
             GRID,
-            "border-b border-border px-6 py-2.5 text-[11px] font-medium uppercase tracking-wide text-tertiary-foreground",
+            "border-b border-border py-2.5 pr-6 pl-[50px] text-[11px] font-medium uppercase tracking-wide text-tertiary-foreground",
           )}
         >
           <div>Slot</div>
+          <div>Description</div>
           <div>Default model</div>
           <div>Capability</div>
           <div className="text-center">Global-only</div>
@@ -143,7 +145,7 @@ export function ModelAssignmentTab() {
           {flows.map((flow, i) => (
             <div
               key={flow.key}
-              className={cn(i > 0 && "border-t-2 border-senary")}
+              className={cn(i > 0 && "border-t border-border")}
             >
               <FlowBand flow={flow} />
               {flow.slots.map((slot) => (
@@ -191,7 +193,7 @@ function FlowBand({ flow }: { flow: Flow }) {
     <div className="flex items-center gap-2 bg-secondary/40 px-6 py-2">
       <HugeiconsIcon
         icon={AiGenerateIcon}
-        className="size-4 shrink-0 text-secondary-foreground"
+        className="size-6 shrink-0 text-secondary-foreground"
       />
       <span className="font-display text-sm font-medium">
         {humanize(flow.key)}
@@ -235,17 +237,17 @@ function SlotRow({
       )}
     >
       {/* Slot */}
-      <div className="min-w-0">
-        <div className="flex items-center gap-1.5">
-          <HugeiconsIcon
-            icon={FlowConnectionIcon}
-            className="size-3.5 shrink-0 text-tertiary-foreground"
-          />
-          <span className="font-mono text-sm text-foreground">{slot.key}</span>
-        </div>
-        <div className="truncate text-xs text-tertiary-foreground">
-          {slot.description}
-        </div>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <HugeiconsIcon
+          icon={FlowConnectionIcon}
+          className="size-[21px] shrink-0 text-tertiary-foreground"
+        />
+        <span className="truncate text-sm text-foreground">{slot.key}</span>
+      </div>
+
+      {/* Description */}
+      <div className="min-w-0 truncate text-xs text-tertiary-foreground">
+        {slot.description}
       </div>
 
       {/* Default model + variance / drift */}
@@ -298,13 +300,14 @@ function SlotRow({
 
       {/* Global-only */}
       <div className="flex justify-center">
-        {slot.globalOnly && (
-          <HugeiconsIcon
-            icon={CheckmarkSquare02Icon}
-            className="size-5 text-emerald-600"
-            aria-label="Global-only"
-          />
-        )}
+        <HugeiconsIcon
+          icon={slot.globalOnly ? CheckmarkSquare02Icon : MinusSignSquareIcon}
+          className={cn(
+            "size-5",
+            slot.globalOnly ? "text-emerald-600" : "text-gray-300",
+          )}
+          aria-label={slot.globalOnly ? "Global-only" : "Not global-only"}
+        />
       </div>
 
       {/* Pricing */}
