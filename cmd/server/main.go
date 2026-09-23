@@ -22,6 +22,7 @@ import (
 	"github.com/ogen-app/harbor/src/logging"
 	"github.com/ogen-app/harbor/src/repository/ogenannouncements"
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
+	"github.com/ogen-app/harbor/src/repository/ogenmodelconfig"
 	"github.com/ogen-app/harbor/src/repository/ogenplans"
 	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
 	"github.com/ogen-app/harbor/src/repository/ogensecrets"
@@ -165,12 +166,26 @@ func main() {
 		slog.Info("ogen announcement-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
+	// ModelConfigAdminService (assign a model per tier/flow/slot + read the
+	// code-owned model catalog with pricing — CON-308, the Model assignment page
+	// CON-309). Shares OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN with the other Ogen clients.
+	// NOTE: until CON-308 publishes modelconfig/v1, this client is backed by an
+	// in-memory fixture store, so it is always non-nil here (see ogenmodelconfig).
+	modelConfigClient, err := ogenmodelconfig.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen model-config client", err)
+	}
+	if modelConfigClient != nil {
+		defer modelConfigClient.Close()
+		slog.Info("ogen model-config client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}
