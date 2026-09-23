@@ -1,14 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CheckmarkSquare02Icon,
   MinusSignSquareIcon,
   Alert01Icon,
-  PencilEdit02Icon,
   AiGenerateIcon,
-  FlowConnectionIcon,
+  ArrowMoveDownRightIcon,
 } from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
@@ -23,9 +22,9 @@ import type {
 } from "./types";
 
 // Column template shared by the header and every slot row so they stay aligned:
-// Slot · Default model · Capability · Global-only · Pricing · (edit).
+// Slot · Description · Model · Pricing · Capability · Global-only · (edit).
 const GRID =
-  "grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_5.5rem_6rem_minmax(0,1.1fr)_2.5rem] items-center gap-3";
+  "grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_5.5rem_6rem_2.5rem] items-center gap-3";
 
 interface DrawerTarget {
   flow: Flow;
@@ -78,6 +77,23 @@ export function ModelAssignmentTab() {
     window.setTimeout(() => setToast(null), 3000);
   }, []);
 
+  // Sticky-header edge fades, mirroring the /activity and tier-entitlements
+  // tables: the top/bottom gradient strips hide once the scroll region is at
+  // that edge. Recomputed whenever the rendered data changes.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [atTop, setAtTop] = useState(true);
+  const [atBottom, setAtBottom] = useState(true);
+  const onScroll = (el: HTMLDivElement) => {
+    setAtTop(el.scrollTop <= 0);
+    setAtBottom(Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0);
+  };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setAtTop(el.scrollTop <= 0);
+    setAtBottom(Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0);
+  }, [data]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center rounded-xl border border-border bg-primary py-20">
@@ -113,8 +129,8 @@ export function ModelAssignmentTab() {
 
   return (
     <>
-      <div className="overflow-hidden rounded-xl border border-border bg-primary">
-        {/* Card intro */}
+      <div className="relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-primary">
+        {/* Card intro (fixed) */}
         <div className="border-b border-border px-6 py-4">
           <p className="text-sm text-tertiary-foreground">
             Each generation flow declares one or more model slots. The table shows
@@ -124,42 +140,68 @@ export function ModelAssignmentTab() {
           </p>
         </div>
 
-        {/* Column header */}
-        <div
-          className={cn(
-            GRID,
-            "border-b border-border py-2.5 pr-6 pl-[50px] text-[11px] font-medium uppercase tracking-wide text-tertiary-foreground",
-          )}
-        >
-          <div>Slot</div>
-          <div>Description</div>
-          <div>Default model</div>
-          <div>Capability</div>
-          <div className="text-center">Global-only</div>
-          <div>Pricing / 1M</div>
-          <div />
-        </div>
-
-        {/* Flow groups */}
-        <div>
-          {flows.map((flow, i) => (
+        {/* Scroll region — sticky column header + top/bottom edge fades. */}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={(e) => onScroll(e.currentTarget)}
+            className="h-full overflow-auto"
+          >
+            {/* Column header (sticky) */}
             <div
-              key={flow.key}
-              className={cn(i > 0 && "border-t border-border")}
+              className={cn(
+                GRID,
+                "sticky top-0 z-20 h-10 border-b border-border bg-primary pr-6 pl-[55px] text-[11px] font-medium uppercase tracking-wide text-tertiary-foreground",
+              )}
             >
-              <FlowBand flow={flow} />
-              {flow.slots.map((slot) => (
-                <SlotRow
-                  key={`${flow.key}/${slot.key}`}
-                  flow={flow}
-                  slot={slot}
-                  assignments={assignments}
-                  modelsById={modelsById}
-                  onEdit={() => setTarget({ flow, slot })}
-                />
+              <div>Slot</div>
+              <div>Description</div>
+              <div>Model</div>
+              <div>Pricing / 1M</div>
+              <div>Capability</div>
+              <div className="text-center">Global-only</div>
+              <div />
+            </div>
+
+            {/* Flow groups */}
+            <div>
+              {flows.map((flow, i) => (
+                <div
+                  key={flow.key}
+                  className={cn(i > 0 && "border-t border-border py-4")}
+                >
+                  <FlowBand flow={flow} />
+                  {flow.slots.map((slot) => (
+                    <SlotRow
+                      key={`${flow.key}/${slot.key}`}
+                      flow={flow}
+                      slot={slot}
+                      assignments={assignments}
+                      modelsById={modelsById}
+                      onEdit={() => setTarget({ flow, slot })}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
+          </div>
+
+          {/* Top fade — sits just below the 40px sticky header. */}
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-x-0 top-10 z-10 h-8 bg-linear-to-b from-primary to-transparent transition-opacity duration-200",
+              atTop ? "opacity-0" : "opacity-100",
+            )}
+          />
+          {/* Bottom fade — the same fade, flipped. */}
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t from-primary to-transparent transition-opacity duration-200",
+              atBottom ? "opacity-0" : "opacity-100",
+            )}
+          />
         </div>
       </div>
 
@@ -233,20 +275,22 @@ function SlotRow({
       onClick={onEdit}
       className={cn(
         GRID,
-        "group w-full border-b border-border py-3 pr-6 pl-[50px] text-left transition-colors last:border-b-0 hover:bg-secondary/40",
+        "group w-full py-1 pr-6 pl-[55px] text-left transition-colors last:border-b-0 cursor-pointer",
       )}
     >
       {/* Slot */}
       <div className="flex min-w-0 items-center gap-1.5">
         <HugeiconsIcon
-          icon={FlowConnectionIcon}
-          className="size-[21px] shrink-0 text-tertiary-foreground"
+          icon={ArrowMoveDownRightIcon}
+          className="size-5.25 shrink-0 text-tertiary-foreground group-hover:text-blue-600"
         />
-        <span className="truncate text-sm text-foreground">{slot.key}</span>
+        <span className="truncate pl-[6px] text-sm text-foreground group-hover:text-blue-600">
+          {slot.key}
+        </span>
       </div>
 
       {/* Description */}
-      <div className="min-w-0 truncate text-xs text-tertiary-foreground">
+      <div className="min-w-0 truncate text-xs text-tertiary-foreground group-hover:text-blue-600">
         {slot.description}
       </div>
 
@@ -256,7 +300,9 @@ function SlotRow({
           <div
             className={cn(
               "truncate text-sm",
-              defDrift ? "text-amber-700" : "text-foreground",
+              defDrift
+                ? "text-amber-700"
+                : "text-foreground group-hover:text-blue-600",
             )}
             title={def.modelId}
           >
@@ -293,6 +339,11 @@ function SlotRow({
         </div>
       </div>
 
+      {/* Pricing */}
+      <div className="truncate text-sm tabular-nums text-secondary-foreground group-hover:text-blue-600">
+        {defModel ? headlinePrice(defModel) : "—"}
+      </div>
+
       {/* Capability */}
       <div>
         <CapabilityBadge capability={slot.capability} />
@@ -310,18 +361,8 @@ function SlotRow({
         />
       </div>
 
-      {/* Pricing */}
-      <div className="truncate text-sm tabular-nums text-secondary-foreground">
-        {defModel ? headlinePrice(defModel) : "—"}
-      </div>
-
       {/* Edit affordance */}
-      <div className="flex justify-end">
-        <HugeiconsIcon
-          icon={PencilEdit02Icon}
-          className="size-4 text-tertiary-foreground opacity-0 transition-opacity group-hover:opacity-100"
-        />
-      </div>
+      <div className="flex justify-end" />
     </button>
   );
 }
