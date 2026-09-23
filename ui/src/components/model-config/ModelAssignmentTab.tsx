@@ -6,6 +6,8 @@ import {
   CheckmarkSquare02Icon,
   Alert01Icon,
   PencilEdit02Icon,
+  AiGenerateIcon,
+  FlowConnectionIcon,
 } from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
@@ -138,8 +140,11 @@ export function ModelAssignmentTab() {
 
         {/* Flow groups */}
         <div>
-          {flows.map((flow) => (
-            <div key={flow.key}>
+          {flows.map((flow, i) => (
+            <div
+              key={flow.key}
+              className={cn(i > 0 && "border-t-2 border-senary")}
+            >
               <FlowBand flow={flow} />
               {flow.slots.map((slot) => (
                 <SlotRow
@@ -183,7 +188,11 @@ export function ModelAssignmentTab() {
 
 function FlowBand({ flow }: { flow: Flow }) {
   return (
-    <div className="flex items-baseline gap-2 border-b border-border bg-secondary/40 px-6 py-2">
+    <div className="flex items-center gap-2 bg-secondary/40 px-6 py-2">
+      <HugeiconsIcon
+        icon={AiGenerateIcon}
+        className="size-4 shrink-0 text-secondary-foreground"
+      />
       <span className="font-display text-sm font-medium">
         {humanize(flow.key)}
       </span>
@@ -222,12 +231,18 @@ function SlotRow({
       onClick={onEdit}
       className={cn(
         GRID,
-        "group w-full border-b border-border px-6 py-3 text-left transition-colors last:border-b-0 hover:bg-secondary/40",
+        "group w-full border-b border-border py-3 pr-6 pl-[50px] text-left transition-colors last:border-b-0 hover:bg-secondary/40",
       )}
     >
       {/* Slot */}
       <div className="min-w-0">
-        <div className="font-mono text-sm text-foreground">{slot.key}</div>
+        <div className="flex items-center gap-1.5">
+          <HugeiconsIcon
+            icon={FlowConnectionIcon}
+            className="size-3.5 shrink-0 text-tertiary-foreground"
+          />
+          <span className="font-mono text-sm text-foreground">{slot.key}</span>
+        </div>
         <div className="truncate text-xs text-tertiary-foreground">
           {slot.description}
         </div>
