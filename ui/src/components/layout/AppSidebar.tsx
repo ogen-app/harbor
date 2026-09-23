@@ -34,6 +34,7 @@ import {
     ConferenceIcon,
     LinkSquare01Icon,
     Megaphone02Icon,
+    AiCloudIcon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
@@ -79,6 +80,11 @@ const NAV_GROUPS: { header: string; items: NavItem[] }[] = [
     {
         header: "Settings",
         items: [
+            {
+                icon: AiCloudIcon,
+                label: "Model assignment",
+                href: "/model-assignment",
+            },
             { icon: FactoryIcon, label: "Platforms", href: "/platforms" },
             {
                 icon: MailSetting01Icon,
@@ -156,6 +162,9 @@ export function AppSidebar({
     useHotkeys("g>d", () => router.push("/databases"), { preventDefault: true });
     useHotkeys("g>s", () => router.push("/secrets"), { preventDefault: true });
     useHotkeys("g>p", () => router.push("/platforms"), { preventDefault: true });
+    useHotkeys("g>m", () => router.push("/model-assignment"), {
+        preventDefault: true,
+    });
     useHotkeys("g>e", () => router.push("/tier-entitlements"), {
         preventDefault: true,
     });
