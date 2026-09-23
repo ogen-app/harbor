@@ -267,7 +267,7 @@ function SlotModelForm({
           <h2 className="font-display text-lg font-medium">
             {humanize(flow.key)}{" "}
             <span className="text-tertiary-foreground">/</span>{" "}
-            <span className="font-mono text-base">{slot.key}</span>
+            <span className="text-base">{slot.key}</span>
           </h2>
           <CapabilityBadge capability={slot.capability} />
         </div>
@@ -359,7 +359,7 @@ function SlotModelForm({
               className={cn(
                 "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
                 current === INHERIT
-                  ? "border-foreground bg-secondary/40"
+                  ? "border-2 border-[#1c7ef6]"
                   : "border-border hover:bg-secondary/30",
               )}
             >
@@ -370,7 +370,7 @@ function SlotModelForm({
                 <div className="text-sm font-medium">
                   Use global default (inherit)
                 </div>
-                <div className="text-xs text-tertiary-foreground">
+                <div className="text-xs">
                   {globalModelId
                     ? `Currently ${friendlyModel(globalModelId)}`
                     : "No global default set"}
@@ -478,7 +478,7 @@ function ModelOption({
     <div
       className={cn(
         "rounded-lg border transition-colors",
-        selected ? "border-foreground bg-secondary/40" : "border-border",
+        selected ? "border-2 border-[#1c7ef6] bg-blue-100/10" : "border-border",
         disabled && "opacity-60",
       )}
     >
@@ -505,14 +505,14 @@ function ModelOption({
               </span>
             )}
           </div>
-          <div className="truncate font-mono text-[11px] text-tertiary-foreground">
+          <div className="truncate text-[11px] text-tertiary-foreground">
             {model.id}
           </div>
-          <div className="mt-1.5">
+          {/*<div className="mt-1.5">
             <ModelCapabilityBadges model={model} />
-          </div>
+          </div>*/}
         </div>
-        <div className="shrink-0 text-right">
+        <div className="shrink-0 text-right mr-4">
           <div className="text-sm tabular-nums text-foreground">
             {headlinePrice(model)}
           </div>
@@ -524,18 +524,18 @@ function ModelOption({
 
       {/* Selected: full price breakdown + Verify (golden probe) */}
       {selected && !disabled && (
-        <div className="space-y-2.5 border-t border-border px-3 py-2.5">
-          <PriceBreakdown model={model} />
+        <div className="space-y-2.5 border-t border-border pl-15 py-2.5">
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
+              className="-ml-3"
               onClick={onTest}
               disabled={test?.loading}
             >
               <HugeiconsIcon icon={AiChemistry02Icon} className="size-4" />
-              {test?.loading ? "Testing…" : "Test"}
+              {test?.loading ? "Testing…" : "Test model compatibility"}
             </Button>
             {test?.result && <TestBadge result={test.result} />}
             {test?.error && (

@@ -284,13 +284,13 @@ function SlotRow({
           icon={ArrowMoveDownRightIcon}
           className="size-5.25 shrink-0 text-tertiary-foreground group-hover:text-blue-600"
         />
-        <span className="truncate pl-[6px] text-sm text-foreground group-hover:text-blue-600">
+        <span className="truncate pl-[6px] text-sm font-semibold text-foreground group-hover:text-blue-600">
           {slot.key}
         </span>
       </div>
 
       {/* Description */}
-      <div className="min-w-0 truncate text-xs text-tertiary-foreground group-hover:text-blue-600">
+      <div className="min-w-0 truncate text-sm text-tertiary-foreground group-hover:text-blue-600">
         {slot.description}
       </div>
 
@@ -302,7 +302,7 @@ function SlotRow({
               "truncate text-sm",
               defDrift
                 ? "text-amber-700"
-                : "text-foreground group-hover:text-blue-600",
+                : "text-foreground group-hover:text-[#1c7ef6]",
             )}
             title={def.modelId}
           >
@@ -317,6 +317,7 @@ function SlotRow({
         ) : (
           <div className="text-sm text-tertiary-foreground">— not set</div>
         )}
+
         <div className="mt-0.5 flex items-center gap-1.5">
           {overrides.length > 0 && (
             <span
