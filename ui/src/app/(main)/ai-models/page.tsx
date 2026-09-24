@@ -11,7 +11,7 @@ export default function ModelAssignmentPage() {
   return (
     <main className="flex-1 min-h-0 overflow-hidden flex flex-col">
       <header className="h-20 border-b border-border flex items-center justify-between px-6 shrink-0">
-        <h1 className="text-2xl font-display font-medium">Model assignment</h1>
+        <h1 className="text-2xl font-display font-medium">AI models</h1>
       </header>
 
       <div className="flex flex-1 min-h-0 gap-6 p-6">
