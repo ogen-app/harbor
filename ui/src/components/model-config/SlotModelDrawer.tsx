@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import {
   CapabilityBadge,
   friendlyModel,
-  headlinePrice,
+  HeadlinePrice,
   humanize,
   ModelCapabilityBadges,
   PRICE_KINDS,
@@ -513,9 +513,7 @@ function ModelOption({
           </div>*/}
         </div>
         <div className="shrink-0 text-right mr-4">
-          <div className="text-sm tabular-nums text-foreground">
-            {headlinePrice(model)}
-          </div>
+          <HeadlinePrice model={model} className="text-sm" />
           <div className="mt-0.5 text-[10px] text-tertiary-foreground">
             prices v{model.priceVersion}
           </div>
