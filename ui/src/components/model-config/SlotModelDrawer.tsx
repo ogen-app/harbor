@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AiChemistry02Icon, AiCloudIcon } from "@hugeicons/core-free-icons";
+import {
+  AiChemistry02Icon,
+  AiCloudIcon,
+  CircleCheckBigIcon,
+} from "@hugeicons/core-free-icons";
 import {
   Drawer,
   DrawerContent,
@@ -539,11 +543,19 @@ function ModelOption({
   return (
     <div
       className={cn(
-        "rounded-lg border transition-colors",
+        "relative rounded-lg border transition-all duration-200 ease-out",
         selected ? "border-2 border-[#1c7ef6] bg-blue-100/10" : "border-border",
         disabled && "opacity-60",
       )}
     >
+      {/* Selected marker — lives in the left gutter the card padding reserves,
+          aligned under the vendor name. */}
+      {selected && (
+        <HugeiconsIcon
+          icon={CircleCheckBigIcon}
+          className="pointer-events-none absolute left-2.5 top-3.5 size-5 text-[#1c7ef6] duration-200 animate-in fade-in zoom-in-75"
+        />
+      )}
       <button
         type="button"
         role="radio"
@@ -551,7 +563,7 @@ function ModelOption({
         disabled={disabled}
         onClick={onSelect}
         className={cn(
-          "flex w-full items-start gap-3 px-4 py-3 text-left",
+          "flex w-full items-start gap-3 py-3 pr-4 pl-[38px] text-left",
           !disabled && "cursor-pointer",
         )}
       >
@@ -583,13 +595,13 @@ function ModelOption({
 
       {/* Selected: Verify (golden probe) with an explainer, then results */}
       {selected && !disabled && (
-        <div className="border-t border-border px-4 py-3">
+        <div className="border-t border-border py-3 pr-4 pl-[38px] duration-200 animate-in fade-in slide-in-from-top-1">
           <div className="flex items-start gap-3">
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="-ml-4 w-60 shrink-0 justify-start"
+              className="-ml-3 w-60 shrink-0 justify-start"
               onClick={onTest}
               disabled={test?.loading}
             >
