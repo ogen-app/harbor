@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	modelconfigv1 "github.com/ogen-app/harbor/gen/modelconfig/v1"
 )
 
 // ErrUnavailable is returned by every method on a nil (unconfigured) client, so
@@ -15,66 +19,82 @@ import (
 // ogen* clients.
 var ErrUnavailable = errors.New("ogen model-config service not configured")
 
-// Client is Harbor's model-config client. It is currently backed by an
-// in-memory fixture store (see the package doc + fixtures.go); the exported
-// surface is exactly the set of RPCs it will forward to once
-// gen/modelconfig/v1 exists.
+const defaultTimeout = 10 * time.Second
+
+// Client is a thin, safe wrapper over the generated ModelConfigAdminServiceClient.
 type Client struct {
-	store *store
+	conn    *grpc.ClientConn
+	rpc     modelconfigv1.ModelConfigAdminServiceClient
+	timeout time.Duration
 }
 
-// New returns a model-config client. It intentionally ignores addr/token for
-// now and always returns a live fixture-backed client so the CON-309 screens are
-// exercisable before CON-308 publishes the contract.
-//
-// TODO(CON-308): mirror ogenplatforms.New — return (nil, nil) when addr/token
-// are empty, otherwise grpc.NewClient(addr, …bearerTokenInterceptor(token)) and
-// hold the generated ModelConfigAdminServiceClient. Each method below then calls
-// its RPC with proto↔DTO converters instead of the store.
-func New(_, _ string) (*Client, error) {
-	return &Client{store: newStore()}, nil
+// New dials Ogen's internal gRPC surface. Enabled only when BOTH addr and token
+// are set (matching Ogen's server, which starts only when both are configured);
+// either empty returns (nil, nil): a nil client that reports ErrUnavailable, so
+// the page degrades softly rather than failing boot. grpc.NewClient connects
+// lazily, so this never blocks on Ogen being up.
+func New(addr, token string) (*Client, error) {
+	if addr == "" || token == "" {
+		return nil, nil
+	}
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(bearerTokenInterceptor(token)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ogenmodelconfig: dial %q: %w", addr, err)
+	}
+	return &Client{conn: conn, rpc: modelconfigv1.NewModelConfigAdminServiceClient(conn), timeout: defaultTimeout}, nil
 }
 
-// Close releases any underlying connection. Safe on a nil client / fixture mode.
-func (c *Client) Close() error { return nil }
+// Close releases the underlying connection. Safe on a nil client.
+func (c *Client) Close() error {
+	if c == nil || c.conn == nil {
+		return nil
+	}
+	return c.conn.Close()
+}
 
 // ── Reads (code-owned catalogs) ────────────────────────────────────────────
 
 // ListFlows returns the configurable flow/slot catalog.
-func (c *Client) ListFlows(_ context.Context) ([]Flow, error) {
+func (c *Client) ListFlows(ctx context.Context) ([]Flow, error) {
 	if c == nil {
 		return nil, ErrUnavailable
 	}
-	return flowCatalog(), nil
-}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
 
-// ListModels returns the model catalog, optionally filtered to one capability
-// ("chat"/"embed"); an empty capability returns all.
-func (c *Client) ListModels(_ context.Context, capability string) ([]Model, error) {
-	if c == nil {
-		return nil, ErrUnavailable
+	resp, err := c.rpc.ListFlows(ctx, &modelconfigv1.ListFlowsRequest{})
+	if err != nil {
+		return nil, err
 	}
-	all := modelCatalog()
-	if capability == "" {
-		return all, nil
-	}
-	out := make([]Model, 0, len(all))
-	for _, m := range all {
-		if m.Capability == capability {
-			out = append(out, m)
-		}
+	out := make([]Flow, 0, len(resp.GetFlows()))
+	for _, f := range resp.GetFlows() {
+		out = append(out, flowFromProto(f))
 	}
 	return out, nil
 }
 
-// Tiers returns the tier set used for the drawer's per-tier tabs.
-//
-// TODO(CON-308): source these from the tenant-admin client instead of fixtures.
-func (c *Client) Tiers(_ context.Context) ([]Tier, error) {
+// ListModels returns the model catalog, optionally filtered to one capability
+// ("chat"/"embed"); an empty capability returns all.
+func (c *Client) ListModels(ctx context.Context, capability string) ([]Model, error) {
 	if c == nil {
 		return nil, ErrUnavailable
 	}
-	return fixtureTiers(), nil
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.ListModels(ctx, &modelconfigv1.ListModelsRequest{Capability: capability})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Model, 0, len(resp.GetModels()))
+	for _, m := range resp.GetModels() {
+		out = append(out, modelFromProto(m))
+	}
+	return out, nil
 }
 
 // ── Reads (assignments) ────────────────────────────────────────────────────
@@ -82,48 +102,40 @@ func (c *Client) Tiers(_ context.Context) ([]Tier, error) {
 // ListConfig returns assignment rows. An empty tierID returns every scope
 // (global defaults + all tier overrides); a non-empty tierID returns only that
 // tier's overrides.
-func (c *Client) ListConfig(_ context.Context, tierID string) ([]SlotAssignment, error) {
+func (c *Client) ListConfig(ctx context.Context, tierID string) ([]SlotAssignment, error) {
 	if c == nil {
 		return nil, ErrUnavailable
 	}
-	out := c.store.list(tierID, tierID == "")
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].FlowKey != out[j].FlowKey {
-			return out[i].FlowKey < out[j].FlowKey
-		}
-		if out[i].SlotKey != out[j].SlotKey {
-			return out[i].SlotKey < out[j].SlotKey
-		}
-		return out[i].TierID < out[j].TierID
-	})
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.ListConfig(ctx, &modelconfigv1.ListConfigRequest{TierId: tierID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SlotAssignment, 0, len(resp.GetAssignments()))
+	for _, a := range resp.GetAssignments() {
+		out = append(out, assignmentFromProto(a))
+	}
 	return out, nil
 }
 
 // GetEffectiveConfig resolves every (flow, slot) for a tier: the tier override
-// when present, else the global default. Marks which one won via FromTierOverride.
-func (c *Client) GetEffectiveConfig(_ context.Context, tierID string) ([]ResolvedSlot, error) {
+// when present, else the global default (FromTierOverride distinguishes them).
+func (c *Client) GetEffectiveConfig(ctx context.Context, tierID string) ([]ResolvedSlot, error) {
 	if c == nil {
 		return nil, ErrUnavailable
 	}
-	if tierID == "" {
-		return nil, status.Error(codes.InvalidArgument, "tier_id is required")
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.GetEffectiveConfig(ctx, &modelconfigv1.GetEffectiveConfigRequest{TierId: tierID})
+	if err != nil {
+		return nil, err
 	}
-	var out []ResolvedSlot
-	for _, f := range flowCatalog() {
-		for _, s := range f.Slots {
-			r := ResolvedSlot{FlowKey: f.Key, SlotKey: s.Key}
-			if !s.GlobalOnly {
-				if a, ok := c.store.get(tierID, f.Key, s.Key); ok {
-					r.ModelID, r.FromTierOverride = a.ModelID, true
-					out = append(out, r)
-					continue
-				}
-			}
-			if a, ok := c.store.get("", f.Key, s.Key); ok {
-				r.ModelID = a.ModelID
-			}
-			out = append(out, r)
-		}
+	out := make([]ResolvedSlot, 0, len(resp.GetSlots()))
+	for _, s := range resp.GetSlots() {
+		out = append(out, resolvedFromProto(s))
 	}
 	return out, nil
 }
@@ -131,146 +143,195 @@ func (c *Client) GetEffectiveConfig(_ context.Context, tierID string) ([]Resolve
 // ── Writes ──────────────────────────────────────────────────────────────────
 
 // SetSlotModel upserts an assignment. An empty tierID sets the global default;
-// a non-empty tierID sets a per-tier override. Validation mirrors CON-308 §8 and
-// is returned as gRPC status errors so the handler maps them identically to the
-// real service.
-func (c *Client) SetSlotModel(_ context.Context, tierID, flow, slot, model string) (SlotAssignment, error) {
+// a non-empty tierID sets a per-tier override. Validation (capability match,
+// global-only, unknown model, non-Anthropic chat in v1, requirements) is
+// enforced server-side and surfaced as gRPC status errors.
+func (c *Client) SetSlotModel(ctx context.Context, tierID, flow, slot, model string) (SlotAssignment, error) {
 	if c == nil {
 		return SlotAssignment{}, ErrUnavailable
 	}
-	if _, err := c.validateSet(tierID, flow, slot, model); err != nil {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.SetSlotModel(ctx, &modelconfigv1.SetSlotModelRequest{
+		TierId:  tierID,
+		FlowKey: flow,
+		SlotKey: slot,
+		ModelId: model,
+	})
+	if err != nil {
 		return SlotAssignment{}, err
 	}
-	return c.store.set(SlotAssignment{TierID: tierID, FlowKey: flow, SlotKey: slot, ModelID: model}), nil
+	return assignmentFromProto(resp.GetAssignment()), nil
 }
 
 // ClearSlotModel removes a per-tier override. tierID is required — a global
-// default can't be cleared (there must always be one). Clearing a non-existent
-// override is a no-op OK.
-func (c *Client) ClearSlotModel(_ context.Context, tierID, flow, slot string) error {
+// default can't be cleared. Clearing a non-existent override is a no-op OK.
+func (c *Client) ClearSlotModel(ctx context.Context, tierID, flow, slot string) error {
 	if c == nil {
 		return ErrUnavailable
 	}
-	if tierID == "" {
-		return status.Error(codes.InvalidArgument, "tier_id is required to clear an override; the global default can't be cleared")
-	}
-	if _, ok := findSlot(flow, slot); !ok {
-		return status.Errorf(codes.NotFound, "unknown flow/slot %q/%q", flow, slot)
-	}
-	c.store.clear(tierID, flow, slot)
-	return nil
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.rpc.ClearSlotModel(ctx, &modelconfigv1.ClearSlotModelRequest{
+		TierId:  tierID,
+		FlowKey: flow,
+		SlotKey: slot,
+	})
+	return err
 }
 
 // SetSlotModelAllTiers sets the global default to model and removes every
 // per-tier override for the slot, so all tiers inherit the one model. This is
-// the BFF composition behind the drawer's "Save and use for all Tiers" action.
-//
-// TODO(CON-308): fan out to SetSlotModel(global) + ClearSlotModel(tier) per
-// tier over the real service (there is no bulk RPC).
+// the BFF composition behind the drawer's "Save and use for all Tiers" action:
+// there is no bulk RPC, so it fans out over SetSlotModel(global) +
+// ClearSlotModel(tier) for each existing override.
 func (c *Client) SetSlotModelAllTiers(ctx context.Context, flow, slot, model string) (SlotAssignment, error) {
 	if c == nil {
 		return SlotAssignment{}, ErrUnavailable
 	}
-	a, err := c.SetSlotModel(ctx, "", flow, slot, model)
+	set, err := c.SetSlotModel(ctx, "", flow, slot, model)
 	if err != nil {
 		return SlotAssignment{}, err
 	}
-	c.store.clearAllTierOverrides(flow, slot)
-	return a, nil
-}
-
-// TestSlotModel runs the flow's golden probe against a candidate model
-// (CON-308 §8a). In fixture mode it derives a deterministic pass/fail from the
-// static capability check; a real probe would additionally catch missing keys,
-// unregistered plugins and schema non-adherence.
-func (c *Client) TestSlotModel(_ context.Context, flow, slot, model string) (TestResult, error) {
-	if c == nil {
-		return TestResult{}, ErrUnavailable
+	rows, err := c.ListConfig(ctx, "")
+	if err != nil {
+		return SlotAssignment{}, err
 	}
-	fs, ok := findSlot(flow, slot)
-	if !ok {
-		return TestResult{}, status.Errorf(codes.NotFound, "unknown flow/slot %q/%q", flow, slot)
-	}
-	m, ok := findModel(model)
-	if !ok {
-		return TestResult{}, status.Errorf(codes.InvalidArgument, "unknown model %q", model)
-	}
-	if unmet := staticUnmet(fs, m); len(unmet) > 0 {
-		return TestResult{
-			Passed:            false,
-			Detail:            "model does not meet the slot's static requirements",
-			LatencyMs:         0,
-			UnmetRequirements: unmet,
-		}, nil
-	}
-	if !m.Capabilities.Live {
-		return TestResult{Passed: false, Detail: "vendor plugin not registered or API key missing", LatencyMs: 0}, nil
-	}
-	// A plausible probe latency that varies a little by model so the badge feels real.
-	latency := int64(420 + len(model)%7*35)
-	return TestResult{
-		Passed:    true,
-		Detail:    "ok",
-		LatencyMs: latency,
-		Sample:    fmt.Sprintf("[%s] probe for %s/%s produced a well-formed response.", m.ID, flow, slot),
-	}, nil
-}
-
-// ── Validation helpers ──────────────────────────────────────────────────────
-
-func (c *Client) validateSet(tierID, flow, slot, model string) (FlowSlot, error) {
-	fs, ok := findSlot(flow, slot)
-	if !ok {
-		return FlowSlot{}, status.Errorf(codes.NotFound, "unknown flow/slot %q/%q", flow, slot)
-	}
-	if fs.GlobalOnly && tierID != "" {
-		return FlowSlot{}, status.Errorf(codes.FailedPrecondition, "%s is global-only and can't have a per-tier override", flow)
-	}
-	m, ok := findModel(model)
-	if !ok {
-		return FlowSlot{}, status.Errorf(codes.InvalidArgument, "unknown model %q", model)
-	}
-	if m.Capability != fs.Capability {
-		return FlowSlot{}, status.Errorf(codes.InvalidArgument, "%s/%s needs a %s model; %s is %s", flow, slot, fs.Capability, model, m.Capability)
-	}
-	// v1: chat slots accept Anthropic models only (CON-308 §4 out-of-scope).
-	if fs.Capability == CapabilityChat && m.Vendor != "anthropic" {
-		return FlowSlot{}, status.Errorf(codes.InvalidArgument, "chat slots accept Anthropic models only in v1; %s is %s", model, m.Vendor)
-	}
-	return fs, nil
-}
-
-func findSlot(flow, slot string) (FlowSlot, bool) {
-	for _, f := range flowCatalog() {
-		if f.Key != flow {
-			continue
-		}
-		for _, s := range f.Slots {
-			if s.Key == slot {
-				return s, true
+	for _, a := range rows {
+		if a.TierID != "" && a.FlowKey == flow && a.SlotKey == slot {
+			if err := c.ClearSlotModel(ctx, a.TierID, flow, slot); err != nil {
+				return SlotAssignment{}, err
 			}
 		}
 	}
-	return FlowSlot{}, false
+	return set, nil
 }
 
-func findModel(id string) (Model, bool) {
-	for _, m := range modelCatalog() {
-		if m.ID == id {
-			return m, true
-		}
+// TestSlotModel runs the flow's golden probe against a candidate model
+// (CON-308 §8a): pass/fail with a detail message, latency, output sample, and
+// any statically-unmet requirements.
+func (c *Client) TestSlotModel(ctx context.Context, flow, slot, model string) (TestResult, error) {
+	if c == nil {
+		return TestResult{}, ErrUnavailable
 	}
-	return Model{}, false
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.TestSlotModel(ctx, &modelconfigv1.TestSlotModelRequest{
+		FlowKey: flow,
+		SlotKey: slot,
+		ModelId: model,
+	})
+	if err != nil {
+		return TestResult{}, err
+	}
+	return TestResult{
+		Passed:            resp.GetPassed(),
+		Detail:            resp.GetDetail(),
+		LatencyMs:         resp.GetLatencyMs(),
+		Sample:            resp.GetSample(),
+		UnmetRequirements: resp.GetUnmetRequirements(),
+	}, nil
 }
 
-// staticUnmet reports which of the slot's capability requirements the model
-// fails. The fixture catalog's models all support tools/structured/streaming,
-// so this is exercised mainly by the embed-dims match; the real §8a matrix is
-// richer.
-func staticUnmet(fs FlowSlot, m Model) []string {
-	var unmet []string
-	if fs.Capability == CapabilityEmbed && m.Capabilities.EmbedDims != 3072 {
-		unmet = append(unmet, "embed_dims=3072")
+// ── proto → DTO ──────────────────────────────────────────────────────────────
+
+func flowFromProto(f *modelconfigv1.Flow) Flow {
+	if f == nil {
+		return Flow{}
 	}
-	return unmet
+	slots := make([]FlowSlot, 0, len(f.GetSlots()))
+	for _, s := range f.GetSlots() {
+		slots = append(slots, slotFromProto(s))
+	}
+	return Flow{Key: f.GetKey(), Description: f.GetDescription(), Slots: slots}
+}
+
+func slotFromProto(s *modelconfigv1.FlowSlot) FlowSlot {
+	if s == nil {
+		return FlowSlot{}
+	}
+	return FlowSlot{
+		Key:         s.GetKey(),
+		Description: s.GetDescription(),
+		Capability:  s.GetCapability(),
+		GlobalOnly:  s.GetGlobalOnly(),
+	}
+}
+
+func modelFromProto(m *modelconfigv1.Model) Model {
+	if m == nil {
+		return Model{}
+	}
+	rates := make([]ModelRate, 0, len(m.GetRates()))
+	for _, r := range m.GetRates() {
+		rates = append(rates, ModelRate{Kind: r.GetKind(), MicrosPerMillion: r.GetMicrosPerMillion()})
+	}
+	return Model{
+		ID:           m.GetId(),
+		Vendor:       m.GetVendor(),
+		Capability:   m.GetCapability(),
+		PriceVersion: m.GetPriceVersion(),
+		Rates:        rates,
+		Capabilities: capsFromProto(m.GetCapabilities()),
+	}
+}
+
+func capsFromProto(c *modelconfigv1.ModelCapabilities) ModelCapabilities {
+	if c == nil {
+		return ModelCapabilities{}
+	}
+	return ModelCapabilities{
+		Tools:            c.GetTools(),
+		StructuredOutput: c.GetStructuredOutput(),
+		Streaming:        c.GetStreaming(),
+		MaxOutputTokens:  c.GetMaxOutputTokens(),
+		ContextWindow:    c.GetContextWindow(),
+		EmbedDims:        c.GetEmbedDims(),
+		Live:             c.GetLive(),
+	}
+}
+
+func assignmentFromProto(a *modelconfigv1.SlotAssignment) SlotAssignment {
+	if a == nil {
+		return SlotAssignment{}
+	}
+	return SlotAssignment{
+		TierID:    a.GetTierId(),
+		FlowKey:   a.GetFlowKey(),
+		SlotKey:   a.GetSlotKey(),
+		ModelID:   a.GetModelId(),
+		UpdatedAt: tsToTime(a.GetUpdatedAt()),
+	}
+}
+
+func resolvedFromProto(s *modelconfigv1.ResolvedSlot) ResolvedSlot {
+	if s == nil {
+		return ResolvedSlot{}
+	}
+	return ResolvedSlot{
+		FlowKey:          s.GetFlowKey(),
+		SlotKey:          s.GetSlotKey(),
+		ModelID:          s.GetModelId(),
+		FromTierOverride: s.GetFromTierOverride(),
+	}
+}
+
+func tsToTime(ts *timestamppb.Timestamp) time.Time {
+	if ts == nil {
+		return time.Time{}
+	}
+	return ts.AsTime()
+}
+
+// bearerTokenInterceptor injects `authorization: Bearer <token>` into the
+// outgoing metadata of every unary call. The token is never logged.
+func bearerTokenInterceptor(token string) grpc.UnaryClientInterceptor {
+	bearer := "Bearer " + token
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", bearer)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
 }

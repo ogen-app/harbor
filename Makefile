@@ -57,15 +57,18 @@ tidy:
 # in v1.4.0; v1.5.0 added tier-version retire/delete + assignment listing
 # (CON-297); email.v1 (EmailAdminService, CON-298 — the per-tenant Emails tab,
 # CON-192) landed in v1.7.0; announcements.v1 (AnnouncementAdminService, CON-230 —
-# the tenant announcements screens, CON-300) lands in v1.8.0.
+# the tenant announcements screens, CON-300) lands in v1.8.0; modelconfig.v1
+# (ModelConfigAdminService, CON-308 — the Model assignment screens, CON-309)
+# lands in v1.10.0.
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.8.0
+PROTO_VERSION := v1.10.0
 
 proto:
 	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \
 		--path tenants/v1/tenants.proto --path secrets/v1/secrets.proto \
 		--path platforms/v1/platforms.proto --path plans/v1/plans.proto \
-		--path email/v1/email.proto --path announcements/v1/announcements.proto
+		--path email/v1/email.proto --path announcements/v1/announcements.proto \
+		--path modelconfig/v1/modelconfig.proto
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 docker:
