@@ -34,7 +34,7 @@ import type {
 // Last updated. Vertical alignment is set per-consumer (header centers, rows
 // top-align).
 const GRID =
-  "grid grid-cols-[minmax(0,1.984fr)_minmax(0,2fr)_minmax(0,1fr)_5rem_minmax(110px,0.9fr)] gap-3";
+  "grid grid-cols-[minmax(8rem,1.984fr)_minmax(9rem,2fr)_minmax(5rem,1fr)_5rem_minmax(110px,0.9fr)] gap-3";
 
 // slotIcon maps a slot's role to its glyph.
 function slotIcon(slotKey: string): IconSvgElement {

@@ -19,7 +19,13 @@ import (
 // ogen* clients.
 var ErrUnavailable = errors.New("ogen model-config service not configured")
 
-const defaultTimeout = 10 * time.Second
+const (
+	defaultTimeout = 10 * time.Second
+	// testTimeout is a longer deadline for TestSlotModel: it runs a live golden
+	// probe (a real model call), which can take well over the default RPC
+	// timeout without being "unavailable".
+	testTimeout = 60 * time.Second
+)
 
 // Client is a thin, safe wrapper over the generated ModelConfigAdminServiceClient.
 type Client struct {
@@ -37,6 +43,10 @@ func New(addr, token string) (*Client, error) {
 	if addr == "" || token == "" {
 		return nil, nil
 	}
+	// Plaintext transport on a trusted private network, matching every sibling
+	// ogen* client (ogenplatforms/ogentenants/…) and Ogen's own listener. The
+	// bearer token gates access; adding configurable TLS is a cross-cutting
+	// change across all these clients + the server, tracked separately.
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -216,7 +226,7 @@ func (c *Client) TestSlotModel(ctx context.Context, flow, slot, model string) (T
 	if c == nil {
 		return TestResult{}, ErrUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	resp, err := c.rpc.TestSlotModel(ctx, &modelconfigv1.TestSlotModelRequest{
