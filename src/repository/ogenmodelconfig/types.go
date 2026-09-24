@@ -5,22 +5,28 @@
 //
 // Like the sibling ogen* clients (ogenplatforms/ogentenants), it reuses the
 // shared OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN listener and the same bearer-token gate;
-// an unconfigured client degrades to a soft "unavailable" state rather than a
-// hard error.
+// an unconfigured client is nil and degrades to a soft "unavailable" state
+// rather than a hard error. The contract lives in the shared
+// buf.build/ogen-app/proto module under modelconfig/v1 (CON-308, landed in
+// v1.10.0), generated into gen/modelconfig/v1 by `make proto`.
 //
-// NOTE (CON-308 dependency): the gRPC contract this binds to ships in the shared
-// buf.build/ogen-app/proto module under modelconfig/v1, which is not yet
-// published (CON-308 is in progress). Until `make proto` can generate
-// gen/modelconfig/v1, this package is backed by an in-memory fixture store
-// (fixtures.go) that mirrors the wire contract exactly — realistic flows,
-// models, pricing and assignments, with Set/Clear actually mutating the store so
-// the UI is fully exercisable end-to-end. Swapping to the real gRPC client is a
-// contained change in client.go (dial like ogenplatforms; replace each store
-// call with the matching RPC + proto↔DTO converters). The DTO shapes below are
-// the wire messages 1:1, so nothing downstream changes.
+// The DTO shapes below are the wire messages 1:1 (camelCase JSON), so the REST
+// handler and UI bind to them directly; client.go converts proto ⇄ DTO. Tiers
+// for the per-tier tabs are NOT part of this service — the handler sources them
+// from the tenant-admin surface (CON-208).
 package ogenmodelconfig
 
 import "time"
+
+// Tier is the minimal tier identity the drawer needs for its per-tier tabs
+// (id + display name + colour). It is sourced from the tenant-admin client by
+// the model-config handler, not from this service; it lives here because it is
+// part of the /api/model-config JSON payload the UI consumes.
+type Tier struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
 
 // Capability discriminates a slot/model between text-generation ("chat") and
 // vector embedding ("embed"). A model may only fill a slot of the same

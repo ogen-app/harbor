@@ -168,9 +168,9 @@ func main() {
 
 	// ModelConfigAdminService (assign a model per tier/flow/slot + read the
 	// code-owned model catalog with pricing — CON-308, the Model assignment page
-	// CON-309). Shares OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN with the other Ogen clients.
-	// NOTE: until CON-308 publishes modelconfig/v1, this client is backed by an
-	// in-memory fixture store, so it is always non-nil here (see ogenmodelconfig).
+	// CON-309). Shares OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN with the other Ogen clients —
+	// all on the same bearer-gated listener — so it's enabled/disabled on the same
+	// condition and likewise never blocks boot.
 	modelConfigClient, err := ogenmodelconfig.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
 	if err != nil {
 		fatal("init ogen model-config client", err)

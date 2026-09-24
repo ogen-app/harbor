@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/ogen-app/harbor/src/logging"
 	"github.com/ogen-app/harbor/src/repository/ogenmodelconfig"
+	"github.com/ogen-app/harbor/src/repository/ogentenants"
 )
 
 // ModelConfigHandler is the REST surface Harbor's UI calls to assign a model to
@@ -18,12 +20,17 @@ import (
 // (CON-309, the operator counterpart to CON-308's ModelConfigAdminService). It
 // is a thin adapter over the ogenmodelconfig client — the flow/slot catalog,
 // model catalog+pricing, resolution and all validation live behind the wire.
+//
+// The per-tier tabs need the real tier set, which lives on the tenant-admin
+// surface (CON-208), so the handler also holds the tenant-admin client and
+// composes its ListTiers into the bootstrap payload.
 type ModelConfigHandler struct {
-	client *ogenmodelconfig.Client
+	client  *ogenmodelconfig.Client
+	tenants *ogentenants.Client
 }
 
-func NewModelConfigHandler(client *ogenmodelconfig.Client) *ModelConfigHandler {
-	return &ModelConfigHandler{client: client}
+func NewModelConfigHandler(client *ogenmodelconfig.Client, tenants *ogentenants.Client) *ModelConfigHandler {
+	return &ModelConfigHandler{client: client, tenants: tenants}
 }
 
 // Register mounts the model-config routes behind auth. Static sub-paths are
@@ -94,10 +101,7 @@ func (h *ModelConfigHandler) Bootstrap(c *fiber.Ctx) error {
 	if err != nil {
 		return h.bootstrapErr(c, start, err)
 	}
-	tiers, err := h.client.Tiers(ctx)
-	if err != nil {
-		return h.bootstrapErr(c, start, err)
-	}
+	tiers := h.tiersFor(ctx)
 
 	logModelConfig(c, start, nil)
 	return c.JSON(modelConfigResponse{
@@ -123,6 +127,25 @@ func (h *ModelConfigHandler) bootstrapErr(c *fiber.Ctx, start time.Time, err err
 		})
 	}
 	return mapModelConfigError(err)
+}
+
+// tiersFor returns the tier set for the drawer's per-tier tabs, sourced from the
+// live tenant-admin client (real tier ids). A missing/unreachable tenant-admin
+// yields an empty set (the drawer then shows only the Global tab) rather than
+// blanking the whole page — a tiers error is never propagated.
+func (h *ModelConfigHandler) tiersFor(ctx context.Context) []ogenmodelconfig.Tier {
+	out := []ogenmodelconfig.Tier{}
+	if h.tenants == nil {
+		return out
+	}
+	entries, err := h.tenants.ListTiers(ctx)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		out = append(out, ogenmodelconfig.Tier{ID: e.ID, Name: e.Name, Color: e.Color})
+	}
+	return out
 }
 
 // SetSlot godoc
@@ -213,10 +236,13 @@ func (h *ModelConfigHandler) TestSlot(c *fiber.Ctx) error {
 }
 
 // isModelConfigUnavailable reports whether err means the model-config service
-// can't be reached right now (nil client, or a gRPC Unavailable / deadline).
+// can't be reached right now: nil client, a gRPC Unavailable / deadline, or
+// Unimplemented — the last covering an Ogen instance that predates CON-308 and
+// hasn't registered ModelConfigAdminService yet, so the page degrades softly
+// instead of hard-erroring.
 func isModelConfigUnavailable(err error) bool {
 	switch status.Code(err) {
-	case codes.Unavailable, codes.DeadlineExceeded:
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Unimplemented:
 		return true
 	}
 	return errors.Is(err, ogenmodelconfig.ErrUnavailable)

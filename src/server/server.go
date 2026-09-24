@@ -96,7 +96,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	handlers.NewTierEntitlementsHandler(plansAdminClient, tenantsAdminClient).Register(app, requireAuth)
 	handlers.NewEmailsHandler(emailClient).Register(app, requireAuth)
 	handlers.NewAnnouncementsHandler(announcementsClient).Register(app, requireAuth)
-	handlers.NewModelConfigHandler(modelConfigClient).Register(app, requireAuth)
+	handlers.NewModelConfigHandler(modelConfigClient, tenantsAdminClient).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route
