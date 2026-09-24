@@ -11,33 +11,63 @@ Access is gated by **Google sign-in** against an email allowlist.
 
 ## What it does
 
-- **Dashboard** (`/`) — tenant overview, daily AI token cost, and a database
-  teaser.
+- **Dashboard** (`/`) — tenant overview, registrations, daily AI token cost,
+  daily publishing per platform, and a database teaser.
+
+**Tenants**
+
 - **Tenants** (`/tenants`, `/tenants/{id}`) — a searchable, sortable,
-  keyboard-navigable table of Ogen tenants with per-tenant metrics (users,
-  connected Zernio social profiles, R2 storage, AI spend). The detail page has
-  tabbed sections (general info, recent activity, emails), a per-tenant
-  token-cost chart, and a 90-day activity chart.
+  keyboard-navigable table of Ogen tenants (selectable columns, tier, activity
+  sparkline, AI spend). The detail page has tabbed sections (general info,
+  recent activity, emails), a per-tenant token-cost chart, and a 90-day
+  activity chart; operators can change a tenant's **tier**, lifecycle
+  **status**, and **group** membership.
+- **Activity** (`/activity`) — global, cross-tenant activity feed.
+- **Tiers and groups** (`/tiers-and-groups`) — CRUD for the tier and group
+  catalogs.
+- **Tier entitlements** (`/tier-entitlements`) — the feature × tier matrix of
+  versioned entitlements: draft, publish, retire, and pin tenants to a version.
+- **Announcements** (`/announcements`) — author, schedule, and manage tenant
+  announcements, with click stats.
+
+**System**
+
 - **Databases** (`/databases`) — live status, size, and per-table stats for the
   connected Postgres databases, auto-refreshing.
-- **AI spend analytics** — per-day, per-model token cost sourced from Ogen's
-  analytics (TimescaleDB) database.
-- **Settings → Secrets** (`/settings`) — a GitHub-style manager for Ogen's
-  third-party API keys (the allowlisted `public.secret` entries). Harbor never
-  touches the encrypted table directly: it calls a small internal **gRPC**
-  service in Ogen that wraps Ogen's own `secrets.Store`, so envelope encryption,
-  the name allowlist, and hot-reload of rotated keys are all reused, not
-  duplicated. Values are write-only (set/rotate/clear; never read back). Enabled
-  by `OGEN_GRPC_ADDR` + `OGEN_GRPC_TOKEN` (matching Ogen's `GRPC_AUTH_TOKEN`).
 
-Small keyboard affordances throughout: `j`/`k`/`↓`/`↑` move a highlighted row in
-the tenants table and `o`/`Enter` open it; number keys switch tabs.
+**Settings**
+
+- **Platforms** (`/platforms`) — the social-platform catalog: enable/disable,
+  reorder, per-platform and global media limits.
+- **AI models** (`/ai-models`) — per-flow / per-tier model assignment with
+  pricing, plus a "test this slot" action.
+- **Email templates** (`/email-templates`) — edit Ogen's transactional email
+  templates (`email_templates` table).
+- **Secrets** (`/secrets`) — a GitHub-style manager for Ogen's third-party API
+  keys (the allowlisted `public.secret` entries). Harbor never touches the
+  encrypted table directly; it goes through Ogen's `secrets.Store` over gRPC,
+  so envelope encryption, the name allowlist, and hot-reload of rotated keys
+  are reused, not duplicated. Values are write-only (set/rotate/clear; never
+  read back).
+
+**Resources**
+
+- **Links** (`/links`) — the external service dashboards Harbor integrates with
+  (Sentry, etc.).
+
+Keyboard affordances throughout: `g` then a letter jumps between pages
+(`g g` home, `g t` tenants, `g a` activity, `g d` databases, `g s` secrets,
+`g p` platforms, `g m` AI models, `g e` tier entitlements, `g n`
+announcements, `g l` links); `j`/`k`/`↓`/`↑` move a highlighted row in tables
+and `o`/`Enter` open it; number keys switch tabs.
 
 ## Architecture
 
 ```
 harbor (one binary)
  ├─ /api/*   → Fiber handlers (src/handlers)
+ │              ├─ Postgres (Harbor, Ogen control-plane, Ogen analytics)
+ │              └─ gRPC → Ogen internal admin services
  └─ /*       → embedded Next.js static export (src/ui/dist, built from ui/)
 ```
 
@@ -61,6 +91,28 @@ The external Ogen databases are **fail-open**: a connect failure at boot is
 logged but non-fatal (the pool reconnects on use), so Harbor still serves its
 own UI/auth when Ogen is unreachable. An empty DSN disables the connection.
 
+### Ogen gRPC services
+
+Most write paths go through Ogen's internal gRPC admin services rather than
+its database, so Ogen's own validation and side effects stay authoritative.
+All share one connection configured by `OGEN_GRPC_ADDR` + `OGEN_GRPC_TOKEN`
+(the latter must match Ogen's `GRPC_AUTH_TOKEN`); an empty address disables
+the features that depend on them (their endpoints report the service as
+unavailable, usually with `503`, and the UI shows an empty/unavailable state).
+
+| Service | Harbor client | Used by |
+| --- | --- | --- |
+| `TenantAdminService` | `src/repository/ogentenants` | tenant tier/status/groups, tiers & groups catalog |
+| `SecretsService` | `src/repository/ogensecrets` | Secrets |
+| `PlatformAdminService` | `src/repository/ogenplatforms` | Platforms |
+| `PlanAdminService` | `src/repository/ogenplans` | Tier entitlements |
+| `EmailAdminService` | `src/repository/ogenemail` | tenant Emails tab |
+| `AnnouncementAdminService` | `src/repository/ogenannouncements` | Announcements |
+| `ModelConfigAdminService` | `src/repository/ogenmodelconfig` | AI models |
+
+The Go stubs in `gen/` are generated by `make proto` from the shared
+`buf.build/ogen-app/proto` module, pinned by `PROTO_VERSION` in the Makefile.
+
 ## Layout
 
 ```
@@ -71,13 +123,15 @@ src/database/          bun Postgres pool, create-on-start (ensure.go), embedded 
 src/models/            bun-mapped domain types (User, Session)
 src/repository/        data-access layer, split by origin:
     harbor/              Harbor's own DB (users, sessions, health)
-    ogen/                Ogen control-plane (tenants, activity, Zernio)
+    ogen/                Ogen control-plane DB (tenants, activity, Zernio, email templates)
     analytics/           Ogen analytics/TimescaleDB (AI spend)
+    ogen<service>/       gRPC clients for Ogen admin services (see "Ogen gRPC services")
 src/stats/             cross-repository aggregation (tenant overview, db stats)
 src/auth/              Google OAuth code exchange + id_token verification
-src/handlers/          Fiber handlers + RequireAuth (auth, tenants, analytics, status, health)
+src/handlers/          Fiber handlers + RequireAuth, one file per feature
 src/server/            Fiber wiring, middleware, embedded-UI static serving
 src/ui/                go:embed of the compiled Next.js export (dist/)
+gen/                   generated gRPC client stubs (`make proto`; don't edit)
 ui/                    the Next.js app (App Router, Tailwind v4, shadcn, client auth)
 ```
 
@@ -97,18 +151,69 @@ GET  /api/auth/me                  current user
 GET  /api/health                   public — liveness + Harbor DB check
 GET  /api/status/databases         status / size / table stats for connected databases
 
-# Tenants (Ogen control-plane + analytics)
-GET  /api/tenants                  list with metrics + AI spend (filterable via ?filters=)
-GET  /api/tenants/overview         aggregated dashboard overview
-GET  /api/tenants/registrations    90-day registrations series
-GET  /api/tenants/:id              single tenant detail
-GET  /api/tenants/:id/activity     recent events + 90-day activity series
-GET  /api/tenants/:id/users        tenant members
-GET  /api/tenants/:id/zernio       connected Zernio (social) accounts
-GET  /api/tenants/:id/daily-cost   per-tenant daily token cost by model
+# Tenants (Ogen control-plane + analytics; writes via TenantAdminService)
+GET    /api/tenants                        list with metrics + AI spend (filterable via ?filters=)
+GET    /api/tenants/overview               aggregated dashboard overview
+GET    /api/tenants/registrations          90-day registrations series
+GET    /api/tenants/daily-publishes        daily publishes per platform
+GET    /api/tenants/:id                    single tenant detail
+GET    /api/tenants/:id/activity           recent events + 90-day activity series
+GET    /api/tenants/:id/activity/:eventId  single activity event
+GET    /api/tenants/:id/users              tenant members
+GET    /api/tenants/:id/zernio             connected Zernio (social) accounts
+GET    /api/tenants/:id/daily-cost         per-tenant daily token cost by model
+GET    /api/tenants/:id/emails             emails sent to the tenant
+GET    /api/tenants/:id/emails/:emailId    single email
+PUT    /api/tenants/:id/tier               change tier
+PUT    /api/tenants/:id/status             change lifecycle status
+POST   /api/tenants/:id/groups/:groupId    add to group
+DELETE /api/tenants/:id/groups/:groupId    remove from group
+GET    /api/activity                       global activity feed
+
+# Tiers & groups catalog
+GET|POST        /api/tiers        PUT|DELETE /api/tiers/:id
+GET|POST        /api/groups       PUT|DELETE /api/groups/:id
+
+# Tier entitlements
+GET    /api/tier-entitlements                            feature × tier matrix
+POST   /api/tier-entitlements/tiers/:tierId/versions     new draft version
+PUT    /api/tier-entitlements/versions/:id               edit draft
+POST   /api/tier-entitlements/versions/:id/publish       publish
+POST   /api/tier-entitlements/versions/:id/retire        retire
+DELETE /api/tier-entitlements/versions/:id               delete draft
+GET    /api/tier-entitlements/versions/:id/assignments   tenants on a version
+GET    /api/tier-entitlements/tenants/:tenantId          a tenant's entitlements
+PUT    /api/tier-entitlements/tenants/:tenantId/version  pin a tenant to a version
+
+# Announcements
+GET|POST        /api/announcements
+GET|PUT|DELETE  /api/announcements/:id
+PUT             /api/announcements/:id/status
+
+# Platforms
+GET|POST        /api/platforms
+PUT|DELETE      /api/platforms/:id          (DELETE accepts ?force=true)
+PUT             /api/platforms/:id/enabled
+GET|PUT         /api/platforms/global-limits
+
+# AI models (model config)
+GET    /api/model-config                 bootstrap: flows, slots, tiers, models, pricing
+POST   /api/model-config/slot            set a slot's model
+POST   /api/model-config/slot/clear      clear a slot override
+POST   /api/model-config/slot/global-all set a slot for all tiers
+POST   /api/model-config/test            test-run a slot
+
+# Email templates (Ogen control-plane DB)
+GET|POST        /api/email-templates
+PUT             /api/email-templates/:key
+
+# Secrets (write-only values)
+GET    /api/secrets
+PUT    /api/secrets/:name
+DELETE /api/secrets/:name
 
 # Analytics
-GET  /api/analytics/daily-cost     daily token cost by model (all tenants)
+GET    /api/analytics/daily-cost         daily token cost by model (all tenants)
 ```
 
 ## Prerequisites
@@ -132,6 +237,7 @@ default lives in `src/config/config.go`.
 | `DATABASE_DSN` | Harbor's own Postgres — created if missing, then migrated. |
 | `OGEN_DATABASE_DSN` | Ogen control-plane Postgres (read/write, never migrated). Empty disables; connect failure is non-fatal. |
 | `ANALYTICS_DSN` | Ogen analytics / TimescaleDB (read, never migrated). Empty disables; connect failure is non-fatal. |
+| `OGEN_GRPC_ADDR` / `OGEN_GRPC_TOKEN` | Ogen's internal gRPC admin services (e.g. `localhost:9091`); the token must match Ogen's `GRPC_AUTH_TOKEN`. Empty address disables the gRPC-backed features. |
 | `DEBUG` / `LOG_LEVEL` / `LOG_FORMAT` | Verbose bun query logging + structured-log level (`debug…error`) and format (`json`/`text`). |
 | `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` | Connection-pool sizing. |
 | `CORS_ALLOWED_ORIGINS` | Only if the UI is served from a separate origin (default empty = same-origin; never `*` with credentials). |
@@ -194,7 +300,9 @@ make all      # builds the Next.js export, stages it into src/ui/dist, then `go 
 
 `make ui` (re)builds just the UI export; `make build` compiles the server with
 whatever is currently staged in `src/ui/dist` (a placeholder until `make ui`
-has run at least once). `make test` runs the Go suite.
+has run at least once). `make test` runs the Go suite. `make proto`
+regenerates the gRPC stubs in `gen/` (needs [`buf`](https://buf.build)); bump
+`PROTO_VERSION` in the Makefile to pick up a new proto release.
 
 ## Docker
 
@@ -214,11 +322,17 @@ package in `src/repository/` — `harbor`, `ogen`, or `analytics`), a handler
 (`New…Handler(...)` + `Register(app)`), server wiring in `src/server/server.go`,
 and tests. Protect authenticated routes with `handlers.RequireAuth`.
 
+Features backed by an Ogen gRPC service instead: add the proto path to the
+`proto` target, run `make proto`, add a best-effort client under
+`src/repository/ogen<service>/` on the shared gRPC connection, then a handler
+that maps "service unavailable" to `503` and wire it in `src/server/server.go`.
+
 ## Notes
 
 - The UI is seeded from `../theme-ripoff` and rebranded to "Ogen' Harbor".
 - Two edits adapt the seed UI for static export: the `(main)` layout no longer
   reads a server cookie, and the sidebar restores its collapsed state from
   `localStorage` on the client instead.
-- Some UI routes (`/audits`, `/documents`, `/settings`, `/design-system`) are
-  scaffolding/reference pages, not yet wired to live data.
+- Some UI routes (`/audits`, `/documents`, `/design-system`) are leftover
+  scaffolding/reference pages from the seed, not linked from the sidebar and
+  not wired to live data.
