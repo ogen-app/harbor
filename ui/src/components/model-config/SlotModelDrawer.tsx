@@ -3,8 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AiChemistry02Icon, AiCloudIcon } from "@hugeicons/core-free-icons";
-import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerTitle,
+  DrawerDescription,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
   CapabilityBadge,
@@ -14,7 +20,6 @@ import {
   ModelCapabilityBadges,
   PRICE_KINDS,
   usd,
-  VendorGlyph,
 } from "./format";
 import type {
   Flow,
@@ -151,6 +156,25 @@ function SlotModelForm({
     [models, slot.capability],
   );
 
+  // Group the picker by vendor (Anthropic, then Google), each under a logo'd
+  // header. Unknown vendors sort last.
+  const groupedModels = useMemo(() => {
+    const order = ["anthropic", "gemini"];
+    const map = new Map<string, Model[]>();
+    for (const m of slotModels) {
+      const arr = map.get(m.vendor);
+      if (arr) arr.push(m);
+      else map.set(m.vendor, [m]);
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => {
+        const ia = order.indexOf(a);
+        const ib = order.indexOf(b);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      })
+      .map(([vendor, list]) => ({ vendor, models: list }));
+  }, [slotModels]);
+
   const select = (modelId: string) =>
     setDraft((d) => ({ ...d, [scope.key]: modelId }));
 
@@ -264,18 +288,18 @@ function SlotModelForm({
             icon={AiCloudIcon}
             className="size-5 text-tertiary-foreground"
           />
-          <h2 className="font-display text-lg font-medium">
+          <DrawerTitle className="font-display text-lg font-medium">
             {humanize(flow.key)}{" "}
             <span className="text-tertiary-foreground">/</span>{" "}
             <span className="text-base">{slot.key}</span>
-          </h2>
+          </DrawerTitle>
           <CapabilityBadge capability={slot.capability} />
         </div>
-        <p className="mt-1 text-sm text-tertiary-foreground">
+        <DrawerDescription className="mt-1">
           {slot.description}
           {slot.globalOnly &&
             " This slot is global-only — it can't be overridden per tier."}
-        </p>
+        </DrawerDescription>
       </div>
 
       <div className="mt-4 shrink-0 border-b border-border" />
@@ -357,7 +381,7 @@ function SlotModelForm({
               aria-checked={current === INHERIT}
               onClick={() => select(INHERIT)}
               className={cn(
-                "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+                "flex items-center gap-3 rounded-lg border p-4 text-left transition-colors",
                 current === INHERIT
                   ? "border-2 border-[#1c7ef6]"
                   : "border-border hover:bg-secondary/30",
@@ -379,16 +403,21 @@ function SlotModelForm({
             </button>
           )}
 
-          {slotModels.map((m) => (
-            <ModelOption
-              key={m.id}
-              model={m}
-              chatSlot={slot.capability === "chat"}
-              selected={current === m.id}
-              test={testByModel[m.id]}
-              onSelect={() => select(m.id)}
-              onTest={() => runTest(m.id)}
-            />
+          {groupedModels.map(({ vendor, models: vendorModels }) => (
+            <div key={vendor} className="flex flex-col gap-2">
+              <VendorHeader vendor={vendor} />
+              {vendorModels.map((m) => (
+                <ModelOption
+                  key={m.id}
+                  model={m}
+                  chatSlot={slot.capability === "chat"}
+                  selected={current === m.id}
+                  test={testByModel[m.id]}
+                  onSelect={() => select(m.id)}
+                  onTest={() => runTest(m.id)}
+                />
+              ))}
+            </div>
           ))}
 
           {slotModels.length === 0 && (
@@ -453,6 +482,39 @@ function SlotModelForm({
   );
 }
 
+function vendorLabel(vendor: string): string {
+  if (vendor === "anthropic") return "Anthropic";
+  if (vendor === "gemini") return "Google";
+  return vendor.charAt(0).toUpperCase() + vendor.slice(1);
+}
+
+// VendorMark is the brand logo shown before a vendor group's name: the Claude
+// (Anthropic) mark, or the Google glyph. Both inherit the current text colour.
+function VendorMark({
+  vendor,
+  className,
+}: {
+  vendor: string;
+  className?: string;
+}) {
+  if (vendor === "gemini") {
+    return <Icon name="google" className={className} />;
+  }
+  return <Icon name="anthropic" className={className} />;
+}
+
+// VendorHeader is the group divider in the model picker.
+function VendorHeader({ vendor }: { vendor: string }) {
+  return (
+    <div className="flex items-center gap-2.5 px-1 pt-1">
+      <VendorMark vendor={vendor} className="size-6 text-foreground" />
+      <span className="text-lg font-normal">
+        {vendorLabel(vendor)}
+      </span>
+    </div>
+  );
+}
+
 function ModelOption({
   model,
   chatSlot,
@@ -489,11 +551,10 @@ function ModelOption({
         disabled={disabled}
         onClick={onSelect}
         className={cn(
-          "flex w-full items-start gap-3 p-3 text-left",
+          "flex w-full items-start gap-3 px-4 py-3 text-left",
           !disabled && "cursor-pointer",
         )}
       >
-        <VendorGlyph vendor={model.vendor} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium">
@@ -520,28 +581,38 @@ function ModelOption({
         </div>
       </button>
 
-      {/* Selected: full price breakdown + Verify (golden probe) */}
+      {/* Selected: Verify (golden probe) with an explainer, then results */}
       {selected && !disabled && (
-        <div className="space-y-2.5 border-t border-border pl-15 py-2.5">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="border-t border-border px-4 py-3">
+          <div className="flex items-start gap-3">
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="-ml-3"
+              className="-ml-4 w-60 shrink-0 justify-start"
               onClick={onTest}
               disabled={test?.loading}
             >
               <HugeiconsIcon icon={AiChemistry02Icon} className="size-4" />
               {test?.loading ? "Testing…" : "Test model compatibility"}
             </Button>
-            {test?.result && <TestBadge result={test.result} />}
-            {test?.error && (
-              <span className="text-xs text-destructive">{test.error}</span>
-            )}
+            <p className="w-72 shrink-0 text-[11px] leading-snug text-tertiary-foreground">
+              Runs the flow’s golden probe against this model: a static
+              capability check, then one real call exercising its tools, schema
+              and streaming — reporting pass/fail, latency and a sample.
+            </p>
           </div>
+
+          {(test?.result || test?.error) && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-3">
+              {test?.result && <TestBadge result={test.result} />}
+              {test?.error && (
+                <span className="text-xs text-destructive">{test.error}</span>
+              )}
+            </div>
+          )}
           {test?.result?.passed && test.result.sample && (
-            <p className="text-xs text-tertiary-foreground">
+            <p className="mt-2 text-xs text-tertiary-foreground">
               {test.result.sample}
             </p>
           )}

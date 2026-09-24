@@ -3,6 +3,8 @@ import { cn } from '@/lib/utils'
 
 import AiStudioIcon from '@/assets/icons/ai_studio.svg'
 import ClaudeIcon from '@/assets/icons/claude.svg'
+import AnthropicIcon from '@/assets/icons/anthropic.svg'
+import GoogleLogoIcon from '@/assets/icons/google.svg'
 import CloudflareIcon from '@/assets/icons/cloudflare.svg'
 import ZernioIcon from '@/assets/icons/zernio.svg'
 import GithubIcon from '@/assets/icons/github.svg'
@@ -58,6 +60,8 @@ import XMarkIcon from '@/assets/icons/x_mark.svg'
 export type IconName =
   | 'ai_studio'
   | 'claude'
+  | 'anthropic'
+  | 'google'
   | 'cloudflare'
   | 'zernio'
   | 'github'
@@ -120,6 +124,8 @@ type SvgComponent = ComponentType<SVGProps<SVGSVGElement>>
 const icons: Record<IconName, SvgComponent> = {
   ai_studio: AiStudioIcon,
   claude: ClaudeIcon,
+  anthropic: AnthropicIcon,
+  google: GoogleLogoIcon,
   cloudflare: CloudflareIcon,
   zernio: ZernioIcon,
   github: GithubIcon,
