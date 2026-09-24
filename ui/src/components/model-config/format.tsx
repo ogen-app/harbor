@@ -51,11 +51,14 @@ function rate(model: Model, kind: string): number | undefined {
 // micros ⇒ "$3", 300_000 ⇒ "$0.30".
 export function usd(micros: number): string {
   const dollars = micros / 1_000_000;
-  const s =
-    dollars >= 1 || dollars === 0
-      ? dollars.toFixed(dollars % 1 === 0 ? 0 : 2)
-      : dollars.toFixed(2);
-  return `$${s}`;
+  // Preserve sub-cent rates (e.g. $0.075, $0.3125) rather than rounding to two
+  // decimals; whole-dollar amounts drop the fraction ($3, not $3.00).
+  return dollars.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: Number.isInteger(dollars) ? 0 : 2,
+    maximumFractionDigits: 4,
+  });
 }
 
 // HeadlinePrice is the compact per-1M cost shown next to a model: a down-arrow +
