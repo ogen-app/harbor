@@ -1,5 +1,29 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  SquareArrowDown02Icon,
+  SquareArrowUp02Icon,
+} from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import type { Capability, Model, ModelRate } from "./types";
+
+// relativeTime renders an ISO timestamp as a coarse "… ago" string, matching
+// the /secrets table.
+export function relativeTime(iso: string): string {
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return "unknown"; // empty or malformed timestamp
+  const secs = Math.max(0, (Date.now() - ms) / 1000);
+  if (secs < 60) return "just now";
+  const m = Math.floor(secs / 60);
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} day${d === 1 ? "" : "s"} ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo} month${mo === 1 ? "" : "s"} ago`;
+  const y = Math.floor(mo / 12);
+  return `${y} year${y === 1 ? "" : "s"} ago`;
+}
 
 // humanize turns a snake_case flow/slot key into a title ("content_plan" →
 // "Content plan"). Used for flow band headers.
@@ -34,19 +58,50 @@ export function usd(micros: number): string {
   return `$${s}`;
 }
 
-// headlinePrice is the compact per-1M cost shown next to a model: input/output
-// for chat, a single rate for embed. The full per-kind breakdown lives in the
-// drawer's PriceTable.
-export function headlinePrice(model: Model): string {
+// HeadlinePrice is the compact per-1M cost shown next to a model: a down-arrow +
+// input rate and an up-arrow + output rate for chat, a single "/ 1M" rate for
+// embed. Icons inherit the surrounding text colour (so they follow row hover).
+// The full per-kind breakdown lives in the drawer's PriceBreakdown.
+export function HeadlinePrice({
+  model,
+  className,
+}: {
+  model: Model;
+  className?: string;
+}) {
   const inp = rate(model, "input");
   if (model.capability === "embed") {
-    return inp === undefined ? "—" : `${usd(inp)} / 1M`;
+    return (
+      <span className={cn("tabular-nums text-dollar", className)}>
+        {inp === undefined ? "—" : `${usd(inp)} / 1M`}
+      </span>
+    );
   }
   const out = rate(model, "output");
-  if (inp === undefined && out === undefined) return "—";
-  return `${inp === undefined ? "—" : usd(inp)} in · ${
-    out === undefined ? "—" : usd(out)
-  } out`;
+  if (inp === undefined && out === undefined) {
+    return <span className={className}>—</span>;
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 tabular-nums text-dollar",
+        className,
+      )}
+    >
+      <HugeiconsIcon
+        icon={SquareArrowDown02Icon}
+        className="size-3.5 shrink-0"
+        aria-label="input"
+      />
+      {inp === undefined ? "—" : usd(inp)}
+      <HugeiconsIcon
+        icon={SquareArrowUp02Icon}
+        className="ml-1.5 size-3.5 shrink-0"
+        aria-label="output"
+      />
+      {out === undefined ? "—" : usd(out)}
+    </span>
+  );
 }
 
 // PRICE_KINDS is the ordered, human-labelled set of per-kind rates for the

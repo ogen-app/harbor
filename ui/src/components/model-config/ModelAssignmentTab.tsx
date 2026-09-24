@@ -13,7 +13,13 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
-import { CapabilityBadge, friendlyModel, headlinePrice, humanize } from "./format";
+import {
+  CapabilityBadge,
+  friendlyModel,
+  HeadlinePrice,
+  humanize,
+  relativeTime,
+} from "./format";
 import { SlotModelDrawer } from "./SlotModelDrawer";
 import type {
   Flow,
@@ -24,10 +30,11 @@ import type {
 } from "./types";
 
 // Column template shared by the header and every slot row so they stay aligned:
-// Slot (name + description) · Model (+ capability) · Pricing · Global-only.
-// Vertical alignment is set per-consumer (header centers, rows top-align).
+// Slot (name + description) · Model (+ capability) · Pricing · Global-only ·
+// Last updated. Vertical alignment is set per-consumer (header centers, rows
+// top-align).
 const GRID =
-  "grid grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_5rem] gap-3";
+  "grid grid-cols-[minmax(0,1.984fr)_minmax(0,2fr)_minmax(0,1fr)_5rem_minmax(110px,0.9fr)] gap-3";
 
 // slotIcon maps a slot's role to its glyph.
 function slotIcon(slotKey: string): IconSvgElement {
@@ -164,6 +171,7 @@ export function ModelAssignmentTab() {
               <div>Model</div>
               <div>Pricing / 1M</div>
               <div className="text-center">Global-only</div>
+              <div>Last updated</div>
             </div>
 
             {/* Flow groups */}
@@ -274,6 +282,15 @@ function SlotRow({
   const defDrift = !!def && !modelsById.has(def.modelId);
   const overrideDrift = overrides.some((a) => !modelsById.has(a.modelId));
 
+  // The slot's "last updated" is the most recent change across its global
+  // default and any tier overrides.
+  const lastUpdated = all.reduce<string>((latest, a) => {
+    if (!a.updatedAt) return latest;
+    return !latest || new Date(a.updatedAt) > new Date(latest)
+      ? a.updatedAt
+      : latest;
+  }, "");
+
   return (
     <button
       type="button"
@@ -284,7 +301,7 @@ function SlotRow({
       )}
     >
       {/* Slot — glyph + name over description */}
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2 pr-6">
         <HugeiconsIcon
           icon={slotIcon(slot.key)}
           className="size-5 shrink-0 text-tertiary-foreground group-hover:text-blue-600"
@@ -293,7 +310,7 @@ function SlotRow({
           <div className="truncate text-sm font-semibold text-foreground group-hover:text-blue-600">
             {humanize(slot.key)}
           </div>
-          <div className="truncate text-xs text-tertiary-foreground group-hover:text-blue-600">
+          <div className="text-xs text-tertiary-foreground group-hover:text-blue-600">
             {slot.description}
           </div>
         </div>
@@ -355,8 +372,8 @@ function SlotRow({
       </div>
 
       {/* Pricing */}
-      <div className="truncate text-sm tabular-nums text-secondary-foreground group-hover:text-blue-600">
-        {defModel ? headlinePrice(defModel) : "—"}
+      <div className="truncate text-sm">
+        {defModel ? <HeadlinePrice model={defModel} /> : "—"}
       </div>
 
       {/* Global-only */}
@@ -369,6 +386,11 @@ function SlotRow({
           )}
           aria-label={slot.globalOnly ? "Global-only" : "Not global-only"}
         />
+      </div>
+
+      {/* Last updated */}
+      <div className="truncate text-xs text-tertiary-foreground group-hover:text-blue-600">
+        {lastUpdated ? relativeTime(lastUpdated) : "—"}
       </div>
     </button>
   );
