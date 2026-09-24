@@ -1,6 +1,7 @@
 "use client";
 
 import { ModelAssignmentTab } from "@/components/model-config/ModelAssignmentTab";
+import { AboutPanel } from "@/components/model-config/AboutPanel";
 
 // Model assignment is the operator view of Ogen's per-flow / per-tier model
 // configuration with pricing (CON-309, the UI counterpart to CON-308's
@@ -13,8 +14,13 @@ export default function ModelAssignmentPage() {
         <h1 className="text-2xl font-display font-medium">Model assignment</h1>
       </header>
 
-      <div className="flex-1 min-h-0 p-6">
-        <ModelAssignmentTab />
+      <div className="flex flex-1 min-h-0 gap-6 p-6">
+        <div className="h-full w-[70%] min-w-0">
+          <ModelAssignmentTab />
+        </div>
+        <aside className="h-full flex-1 min-w-0">
+          <AboutPanel />
+        </aside>
       </div>
     </main>
   );
