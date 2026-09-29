@@ -29,22 +29,27 @@ type Tier struct {
 }
 
 // Capability discriminates a slot/model between text-generation ("chat") and
-// vector embedding ("embed"). A model may only fill a slot of the same
-// capability (CON-308 §8).
+// vector embedding ("embed"). Slots may also need "vision" or "transcribe",
+// which are filled by chat models whose capabilities carry VisionInput /
+// AudioInput (CON-310). Models themselves are only ever "chat" or "embed".
 const (
-	CapabilityChat  = "chat"
-	CapabilityEmbed = "embed"
+	CapabilityChat       = "chat"
+	CapabilityEmbed      = "embed"
+	CapabilityVision     = "vision"
+	CapabilityTranscribe = "transcribe"
 )
 
 // FlowSlot is one independently-assignable model slot on a flow. Single-model
 // flows have one slot ("main"); orchestrated flows declare several (e.g.
 // post_assistant → planner, writer). GlobalOnly slots (embed) admit no per-tier
-// override.
+// override. Vendors restricts which vendors' models may fill the slot; empty
+// means any.
 type FlowSlot struct {
-	Key         string `json:"key"`
-	Description string `json:"description"`
-	Capability  string `json:"capability"`
-	GlobalOnly  bool   `json:"globalOnly"`
+	Key         string   `json:"key"`
+	Description string   `json:"description"`
+	Capability  string   `json:"capability"`
+	GlobalOnly  bool     `json:"globalOnly"`
+	Vendors     []string `json:"vendors"`
 }
 
 // Flow is a configurable genkit generation flow and its slots (the code-owned
@@ -73,6 +78,8 @@ type ModelCapabilities struct {
 	ContextWindow    int32 `json:"contextWindow"`
 	EmbedDims        int32 `json:"embedDims"`
 	Live             bool  `json:"live"`
+	VisionInput      bool  `json:"visionInput"` // can fill vision slots
+	AudioInput       bool  `json:"audioInput"`  // can fill transcribe slots
 }
 
 // Model is a registered model with vendor, capability, versioned pricing and its

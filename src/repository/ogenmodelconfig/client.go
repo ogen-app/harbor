@@ -268,6 +268,7 @@ func slotFromProto(s *modelconfigv1.FlowSlot) FlowSlot {
 		Description: s.GetDescription(),
 		Capability:  s.GetCapability(),
 		GlobalOnly:  s.GetGlobalOnly(),
+		Vendors:     s.GetVendors(),
 	}
 }
 
@@ -301,6 +302,8 @@ func capsFromProto(c *modelconfigv1.ModelCapabilities) ModelCapabilities {
 		ContextWindow:    c.GetContextWindow(),
 		EmbedDims:        c.GetEmbedDims(),
 		Live:             c.GetLive(),
+		VisionInput:      c.GetVisionInput(),
+		AudioInput:       c.GetAudioInput(),
 	}
 }
 
