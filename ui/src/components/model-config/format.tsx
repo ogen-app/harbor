@@ -116,20 +116,42 @@ export const PRICE_KINDS: { kind: string; label: string }[] = [
   { kind: "cache_write", label: "Cache write" },
 ];
 
+const CAPABILITY_BADGE: Record<Capability, { label: string; tint: string }> = {
+  chat: { label: "Chat", tint: "bg-indigo-500/10 text-indigo-700" },
+  embed: { label: "Embed", tint: "bg-teal-500/10 text-teal-700" },
+  vision: { label: "Vision", tint: "bg-amber-500/10 text-amber-700" },
+  transcribe: { label: "Transcribe", tint: "bg-rose-500/10 text-rose-700" },
+};
+
 export function CapabilityBadge({ capability }: { capability: Capability }) {
-  const chat = capability === "chat";
+  const badge = CAPABILITY_BADGE[capability] ?? {
+    label: humanize(capability),
+    tint: "bg-secondary text-secondary-foreground",
+  };
   return (
     <span
       className={cn(
         "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-        chat
-          ? "bg-indigo-500/10 text-indigo-700"
-          : "bg-teal-500/10 text-teal-700",
+        badge.tint,
       )}
     >
-      {chat ? "Chat" : "Embed"}
+      {badge.label}
     </span>
   );
+}
+
+// servesCapability mirrors ogen's ModelCapabilities.Supports: vision and
+// transcribe slots are filled by chat models with image / audio input; every
+// other capability must match exactly.
+export function servesCapability(model: Model, capability: Capability) {
+  switch (capability) {
+    case "vision":
+      return model.capability === "chat" && model.capabilities.visionInput;
+    case "transcribe":
+      return model.capability === "chat" && model.capabilities.audioInput;
+    default:
+      return model.capability === capability;
+  }
 }
 
 // VendorGlyph is the small icon-square shown at the head of each model row
@@ -171,6 +193,8 @@ export function ModelCapabilityBadges({ model }: { model: Model }) {
     if (caps.tools) pills.push("Tools");
     if (caps.structuredOutput) pills.push("Structured");
     if (caps.streaming) pills.push("Streaming");
+    if (caps.visionInput) pills.push("Vision");
+    if (caps.audioInput) pills.push("Audio");
     if (caps.contextWindow)
       pills.push(`${Math.round(caps.contextWindow / 1000)}k ctx`);
     if (caps.maxOutputTokens)

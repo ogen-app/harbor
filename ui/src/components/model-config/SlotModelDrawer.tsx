@@ -23,6 +23,7 @@ import {
   humanize,
   ModelCapabilityBadges,
   PRICE_KINDS,
+  servesCapability,
   usd,
 } from "./format";
 import type {
@@ -156,7 +157,7 @@ function SlotModelForm({
   const globalModelId = draft[""];
 
   const slotModels = useMemo(
-    () => models.filter((m) => m.capability === slot.capability),
+    () => models.filter((m) => servesCapability(m, slot.capability)),
     [models, slot.capability],
   );
 
@@ -414,7 +415,7 @@ function SlotModelForm({
                 <ModelOption
                   key={m.id}
                   model={m}
-                  chatSlot={slot.capability === "chat"}
+                  slotVendors={slot.vendors ?? []}
                   selected={current === m.id}
                   test={testByModel[m.id]}
                   onSelect={() => select(m.id)}
@@ -521,23 +522,26 @@ function VendorHeader({ vendor }: { vendor: string }) {
 
 function ModelOption({
   model,
-  chatSlot,
+  slotVendors,
   selected,
   test,
   onSelect,
   onTest,
 }: {
   model: Model;
-  chatSlot: boolean;
+  slotVendors: string[];
   selected: boolean;
   test?: TestState;
   onSelect: () => void;
   onTest: () => void;
 }) {
-  // v1: chat slots accept Anthropic models only (CON-308 §4). Non-Anthropic
-  // chat models are shown (with pricing) but not selectable.
+  // A slot may restrict the vendors that can fill it (in-process chat slots are
+  // Anthropic only). Models of other vendors are shown (with pricing) but not
+  // selectable.
   const blockedReason =
-    chatSlot && model.vendor !== "anthropic" ? "Anthropic only in v1" : null;
+    slotVendors.length > 0 && !slotVendors.includes(model.vendor)
+      ? `${slotVendors.map(vendorLabel).join(" / ")} only`
+      : null;
   const disabled = !!blockedReason;
 
   return (

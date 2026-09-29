@@ -59,9 +59,10 @@ tidy:
 # CON-192) landed in v1.7.0; announcements.v1 (AnnouncementAdminService, CON-230 —
 # the tenant announcements screens, CON-300) lands in v1.8.0; modelconfig.v1
 # (ModelConfigAdminService, CON-308 — the Model assignment screens, CON-309)
-# lands in v1.10.0.
+# lands in v1.10.0; its vision_input/audio_input + FlowSlot.vendors (the vision
+# and transcribe slot pickers, CON-310) in v1.11.0.
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.10.0
+PROTO_VERSION := v1.11.0
 
 proto:
 	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \

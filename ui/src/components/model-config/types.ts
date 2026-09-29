@@ -2,13 +2,17 @@
 // src/repository/ogenmodelconfig (camelCase JSON), which in turn mirror the
 // modelconfig/v1 gRPC contract (CON-308 §6) consumed by these screens (CON-309).
 
-export type Capability = "chat" | "embed";
+// A model is "chat" or "embed". A slot may also need "vision" or "transcribe",
+// filled by chat models whose capabilities carry visionInput / audioInput.
+export type Capability = "chat" | "embed" | "vision" | "transcribe";
 
 export interface FlowSlot {
   key: string;
   description: string;
   capability: Capability;
   globalOnly: boolean;
+  // Vendors whose models may fill the slot; empty = any.
+  vendors: string[] | null;
 }
 
 export interface Flow {
@@ -32,6 +36,8 @@ export interface ModelCapabilities {
   contextWindow: number;
   embedDims: number;
   live: boolean;
+  visionInput: boolean;
+  audioInput: boolean;
 }
 
 export interface Model {
