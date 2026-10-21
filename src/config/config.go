@@ -46,6 +46,11 @@ type Config struct {
 	OgenGRPCAddr  string `envconfig:"OGEN_GRPC_ADDR"  default:""`
 	OgenGRPCToken string `envconfig:"OGEN_GRPC_TOKEN" default:""`
 
+	// OgenAppBaseURL is Ogen's public app origin (Ogen's APP_BASE_URL, e.g.
+	// https://app.getogen.com). The Billing page builds the free-month share link
+	// from it ({OgenAppBaseURL}/signup?plan=<tier_id>, CON-327); empty hides it.
+	OgenAppBaseURL string `envconfig:"OGEN_APP_BASE_URL" default:""`
+
 	// CORS allowlist for a decoupled UI origin. Empty (the default) disables
 	// the CORS middleware entirely — the production build serves the UI from
 	// the same origin as the API (single binary, embedded export), and

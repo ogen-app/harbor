@@ -21,6 +21,7 @@ import (
 	"github.com/ogen-app/harbor/src/database"
 	"github.com/ogen-app/harbor/src/logging"
 	"github.com/ogen-app/harbor/src/repository/ogenannouncements"
+	"github.com/ogen-app/harbor/src/repository/ogenbilling"
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
 	"github.com/ogen-app/harbor/src/repository/ogenmodelconfig"
 	"github.com/ogen-app/harbor/src/repository/ogenplans"
@@ -180,12 +181,26 @@ func main() {
 		slog.Info("ogen model-config client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
+	// BillingAdminService (billing oversight: attention list, tenant billing,
+	// comp/exempt, free-month tier, sandbox→live cutover — CON-326, the Billing
+	// screens CON-327). Shares OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN with the other Ogen
+	// clients — all on the same bearer-gated listener — so it's enabled/disabled
+	// on the same condition and likewise never blocks boot.
+	billingClient, err := ogenbilling.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen billing-admin client", err)
+	}
+	if billingClient != nil {
+		defer billingClient.Close()
+		slog.Info("ogen billing-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, billingClient, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}

@@ -45,6 +45,9 @@ export interface Tenant {
   // sparkline (CON-223). null/undefined when analytics is unavailable; a
   // zero-filled array when the tenant simply had no events.
   activity?: number[] | null;
+  // Billing summary from Ogen (CON-327): "" when billing is off or unreachable;
+  // not_required; awaiting_checkout; or the Lemon Squeezy subscription status.
+  billingStatus?: string;
 }
 
 export interface ActivityEvent {
