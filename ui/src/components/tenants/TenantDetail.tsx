@@ -45,6 +45,8 @@ import {
 } from "@/components/tenants/shared";
 import { ActivityCard } from "@/components/tenants/ActivityCard";
 import { EmailsCard } from "@/components/tenants/EmailsCard";
+import { TenantBillingCard } from "@/components/billing/TenantBillingCard";
+import { BillingStatusBadge } from "@/components/billing/format";
 
 interface DetailResponse {
   available: boolean;
@@ -438,8 +440,14 @@ function ZernioSection({ state, total }: { state: ZernioState; total: number }) 
 
 // Section tabs on the detail page. "General information" holds the profile,
 // users, Zernio accounts and token cost; "Recent activity" the activity card;
-// "Emails" the per-tenant email log (CON-192).
-const DETAIL_TABS = ["General information", "Recent activity", "Emails"] as const;
+// "Emails" the per-tenant email log (CON-192); "Billing" the subscriptions,
+// comp/exempt flag and webhook log (CON-327).
+const DETAIL_TABS = [
+  "General information",
+  "Recent activity",
+  "Emails",
+  "Billing",
+] as const;
 
 // Stable, consistently-derived ids linking each tab to its panel (ARIA).
 const tabId = (i: number) => `tenant-tab-${i}`;
@@ -459,6 +467,10 @@ export function TenantDetail() {
     // Client-only URL read (avoids a hydration mismatch vs. the static shell).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setId(tenantIdFromLocation());
+    // ?tab=billing deep-links a tab (e.g. from the /billing attention list).
+    const wanted = new URLSearchParams(window.location.search).get("tab");
+    const i = DETAIL_TABS.findIndex((label) => label.toLowerCase() === wanted);
+    if (i >= 0) setTab(i);
   }, []);
 
   // Load the tenant detail + recent activity once the id is known.
@@ -655,7 +667,17 @@ export function TenantDetail() {
             <GroupChips groups={t.groups} />
           )}
         </div>
-        <div className="ml-auto shrink-0">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          {t.billingStatus && (
+            <button
+              type="button"
+              onClick={() => setTab(3)}
+              title="Open the Billing tab"
+              className="cursor-pointer"
+            >
+              <BillingStatusBadge status={t.billingStatus} />
+            </button>
+          )}
           <StatusLabel status={t.status} />
         </div>
       </header>
@@ -739,6 +761,17 @@ export function TenantDetail() {
             tabIndex={0}
           >
             <EmailsCard tenantId={t.id} />
+          </div>
+        )}
+
+        {tab === 3 && (
+          <div
+            role="tabpanel"
+            id={tabPanelId(3)}
+            aria-labelledby={tabId(3)}
+            tabIndex={0}
+          >
+            <TenantBillingCard tenantId={t.id} />
           </div>
         )}
       </div>

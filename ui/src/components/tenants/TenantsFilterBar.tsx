@@ -3,10 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FunnelSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { billingStatusLabel } from "@/components/billing/format";
 
 // ── model ─────────────────────────────────────────────────────────────────────
 
-export type FieldKey = "name" | "status" | "spend" | "zernio" | "tier" | "group";
+export type FieldKey =
+  | "name"
+  | "status"
+  | "billing"
+  | "spend"
+  | "zernio"
+  | "tier"
+  | "group";
 
 interface FilterField {
   key: FieldKey;
@@ -36,6 +44,13 @@ const FIELDS: FilterField[] = [
   {
     key: "status",
     label: "Status",
+    type: "enum",
+    operators: ["is", "is not"],
+    options: [],
+  },
+  {
+    key: "billing",
+    label: "Billing",
     type: "enum",
     operators: ["is", "is not"],
     options: [],
@@ -74,6 +89,7 @@ const FIELDS: FilterField[] = [
 const FIELD_LABEL: Record<FieldKey, string> = {
   name: "Name",
   status: "Status",
+  billing: "Billing",
   spend: "AI spend",
   zernio: "Zernio profiles",
   tier: "Tier",
@@ -86,6 +102,7 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 function displayValue(field: FieldKey, value: string): string {
   if (field === "spend") return `$${value}`;
   if (field === "status") return cap(value);
+  if (field === "billing") return billingStatusLabel(value);
   return value;
 }
 
@@ -101,12 +118,14 @@ export function TenantsFilterBar({
   tokens,
   onTokensChange,
   statusOptions,
+  billingOptions = [],
   tierOptions = [],
   groupOptions = [],
 }: {
   tokens: FilterToken[];
   onTokensChange: (t: FilterToken[]) => void;
   statusOptions: string[];
+  billingOptions?: string[];
   tierOptions?: string[];
   groupOptions?: string[];
 }) {
@@ -140,11 +159,12 @@ export function TenantsFilterBar({
     () =>
       FIELDS.map((f) => {
         if (f.key === "status") return { ...f, options: statusOptions };
+        if (f.key === "billing") return { ...f, options: billingOptions };
         if (f.key === "tier") return { ...f, options: tierOptions };
         if (f.key === "group") return { ...f, options: groupOptions };
         return f;
       }),
-    [statusOptions, tierOptions, groupOptions],
+    [statusOptions, billingOptions, tierOptions, groupOptions],
   );
 
   const stage: "field" | "operator" | "value" = !draft
@@ -187,7 +207,7 @@ export function TenantsFilterBar({
       return f.options
         .filter((o) => o.toLowerCase().includes(q))
         .map((o) => ({
-          label: f.key === "status" ? cap(o) : o,
+          label: f.key === "status" || f.key === "billing" ? displayValue(f.key, o) : o,
           apply: () => commitValue(o),
         }));
     }

@@ -35,6 +35,7 @@ import {
     LinkSquare01Icon,
     Megaphone02Icon,
     AiGenerativeIcon,
+    CreditCardIcon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { logout } from "@/lib/auth";
@@ -69,6 +70,7 @@ const NAV_GROUPS: { header: string; items: NavItem[] }[] = [
                 label: "Announcements",
                 href: "/announcements",
             },
+            { icon: CreditCardIcon, label: "Billing", href: "/billing" },
         ],
     },
     {

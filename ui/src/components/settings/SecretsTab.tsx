@@ -41,6 +41,10 @@ const SECRET_DESCRIPTIONS: Record<string, string> = {
   resend_api_key: "Resend API key for sending transactional & marketing email.",
   resend_webhook_secret: "Signing secret that verifies inbound Resend webhooks.",
   email_link_secret: "HMAC key that signs one-click email unsubscribe links.",
+  lemonsqueezy_api_key:
+    "Lemon Squeezy API key for checkouts, plan changes and subscription resyncs.",
+  lemonsqueezy_webhook_secret:
+    "Signing secret that verifies inbound Lemon Squeezy billing webhooks.",
 };
 
 // Shared grid template so the header and every row align — columns:
