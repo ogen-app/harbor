@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1010" viewBox="0 0 1440 1010">
+<rect width="100%" height="100%" fill="#F1F0EE"/>
+<rect x="0" y="0" width="240" height="1010" rx="0" fill="#F7F6F4"/>
+<line x1="240" y1="0" x2="240" y2="1010" stroke="#E6E3DE" stroke-width="1"/>
+<rect x="16" y="14" width="36" height="36" rx="3" fill="#1A1A1A"/>
+<text x="34" y="37" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#FFF" font-weight="700" text-anchor="middle">HRB</text>
+<text x="32" y="96" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">TENANTS</text>
+<rect x="14" y="108" width="212" height="30" rx="4" fill="#E9E7E3"/>
+<text x="40" y="128" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#1A1A1A" font-weight="600" text-anchor="start">Tenants</text>
+<text x="40" y="164" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Activity</text>
+<text x="40" y="200" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Tiers and groups</text>
+<text x="40" y="236" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Tier entitlements</text>
+<text x="40" y="272" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Announcements</text>
+<text x="40" y="308" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Billing</text>
+<text x="32" y="356" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">SYSTEM</text>
+<text x="40" y="388" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Databases</text>
+<text x="32" y="436" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">SETTINGS</text>
+<text x="40" y="468" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Platforms</text>
+<text x="40" y="504" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">AI models</text>
+<text x="40" y="540" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Email templates</text>
+<text x="40" y="576" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="500" text-anchor="start">Secrets</text>
+<line x1="240" y1="72" x2="1440" y2="72" stroke="#E6E3DE" stroke-width="1"/>
+<text x="272" y="42" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" fill="#4A4A4A" font-weight="400" text-anchor="start">←</text>
+<text x="300" y="42" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1A1A1A" font-weight="500" text-anchor="start">Acme Studio</text>
+<rect x="460" y="24" width="30" height="18" rx="4" fill="#7FA7F5"/>
+<text x="475" y="37" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#1A1A1A" font-weight="700" text-anchor="middle">Pro</text>
+<text x="300" y="60" font-family="'JetBrains Mono', ui-monospace, Menlo, monospace" font-size="11" fill="#8C8A86" font-weight="400" text-anchor="start">acme-studio</text>
+<rect x="1250" y="27" width="71.6" height="20" rx="10" fill="#FCE7E7"/>
+<circle cx="1260" cy="37" r="3" fill="#EF4444"/>
+<text x="1268" y="41" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B91C1C" font-weight="500" text-anchor="start">Past due</text>
+<circle cx="1335.6" cy="37" r="3.5" fill="#10B981"/>
+<text x="1343.6" y="41" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#4A4A4A" font-weight="400" text-anchor="start">Active</text>
+<text x="272" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#8C8A86" font-weight="500" text-anchor="start">General information</text>
+<rect x="418.6" y="105" width="14" height="14" rx="2" fill="none" stroke="#E6E3DE" stroke-width="1"/>
+<text x="425.6" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="9" fill="#8C8A86" font-weight="400" text-anchor="middle">1</text>
+<text x="462.6" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#8C8A86" font-weight="500" text-anchor="start">Recent activity</text>
+<rect x="579.6" y="105" width="14" height="14" rx="2" fill="none" stroke="#E6E3DE" stroke-width="1"/>
+<text x="586.6" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="9" fill="#8C8A86" font-weight="400" text-anchor="middle">2</text>
+<text x="623.6" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#8C8A86" font-weight="500" text-anchor="start">Emails</text>
+<rect x="674.0" y="105" width="14" height="14" rx="2" fill="none" stroke="#E6E3DE" stroke-width="1"/>
+<text x="681.0" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="9" fill="#8C8A86" font-weight="400" text-anchor="middle">3</text>
+<text x="718.0" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#1A1A1A" font-weight="600" text-anchor="start">Billing</text>
+<rect x="775.8" y="105" width="14" height="14" rx="2" fill="none" stroke="#E6E3DE" stroke-width="1"/>
+<text x="782.8" y="116" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="9" fill="#8C8A86" font-weight="400" text-anchor="middle">4</text>
+<rect x="718.0" y="134" width="73.80000000000001" height="2" rx="0" fill="#1A1A1A"/>
+<line x1="272" y1="135" x2="1408" y2="135" stroke="#E6E3DE" stroke-width="1"/>
+<rect x="272" y="156" width="1136" height="156" rx="10" fill="#FFFFFF"/>
+<text x="296" y="186" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#1A1A1A" font-weight="600" text-anchor="start">Billing</text>
+<text x="296" y="208" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8C8A86" font-weight="400" text-anchor="start">Mirrored from Lemon Squeezy. Ogen never changes this workspace’s tier or status on its own when a payment fails — you decide.</text>
+<rect x="1148" y="174" width="96" height="32" rx="4" fill="#FFFFFF" stroke="#E6E3DE" stroke-width="1"/>
+<text x="1196.0" y="195" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#1A1A1A" font-weight="500" text-anchor="middle">↻ Resync</text>
+<rect x="1256" y="174" width="128" height="32" rx="4" fill="#1A1A1A"/>
+<text x="1320.0" y="195" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#FFF" font-weight="600" text-anchor="middle">Comp / exempt…</text>
+<line x1="272" y1="232" x2="1408" y2="232" stroke="#E6E3DE" stroke-width="1"/>
+<text x="296" y="260" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">BILLING</text>
+<text x="676" y="260" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">BILLING REQUIRED</text>
+<text x="1056" y="260" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">CHECKOUT GATE</text>
+<rect x="296" y="275" width="71.6" height="20" rx="10" fill="#FCE7E7"/>
+<circle cx="306" cy="285" r="3" fill="#EF4444"/>
+<text x="314" y="289" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B91C1C" font-weight="500" text-anchor="start">Past due</text>
+<text x="676" y="288" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">Yes</text>
+<text x="1056" y="288" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">Off</text>
+<rect x="272" y="336" width="1136" height="236" rx="10" fill="#FFFFFF"/>
+<text x="296" y="364" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#1A1A1A" font-weight="600" text-anchor="start">Subscriptions</text>
+<text x="1384" y="364" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8C8A86" font-weight="400" text-anchor="end">Refunds &amp; cancellations in Lemon Squeezy ↗</text>
+<line x1="272" y1="380" x2="1408" y2="380" stroke="#E6E3DE" stroke-width="1"/>
+<rect x="296" y="395" width="71.6" height="20" rx="10" fill="#FCE7E7"/>
+<circle cx="306" cy="405" r="3" fill="#EF4444"/>
+<text x="314" y="409" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B91C1C" font-weight="500" text-anchor="start">Past due</text>
+<rect x="373.6" y="395" width="46.8" height="20" rx="10" fill="#E3F4EB"/>
+<circle cx="383.6" cy="405" r="3" fill="#10B981"/>
+<text x="391.6" y="409" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#047857" font-weight="500" text-anchor="start">Live</text>
+<text x="1384" y="408" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8C8A86" font-weight="400" text-anchor="end">#883120 ↗</text>
+<text x="296" y="438" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">TIER</text>
+<text x="296" y="458" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#4A4A4A" font-weight="400" text-anchor="start">Pro</text>
+<text x="478" y="438" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">RENEWS</text>
+<text x="478" y="458" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#4A4A4A" font-weight="400" text-anchor="start">26 Oct 2026</text>
+<text x="660" y="438" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">ENDS</text>
+<text x="660" y="458" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#4A4A4A" font-weight="400" text-anchor="start">—</text>
+<text x="842" y="438" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">TRIAL ENDS</text>
+<text x="842" y="458" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#4A4A4A" font-weight="400" text-anchor="start">26 Sept 2026</text>
+<text x="1024" y="438" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">FIRST PAID</text>
+<text x="1024" y="458" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#4A4A4A" font-weight="400" text-anchor="start">26 Sept 2026</text>
+<text x="1206" y="438" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">CARD</text>
+<text x="1206" y="458" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#4A4A4A" font-weight="400" text-anchor="start">Visa ···· 4242</text>
+<line x1="272" y1="476" x2="1408" y2="476" stroke="#E6E3DE" stroke-width="1"/>
+<rect x="296" y="491" width="77.80000000000001" height="20" rx="10" fill="#FBEFDC"/>
+<circle cx="306" cy="501" r="3" fill="#F59E0B"/>
+<text x="314" y="505" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B45309" font-weight="500" text-anchor="start">Cancelled</text>
+<rect x="379.8" y="491" width="77.80000000000001" height="20" rx="10" fill="#FBEFDC"/>
+<circle cx="389.8" cy="501" r="3" fill="#F59E0B"/>
+<text x="397.8" y="505" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B45309" font-weight="500" text-anchor="start">Test mode</text>
+<rect x="463.6" y="491" width="183.20000000000002" height="20" rx="10" fill="#ECEAE6"/>
+<circle cx="473.6" cy="501" r="3" fill="#A3A19C"/>
+<text x="481.6" y="505" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#6B6965" font-weight="500" text-anchor="start">Invalidated · Mode cutover</text>
+<rect x="652.8000000000001" y="491" width="84.0" height="20" rx="10" fill="#ECEAE6"/>
+<circle cx="662.8000000000001" cy="501" r="3" fill="#A3A19C"/>
+<text x="670.8000000000001" y="505" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#6B6965" font-weight="500" text-anchor="start">Never paid</text>
+<text x="1384" y="504" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8C8A86" font-weight="400" text-anchor="end">#771002 ↗</text>
+<text x="296" y="534" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">TIER</text>
+<text x="296" y="554" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8C8A86" font-weight="400" text-anchor="start">Starter</text>
+<text x="478" y="534" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">RENEWS</text>
+<text x="478" y="554" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8C8A86" font-weight="400" text-anchor="start">—</text>
+<text x="660" y="534" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">ENDS</text>
+<text x="660" y="554" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8C8A86" font-weight="400" text-anchor="start">11 Sept 2026</text>
+<text x="842" y="534" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">TRIAL ENDS</text>
+<text x="842" y="554" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8C8A86" font-weight="400" text-anchor="start">—</text>
+<text x="1024" y="534" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">FIRST PAID</text>
+<text x="1024" y="554" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8C8A86" font-weight="400" text-anchor="start">Never</text>
+<text x="1206" y="534" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" fill="#8C8A86" font-weight="500" text-anchor="start" letter-spacing="0.6">CARD</text>
+<text x="1206" y="554" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8C8A86" font-weight="400" text-anchor="start">—</text>
+<rect x="272" y="596" width="1136" height="92" rx="10" fill="#FFFFFF"/>
+<text x="296" y="624" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#1A1A1A" font-weight="600" text-anchor="start">Scheduled changes</text>
+<line x1="272" y1="640" x2="1408" y2="640" stroke="#E6E3DE" stroke-width="1"/>
+<text x="296" y="668" font-family="'JetBrains Mono', ui-monospace, Menlo, monospace" font-size="12" fill="#4A4A4A" font-weight="400" text-anchor="start">pro-v2-monthly  →  starter-v3-monthly</text>
+<text x="832" y="668" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#4A4A4A" font-weight="400" text-anchor="start">Effective 26 Oct 2026</text>
+<rect x="1312" y="655" width="65.4" height="20" rx="10" fill="#E3F1FA"/>
+<circle cx="1322" cy="665" r="3" fill="#0EA5E9"/>
+<text x="1330" y="669" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#0369A1" font-weight="500" text-anchor="start">Pending</text>
+<rect x="272" y="712" width="360" height="270" rx="10" fill="#FFFFFF"/>
+<text x="296" y="740" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#1A1A1A" font-weight="600" text-anchor="start">Owners · free month</text>
+<line x1="272" y1="756" x2="632" y2="756" stroke="#E6E3DE" stroke-width="1"/>
+<text x="296" y="786" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">ana@acme.studio</text>
+<rect x="561.2" y="773" width="46.8" height="20" rx="10" fill="#ECEAE6"/>
+<circle cx="571.2" cy="783" r="3" fill="#A3A19C"/>
+<text x="579.2" y="787" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#6B6965" font-weight="500" text-anchor="start">Used</text>
+<line x1="272" y1="808" x2="632" y2="808" stroke="#E6E3DE" stroke-width="1"/>
+<text x="296" y="832" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">ben@acme.studio</text>
+<rect x="536.4" y="819" width="71.6" height="20" rx="10" fill="#E3F4EB"/>
+<circle cx="546.4" cy="829" r="3" fill="#10B981"/>
+<text x="554.4" y="833" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#047857" font-weight="500" text-anchor="start">Eligible</text>
+<line x1="272" y1="854" x2="632" y2="854" stroke="#E6E3DE" stroke-width="1"/>
+<rect x="656" y="712" width="752" height="270" rx="10" fill="#FFFFFF"/>
+<text x="680" y="740" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#1A1A1A" font-weight="600" text-anchor="start">Recent webhook events</text>
+<line x1="656" y1="756" x2="1408" y2="756" stroke="#E6E3DE" stroke-width="1"/>
+<text x="680" y="784" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#8C8A86" font-weight="400" text-anchor="start">19 Oct, 21:25</text>
+<text x="806" y="784" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">subscription_payment_failed</text>
+<rect x="1318.6" y="771" width="65.4" height="20" rx="10" fill="#E3F4EB"/>
+<circle cx="1328.6" cy="781" r="3" fill="#10B981"/>
+<text x="1336.6" y="785" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#047857" font-weight="500" text-anchor="start">Applied</text>
+<line x1="656" y1="806" x2="1408" y2="806" stroke="#E6E3DE" stroke-width="1"/>
+<text x="680" y="832" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#8C8A86" font-weight="400" text-anchor="start">19 Oct, 20:25</text>
+<text x="806" y="832" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">subscription_updated</text>
+<rect x="1331.0" y="819" width="53.0" height="20" rx="10" fill="#ECEAE6"/>
+<circle cx="1341.0" cy="829" r="3" fill="#A3A19C"/>
+<text x="1349.0" y="833" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#6B6965" font-weight="500" text-anchor="start">Stale</text>
+<line x1="656" y1="854" x2="1408" y2="854" stroke="#E6E3DE" stroke-width="1"/>
+<text x="680" y="880" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#8C8A86" font-weight="400" text-anchor="start">20 Sept, 21:25</text>
+<text x="806" y="880" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">subscription_created · test</text>
+<rect x="1287.6" y="867" width="96.4" height="20" rx="10" fill="#FBEFDC"/>
+<circle cx="1297.6" cy="877" r="3" fill="#F59E0B"/>
+<text x="1305.6" y="881" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B45309" font-weight="500" text-anchor="start">Ignored mode</text>
+<line x1="656" y1="902" x2="1408" y2="902" stroke="#E6E3DE" stroke-width="1"/>
+<text x="680" y="928" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#8C8A86" font-weight="400" text-anchor="start">19 Sept, 21:25</text>
+<text x="806" y="928" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#4A4A4A" font-weight="400" text-anchor="start">subscription_payment_success</text>
+<text x="806" y="946" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B91C1C" font-weight="400" text-anchor="start">variant 412 is not mapped to a tier price</text>
+<rect x="1324.8" y="915" width="59.2" height="20" rx="10" fill="#FCE7E7"/>
+<circle cx="1334.8" cy="925" r="3" fill="#EF4444"/>
+<text x="1342.8" y="929" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#B91C1C" font-weight="500" text-anchor="start">Failed</text>
+</svg>
