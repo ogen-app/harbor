@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -206,6 +207,12 @@ func parseFilters(raw string) []tenantFilter {
 // sparkline (CON-223): one month of daily action counts per tenant.
 const activitySparkWindowDays = 30
 
+// billingLookupTimeout bounds the optional billing-summary read (CON-327) so a
+// slow or blackholed Ogen delays the tenant list/detail by at most this, rather
+// than the gRPC client's full 10s deadline; on timeout the column just stays
+// empty.
+const billingLookupTimeout = 3 * time.Second
+
 // buildActivitySparklines folds sparse per-tenant daily counts into a dense,
 // zero-filled slice per tenant of length windowDays (oldest→newest UTC calendar
 // days), keyed by tenant id — the fixed-length series each row's sparkline plots.
@@ -316,7 +323,10 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	// depends on Ogen's billing configuration. Best-effort: a failure leaves every
 	// billingStatus '' and hides the column (billingAvailable=false).
 	billingAvailable := false
-	if billing, err := h.admin.BillingStatuses(c.Context()); err == nil {
+	bctx, cancel := context.WithTimeout(c.Context(), billingLookupTimeout)
+	billing, err := h.admin.BillingStatuses(bctx)
+	cancel()
+	if err == nil {
 		billingAvailable = true
 		for i := range rows {
 			rows[i].BillingStatus = billing[rows[i].ID]
@@ -421,9 +431,11 @@ func (h *TenantsHandler) Detail(c *fiber.Ctx) error {
 	}
 
 	// Billing summary for this tenant (best-effort, see List).
-	if billing, err := h.admin.BillingStatus(c.Context(), row.ID); err == nil {
+	bctx, cancel := context.WithTimeout(c.Context(), billingLookupTimeout)
+	if billing, err := h.admin.BillingStatus(bctx, row.ID); err == nil {
 		row.BillingStatus = billing
 	}
+	cancel()
 
 	return c.JSON(fiber.Map{
 		"available":      true,
