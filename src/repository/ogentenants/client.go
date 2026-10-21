@@ -257,6 +257,56 @@ func (c *Client) SetTenantStatus(ctx context.Context, tenantID, status, reason s
 	return err
 }
 
+// ── billing summary (CON-322) ────────────────────────────────────────────────
+
+// billingStatusPageSize is ListTenants' cap; paging at the cap keeps the number
+// of round trips minimal.
+const billingStatusPageSize = 500
+
+// BillingStatuses returns each tenant's billing_status summary keyed by tenant
+// id, paging through ListTenants. The summary is computed by Ogen (it depends on
+// Ogen's billing configuration, which Harbor can't see from the DB): ” when
+// billing is off, not_required, awaiting_checkout, or the Lemon Squeezy status of
+// the current subscription.
+func (c *Client) BillingStatuses(ctx context.Context) (map[string]string, error) {
+	if c == nil {
+		return nil, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	out := map[string]string{}
+	for offset := int32(0); ; {
+		resp, err := c.rpc.ListTenants(ctx, &tenantsv1.ListTenantsRequest{PageSize: billingStatusPageSize, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range resp.GetTenants() {
+			out[t.GetId()] = t.GetBillingStatus()
+		}
+		offset += int32(len(resp.GetTenants()))
+		if len(resp.GetTenants()) == 0 || offset >= resp.GetTotal() {
+			return out, nil
+		}
+	}
+}
+
+// BillingStatus returns one tenant's billing_status summary (see
+// BillingStatuses). NotFound for an unknown or soft-deleted tenant.
+func (c *Client) BillingStatus(ctx context.Context, tenantID string) (string, error) {
+	if c == nil {
+		return "", ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.GetTenant(ctx, &tenantsv1.GetTenantRequest{TenantId: tenantID})
+	if err != nil {
+		return "", err
+	}
+	return resp.GetTenant().GetBillingStatus(), nil
+}
+
 func entryFromTier(t *tenantsv1.Tier) Entry {
 	if t == nil {
 		return Entry{}

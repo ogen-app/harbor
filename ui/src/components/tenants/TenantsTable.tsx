@@ -75,6 +75,7 @@ import {
   ColorDot,
   Sparkline,
 } from "@/components/tenants/shared";
+import { BillingStatusBadge } from "@/components/billing/format";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,10 @@ interface TenantsResponse {
   activityAvailable?: boolean;
   total?: number;
   statuses?: string[];
+  // Distinct billing summaries (CON-327) for the Billing filter; billingAvailable
+  // is false when Ogen's gRPC surface couldn't report them.
+  billingStatuses?: string[];
+  billingAvailable?: boolean;
   // Classification catalogs (CON-208) — feed the filter options and the row
   // edit menu. Empty when Ogen's classification tables aren't present.
   tiers?: ClassificationLabel[];
@@ -104,6 +109,7 @@ type SortKey =
   | "tier"
   | "createdAt"
   | "status"
+  | "billing"
   | "activity"
   | "users"
   | "spend"
@@ -121,6 +127,8 @@ const sortValue = (t: Tenant, key: SortKey): string | number => {
       return new Date(t.createdAt).getTime();
     case "status":
       return t.status;
+    case "billing":
+      return t.billingStatus ?? "";
     case "activity":
       return (t.activity ?? []).reduce((sum, n) => sum + n, 0);
     case "users":
@@ -143,6 +151,7 @@ const SORT_KEYS: SortKey[] = [
   "tier",
   "createdAt",
   "status",
+  "billing",
   "activity",
   "users",
   "spend",
@@ -218,6 +227,7 @@ function heatStyle(value: number, max: number): CSSProperties | undefined {
 type ColumnKey =
   | "registered"
   | "status"
+  | "billing"
   | "groups"
   | "activity"
   | "users"
@@ -228,6 +238,7 @@ type ColumnKey =
 const COLUMN_KEYS: ColumnKey[] = [
   "registered",
   "status",
+  "billing",
   "groups",
   "activity",
   "users",
@@ -239,6 +250,7 @@ const COLUMN_KEYS: ColumnKey[] = [
 const COLUMN_LABEL: Record<ColumnKey, string> = {
   registered: "Registered",
   status: "Status",
+  billing: "Billing",
   groups: "Groups",
   activity: "Activity",
   users: "Users",
@@ -256,6 +268,7 @@ const ACTIONS_TRACK = `${ACTIONS_MIN}rem`;
 const COLUMN_MIN: Record<ColumnKey, number> = {
   registered: 9,
   status: 8,
+  billing: 10,
   groups: 13,
   activity: 9,
   users: 7,
@@ -266,6 +279,7 @@ const COLUMN_MIN: Record<ColumnKey, number> = {
 const COLUMN_TRACK: Record<ColumnKey, string> = {
   registered: "minmax(9rem, 1fr)",
   status: "minmax(8rem, 1fr)",
+  billing: "minmax(10rem, 1fr)",
   groups: "minmax(13rem, 1fr)",
   activity: "minmax(9rem, 1fr)",
   users: "minmax(7rem, 1fr)",
@@ -1365,6 +1379,16 @@ export function TenantsTable() {
           );
         case "status":
           return <SortHeader label="Status" col="status" sort={sort} onSort={onSort} />;
+        case "billing":
+          return (
+            <SortHeader
+              label="Billing"
+              col="billing"
+              sort={sort}
+              onSort={onSort}
+              info="Billing summary from Ogen: the Lemon Squeezy subscription status, awaiting checkout (gated, never subscribed), or not required (comped / grandfathered)."
+            />
+          );
         case "groups":
           return (
             <span className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
@@ -1444,6 +1468,8 @@ export function TenantsTable() {
           );
         case "status":
           return <StatusLabel status={t.status} reason={t.statusReason} />;
+        case "billing":
+          return <BillingStatusBadge status={t.billingStatus ?? ""} />;
         case "groups":
           return <GroupsCell groups={t.groups ?? []} />;
         case "activity":
@@ -1503,6 +1529,7 @@ export function TenantsTable() {
               tokens={filters}
               onTokensChange={setFilters}
               statusOptions={statusOptions}
+              billingOptions={data.billingStatuses ?? []}
               tierOptions={allTiers.map((t) => t.name)}
               groupOptions={allGroups.map((g) => g.name)}
             />

@@ -60,16 +60,19 @@ tidy:
 # the tenant announcements screens, CON-300) lands in v1.8.0; modelconfig.v1
 # (ModelConfigAdminService, CON-308 — the Model assignment screens, CON-309)
 # lands in v1.10.0; its vision_input/audio_input + FlowSlot.vendors (the vision
-# and transcribe slot pickers, CON-310) in v1.11.0.
+# and transcribe slot pickers, CON-310) in v1.11.0; billing.v1
+# (BillingAdminService, CON-326 — the Billing screens, CON-327) plus
+# tenants.v1 Tenant.billing_status land in v1.17.0 (v1.12–v1.16 only add
+# jobs.v1/jobrpc.v1, which Harbor doesn't generate).
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.11.0
+PROTO_VERSION := v1.17.0
 
 proto:
 	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \
 		--path tenants/v1/tenants.proto --path secrets/v1/secrets.proto \
 		--path platforms/v1/platforms.proto --path plans/v1/plans.proto \
 		--path email/v1/email.proto --path announcements/v1/announcements.proto \
-		--path modelconfig/v1/modelconfig.proto
+		--path modelconfig/v1/modelconfig.proto --path billing/v1/billing.proto
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 docker:
