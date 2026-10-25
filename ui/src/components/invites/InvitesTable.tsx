@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -112,10 +112,18 @@ export function InvitesTable() {
     [],
   );
 
+  // refreshCtl cancels an in-flight refresh() when a newer one starts or the
+  // filter/search/page changes, so a late response can't overwrite the rows
+  // of the active view.
+  const refreshCtl = useRef<AbortController | null>(null);
+
   useEffect(() => {
     const controller = new AbortController();
     reload(statusFilter, query, pageToken, controller.signal);
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      refreshCtl.current?.abort();
+    };
   }, [reload, statusFilter, query, pageToken]);
 
   // Debounce the search box into the query that drives the fetch; a new query
@@ -134,7 +142,10 @@ export function InvitesTable() {
 
   const refresh = useCallback(() => {
     setRefreshing(true);
-    reload(statusFilter, query, pageToken);
+    refreshCtl.current?.abort();
+    const c = new AbortController();
+    refreshCtl.current = c;
+    reload(statusFilter, query, pageToken, c.signal);
   }, [reload, statusFilter, query, pageToken]);
 
   const flash = useCallback((msg: string) => {

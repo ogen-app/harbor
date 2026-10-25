@@ -64,7 +64,9 @@ const CONFIRM: Record<
 // the last change, and — only while invite-only is on — the workspace cap.
 // Every flip asks first; saving is whole-resource (mode + cap together).
 export function SignupModeCard() {
-  const { loading, available, settings, error } = useSignupSettings();
+  const { loading, available, settings, error } = useSignupSettings({
+    revalidate: true,
+  });
   const [pending, setPending] = useState<SignupMode | null>(null);
 
   if (loading) {
@@ -169,17 +171,43 @@ export function SignupModeCard() {
 }
 
 // putSettings writes the whole resource and publishes the result to the shared
-// store (the sidebar pill updates with it).
+// store (the sidebar pill updates with it). `loaded` is what the page showed:
+// Harbor refuses the write (409 settings_changed) when Ogen's settings differ,
+// so a stale page can't revert another operator's change. On that refusal the
+// current settings are published, so the page re-renders on the real state.
 async function putSettings(
   mode: SignupMode,
   maxOwnedWorkspaces: number,
+  loaded: SignupSettings,
 ): Promise<SignupSettings> {
   const res = await fetch("/api/signup-settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, maxOwnedWorkspaces }),
+    body: JSON.stringify({
+      mode,
+      maxOwnedWorkspaces,
+      expected: {
+        mode: loaded.mode,
+        maxOwnedWorkspaces: loaded.maxOwnedWorkspaces,
+      },
+    }),
   });
-  if (!res.ok) throw new Error((await inviteError(res)).message);
+  if (!res.ok) {
+    const body = (await res
+      .clone()
+      .json()
+      .catch(() => null)) as {
+      code?: string;
+      settings?: SignupSettings;
+    } | null;
+    if (body?.code === "settings_changed" && body.settings) {
+      setSignupSettings(body.settings);
+      throw new Error(
+        "Another operator changed the signup settings meanwhile — the page now shows the current ones. Review and try again.",
+      );
+    }
+    throw new Error((await inviteError(res)).message);
+  }
   const j = (await res.json()) as SignupSettingsResponse;
   setSignupSettings(j.settings);
   return j.settings;
@@ -194,11 +222,15 @@ function ConfirmFlip({
   settings: SignupSettings;
   onClose: () => void;
 }) {
+  // busy lives here so the dialog can't be dismissed (Escape, overlay, ✕)
+  // while the write is in flight — the mode would otherwise change after the
+  // operator walked away from the confirmation.
+  const [busy, setBusy] = useState(false);
   return (
     <Dialog
       open={!!target}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !busy) onClose();
       }}
     >
       <DialogContent className="max-w-md">
@@ -206,6 +238,8 @@ function ConfirmFlip({
           <ConfirmFlipBody
             target={target}
             settings={settings}
+            busy={busy}
+            setBusy={setBusy}
             onClose={onClose}
           />
         )}
@@ -217,13 +251,16 @@ function ConfirmFlip({
 function ConfirmFlipBody({
   target,
   settings,
+  busy,
+  setBusy,
   onClose,
 }: {
   target: SignupMode;
   settings: SignupSettings;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
   onClose: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const copy = CONFIRM[target];
 
@@ -231,7 +268,8 @@ function ConfirmFlipBody({
     setBusy(true);
     setError(null);
     try {
-      await putSettings(target, settings.maxOwnedWorkspaces);
+      await putSettings(target, settings.maxOwnedWorkspaces, settings);
+      setBusy(false);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn’t change the mode.");
@@ -281,7 +319,7 @@ function WorkspaceCapCard({ settings }: { settings: SignupSettings }) {
     setBusy(true);
     setNotice(null);
     try {
-      const s = await putSettings(settings.mode, parsed);
+      const s = await putSettings(settings.mode, parsed, settings);
       setValue(String(s.maxOwnedWorkspaces));
       setNotice({ msg: "Saved." });
     } catch (err) {
