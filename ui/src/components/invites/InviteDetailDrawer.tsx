@@ -275,7 +275,9 @@ function steps(inv: Invite): Step[] {
   if (inv.emailStatus && inv.emailStatus !== "sent") {
     out.push({
       label: `Email ${humanize(inv.emailStatus).toLowerCase()}`,
-      at: inv.emailLastEventAt,
+      // A send outcome (failed, skipped_*) has no event instant: place it at
+      // the send so it never sorts above "Created".
+      at: inv.emailLastEventAt ?? inv.lastSentAt ?? inv.createdAt,
     });
   }
   switch (inv.status) {

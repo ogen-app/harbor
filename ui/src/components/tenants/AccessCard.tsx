@@ -5,7 +5,11 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
-import { Chip, errorText } from "@/components/billing/format";
+import {
+  Chip,
+  billingStatusLabel,
+  errorText,
+} from "@/components/billing/format";
 import { ReasonDialog, type ReasonRequest } from "@/components/billing/ReasonDialog";
 import {
   MoveTierDialog,
@@ -17,11 +21,40 @@ import type {
 } from "@/components/billing/types";
 import { formatDate } from "@/components/invites/format";
 import type { Invite, InvitesListResponse } from "@/components/invites/types";
-import type { Tenant, UsersState } from "./shared";
+import type { Tenant } from "./shared";
 
-// How many member addresses to look up when finding the invite a workspace came
-// from (the owner is almost always among the first few).
-const INVITE_LOOKUP_LIMIT = 5;
+// Finding the invite a workspace came from pages through redeemed invites
+// (newest first) at the server maximum, up to this many pages. Tester invites
+// number in the tens to hundreds, so this covers them all in practice.
+const INVITE_PAGE_SIZE = 200;
+const INVITE_MAX_PAGES = 10;
+
+// findRedeemedInvite returns the invite redeemed into tenantId, or null. Ogen
+// has no tenant→invite lookup (GetTenant carries no invite_id), so match on
+// redeemed_tenant_id across the redeemed invites — not by member email, which
+// would miss the redeemer once they fall outside the capped members list.
+async function findRedeemedInvite(
+  tenantId: string,
+  signal: AbortSignal,
+): Promise<Invite | null> {
+  let token = "";
+  for (let page = 0; page < INVITE_MAX_PAGES; page++) {
+    const qs = new URLSearchParams({
+      status: "redeemed",
+      page_size: String(INVITE_PAGE_SIZE),
+    });
+    if (token) qs.set("page_token", token);
+    const r = await fetch(`/api/invites?${qs}`, { signal });
+    if (!r.ok) return null;
+    const j = (await r.json()) as InvitesListResponse;
+    if (!j.available) return null;
+    const hit = j.invites.find((i) => i.redeemedTenantId === tenantId);
+    if (hit) return hit;
+    if (!j.nextPageToken) return null;
+    token = j.nextPageToken;
+  }
+  return null;
+}
 
 // AccessCard sits atop the tenant's General information (CON-334 §5/5b,
 // wireframe 4): whether the workspace is a complimentary tester workspace, who
@@ -31,11 +64,9 @@ const INVITE_LOOKUP_LIMIT = 5;
 // the page refresh its header billing badge.
 export function AccessCard({
   tenant: t,
-  users,
   onChanged,
 }: {
   tenant: Tenant;
-  users: UsersState;
   onChanged: () => void;
 }) {
   const enc = encodeURIComponent(t.id);
@@ -70,35 +101,16 @@ export function AccessCard({
     return () => controller.abort();
   }, [enc]);
 
-  // Find the invite this workspace was redeemed from: Ogen has no tenant→invite
-  // lookup, so search the redeemed invites by the members' addresses and match
-  // on redeemed_tenant_id.
-  const emails = (users.users ?? [])
-    .map((u) => u.email)
-    .filter(Boolean)
-    .slice(0, INVITE_LOOKUP_LIMIT);
-  const emailKey = emails.join(",");
+  // Find the invite this workspace was redeemed from (see findRedeemedInvite).
   useEffect(() => {
-    if (!emailKey) return;
     const controller = new AbortController();
-    Promise.all(
-      emailKey.split(",").map((e) =>
-        fetch(
-          `/api/invites?status=redeemed&q=${encodeURIComponent(e)}&page_size=20`,
-          { signal: controller.signal },
-        )
-          .then((r) => (r.ok ? (r.json() as Promise<InvitesListResponse>) : null))
-          .catch(() => null),
-      ),
-    ).then((pages) => {
-      if (controller.signal.aborted) return;
-      const hit = pages
-        .flatMap((p) => p?.invites ?? [])
-        .find((i) => i.redeemedTenantId === t.id);
-      setInvite(hit ?? null);
-    });
+    findRedeemedInvite(t.id, controller.signal)
+      .then((inv) => {
+        if (!controller.signal.aborted) setInvite(inv);
+      })
+      .catch(() => {});
     return () => controller.abort();
-  }, [emailKey, t.id]);
+  }, [t.id]);
 
   const flash = (msg: string, isError = false) => {
     setNotice({ msg, error: isError });
@@ -231,11 +243,17 @@ export function AccessCard({
   );
 }
 
-// billingLabel summarises a non-complimentary workspace's billing in words.
+// billingLabel summarises a non-complimentary workspace's billing in words:
+// "Paying" only for an active subscription; any other current subscription
+// shows its own status (past due, unpaid, paused, cancelled, …), as on the
+// Billing tab. Without one, whether checkout is still required.
 function billingLabel(b: TenantBilling | null, available: boolean): string {
   if (!b) return available ? "—" : "Billing is off";
-  if (b.subscriptions.some((s) => !s.invalidatedAt && s.status !== "expired")) {
-    return "Paying";
+  const current = b.subscriptions.find((s) => !s.invalidatedAt);
+  if (current) {
+    return current.status === "active"
+      ? "Paying"
+      : billingStatusLabel(current.status);
   }
   return b.billingRequired ? "Awaiting checkout" : "Not required";
 }
