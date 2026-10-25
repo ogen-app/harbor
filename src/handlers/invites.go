@@ -72,6 +72,17 @@ type signupSettingsResponse struct {
 type updateSignupSettingsRequest struct {
 	Mode               string `json:"mode"`
 	MaxOwnedWorkspaces int32  `json:"maxOwnedWorkspaces"`
+	// Expected is the settings the operator's page was showing. Set, the write is
+	// refused with 409 when Ogen's current settings differ — so saving the cap
+	// can't silently revert a mode another operator just flipped (and vice
+	// versa). Ogen's write is whole-resource with no version, so this check is
+	// Harbor-side: it narrows the race to one round-trip rather than closing it.
+	Expected *expectedSignupSettings `json:"expected"`
+}
+
+type expectedSignupSettings struct {
+	Mode               string `json:"mode"`
+	MaxOwnedWorkspaces int32  `json:"maxOwnedWorkspaces"`
 }
 
 type invitesListResponse struct {
@@ -142,6 +153,20 @@ func (h *InvitesHandler) UpdateSignupSettings(c *fiber.Ctx) error {
 	operator, err := h.operator(c)
 	if err != nil {
 		return err
+	}
+	if req.Expected != nil {
+		cur, err := h.client.SignupSettings(c.Context())
+		if err != nil {
+			logInvites(c, start, err)
+			return mapInviteError(c, err)
+		}
+		if cur.Mode != req.Expected.Mode || cur.MaxOwnedWorkspaces != req.Expected.MaxOwnedWorkspaces {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error":    "the signup settings changed since this page loaded — review them and try again",
+				"code":     "settings_changed",
+				"settings": cur,
+			})
+		}
 	}
 	s, err := h.client.UpdateSignupSettings(c.Context(), req.Mode, req.MaxOwnedWorkspaces, operator)
 	logInvites(c, start, err)

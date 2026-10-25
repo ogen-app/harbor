@@ -37,9 +37,10 @@ function subscribe(l: () => void) {
 const getSnapshot = () => state;
 
 // loadSignupSettings (re)fetches the settings; concurrent callers share one
-// request.
+// request. A refetch keeps showing the current snapshot (no loading flash).
 export function loadSignupSettings(): Promise<void> {
   if (inflight) return inflight;
+  lastLoad = Date.now();
   inflight = fetch("/api/signup-settings")
     .then(async (r) => {
       if (!r.ok) throw new Error(`Request failed (${r.status})`);
@@ -66,19 +67,38 @@ export function loadSignupSettings(): Promise<void> {
   return inflight;
 }
 
-// setSignupSettings publishes settings the page just saved.
+// setSignupSettings publishes settings the page just saved (or the current
+// ones Harbor returned when it refused a stale write).
 export function setSignupSettings(settings: SignupSettings) {
   emit({ loading: false, available: true, settings, error: null });
 }
 
-let loaded = false;
+// Another operator may flip the mode at any time: revalidate when the tab
+// regains focus, at most every REVALIDATE_MS. Installed once, on first use.
+const REVALIDATE_MS = 30_000;
+let lastLoad = 0;
+let focusListener = false;
 
-export function useSignupSettings(): SignupSettingsState {
+function revalidateIfStale() {
+  if (Date.now() - lastLoad >= REVALIDATE_MS) void loadSignupSettings();
+}
+
+// useSignupSettings reads the shared snapshot. The first subscriber loads it; a
+// failed or unavailable read is retried by the next mount. revalidate (the
+// Signup mode page) always refetches on mount, so the page never acts on a
+// stale mode.
+export function useSignupSettings(opts?: {
+  revalidate?: boolean;
+}): SignupSettingsState {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const revalidate = opts?.revalidate ?? false;
   useEffect(() => {
-    if (loaded) return;
-    loaded = true;
-    void loadSignupSettings();
-  }, []);
+    if (!focusListener) {
+      focusListener = true;
+      window.addEventListener("focus", revalidateIfStale);
+    }
+    const ok = state.available && state.settings !== null && !state.error;
+    if (revalidate || !ok || lastLoad === 0) void loadSignupSettings();
+  }, [revalidate]);
   return snap;
 }

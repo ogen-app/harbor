@@ -48,6 +48,12 @@ func (f *fakeInvites) RevokeTenantInvite(_ context.Context, req *tenantinvitesv1
 	return &tenantinvitesv1.RevokeTenantInviteResponse{Invite: &tenantinvitesv1.TenantInvite{Id: req.GetId(), Status: "revoked"}}, nil
 }
 
+func (f *fakeInvites) GetSignupSettings(context.Context, *tenantinvitesv1.GetSignupSettingsRequest) (*tenantinvitesv1.GetSignupSettingsResponse, error) {
+	return &tenantinvitesv1.GetSignupSettingsResponse{Settings: &tenantinvitesv1.SignupSettings{
+		Mode: "open", MaxOwnedWorkspacesPerAccount: 2,
+	}}, nil
+}
+
 func (f *fakeInvites) UpdateSignupSettings(_ context.Context, req *tenantinvitesv1.UpdateSignupSettingsRequest) (*tenantinvitesv1.UpdateSignupSettingsResponse, error) {
 	f.lastUpdate = req
 	return &tenantinvitesv1.UpdateSignupSettingsResponse{Settings: &tenantinvitesv1.SignupSettings{
@@ -213,5 +219,31 @@ func TestInvites_SignupSettingsAndResend(t *testing.T) {
 	}
 	if fake.lastResend.GetId() != "i1" || fake.lastResend.GetExpiresInHours() != 168 {
 		t.Errorf("resend request = %+v", fake.lastResend)
+	}
+}
+
+// A write carrying the settings the page loaded is refused with 409 (and the
+// current settings) when Ogen's differ, so a stale page can't revert another
+// operator's change; a matching one goes through.
+func TestInvites_SignupSettingsExpected(t *testing.T) {
+	fake := &fakeInvites{} // Ogen currently reports open / cap 2
+	app := newInvitesApp(t, fake)
+
+	code, body := doJSON(t, app, "PUT", "/api/signup-settings",
+		`{"mode":"invite_only","maxOwnedWorkspaces":3,"expected":{"mode":"invite_only","maxOwnedWorkspaces":2}}`)
+	if code != fiber.StatusConflict || !strings.Contains(string(body), `"code":"settings_changed"`) || !strings.Contains(string(body), `"mode":"open"`) {
+		t.Fatalf("stale write: status = %d, body = %s; want 409 settings_changed with the current settings", code, body)
+	}
+	if fake.lastUpdate != nil {
+		t.Fatalf("a stale write reached Ogen")
+	}
+
+	code, body = doJSON(t, app, "PUT", "/api/signup-settings",
+		`{"mode":"open","maxOwnedWorkspaces":5,"expected":{"mode":"open","maxOwnedWorkspaces":2}}`)
+	if code != fiber.StatusOK {
+		t.Fatalf("fresh write: status = %d, body = %s", code, body)
+	}
+	if fake.lastUpdate.GetMaxOwnedWorkspacesPerAccount() != 5 {
+		t.Errorf("update request = %+v", fake.lastUpdate)
 	}
 }

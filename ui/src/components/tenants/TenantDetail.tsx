@@ -739,7 +739,7 @@ export function TenantDetail() {
             tabIndex={0}
             className="space-y-6"
           >
-            <AccessCard tenant={t} users={users} onChanged={refreshTenant} />
+            <AccessCard tenant={t} onChanged={refreshTenant} />
 
             <ProfileCard tenant={t} />
 

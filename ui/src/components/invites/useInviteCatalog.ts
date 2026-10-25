@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CatalogEntry,
   EntryListResponse,
@@ -71,22 +71,41 @@ export function useInviteCatalog(): InviteCatalog {
     return () => controller.abort();
   }, []);
 
-  const createGroup = useCallback(async (name: string) => {
-    const res = await fetch("/api/groups", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, color: "", description: "" }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as {
-        error?: string;
-      } | null;
-      throw new Error(body?.error || `Couldn’t create the group (${res.status})`);
-    }
-    const entry = (await res.json()) as CatalogEntry;
-    setGroups((gs) => [...gs, entry]);
-    return entry;
+  // createGroup is single-flight per (trimmed, case-insensitive) name, so a
+  // double-click on a cohort preset or a repeated Enter in "New group" can't
+  // create the same group twice.
+  const inflight = useRef(new Map<string, Promise<CatalogEntry>>());
+  const createGroup = useCallback((name: string) => {
+    const key = name.trim().toLowerCase();
+    const pending = inflight.current.get(key);
+    if (pending) return pending;
+    const p = postGroup(name.trim(), (entry) =>
+      setGroups((gs) => [...gs, entry]),
+    ).finally(() => inflight.current.delete(key));
+    inflight.current.set(key, p);
+    return p;
   }, []);
 
   return { tiers, groups, loading, available, createGroup };
+}
+
+// postGroup creates a group (CreateGroup) and hands the entry to onCreated.
+async function postGroup(
+  name: string,
+  onCreated: (entry: CatalogEntry) => void,
+): Promise<CatalogEntry> {
+  const res = await fetch("/api/groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, color: "", description: "" }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error || `Couldn’t create the group (${res.status})`);
+  }
+  const entry = (await res.json()) as CatalogEntry;
+  onCreated(entry);
+  return entry;
 }
