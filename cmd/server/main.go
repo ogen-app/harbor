@@ -23,6 +23,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogenannouncements"
 	"github.com/ogen-app/harbor/src/repository/ogenbilling"
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
+	"github.com/ogen-app/harbor/src/repository/ogeninvites"
 	"github.com/ogen-app/harbor/src/repository/ogenmodelconfig"
 	"github.com/ogen-app/harbor/src/repository/ogenplans"
 	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
@@ -195,12 +196,24 @@ func main() {
 		slog.Info("ogen billing-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
+	// TenantInviteAdminService (complimentary tester invites + the signup mode —
+	// CON-333, the Invites / Signup mode screens CON-334). Same shared
+	// OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN and never-block-boot contract.
+	invitesClient, err := ogeninvites.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen tenant-invite-admin client", err)
+	}
+	if invitesClient != nil {
+		defer invitesClient.Close()
+		slog.Info("ogen tenant-invite-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, billingClient, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, billingClient, invitesClient, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}
