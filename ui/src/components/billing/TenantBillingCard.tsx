@@ -38,7 +38,9 @@ import type {
 // the owners' free-month eligibility and the last 20 webhook events. Dunning is
 // operator-decides — Ogen never changes the tier or status itself — so this is
 // read + the two billing actions (comp/exempt, resync); suspend and tier moves
-// live in the Tenants table menu and on /billing.
+// live in the Tenants table menu and on /billing. A complimentary (tester)
+// workspace (CON-333) hides comp/exempt — Ogen refuses it; its beta access is
+// ended from the Access card on General information instead.
 export function TenantBillingCard({ tenantId }: { tenantId: string }) {
   const [data, setData] = useState<TenantBillingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -174,14 +176,16 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
               )}
               Resync
             </Button>
-            <Button
-              variant="defaultInverted"
-              size="sm"
-              className="font-semibold"
-              onClick={() => askSetRequired(!b.billingRequired)}
-            >
-              {b.billingRequired ? "Comp / exempt…" : "Require billing…"}
-            </Button>
+            {!b.complimentary && (
+              <Button
+                variant="defaultInverted"
+                size="sm"
+                className="font-semibold"
+                onClick={() => askSetRequired(!b.billingRequired)}
+              >
+                {b.billingRequired ? "Comp / exempt…" : "Require billing…"}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -205,9 +209,11 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
         />
         {b.subscriptions.length === 0 ? (
           <Empty icon={<CreditCardIcon className="size-7 text-quaternary" />}>
-            {b.billingRequired
-              ? "No subscription yet — the workspace hasn’t checked out."
-              : "No subscription. The workspace is comped or grandfathered."}
+            {b.complimentary
+              ? "No subscription. The workspace is a complimentary tester workspace — never billed."
+              : b.billingRequired
+                ? "No subscription yet — the workspace hasn’t checked out."
+                : "No subscription. The workspace is comped or grandfathered."}
           </Empty>
         ) : (
           <div className="divide-y divide-border">
@@ -334,14 +340,18 @@ function GateSummary({ billing: b }: { billing: TenantBilling }) {
           status={
             current
               ? current.status
-              : b.billingRequired
-                ? "awaiting_checkout"
-                : "not_required"
+              : b.complimentary
+                ? "complimentary"
+                : b.billingRequired
+                  ? "awaiting_checkout"
+                  : "not_required"
           }
         />
       </Fact>
       <Fact label="Billing required">
-        {b.billingRequired ? (
+        {b.complimentary ? (
+          <Chip tone="good" label="Complimentary · tester" />
+        ) : b.billingRequired ? (
           <span className="text-secondary-foreground">Yes</span>
         ) : (
           <Chip tone="info" label="Comped / exempt" />

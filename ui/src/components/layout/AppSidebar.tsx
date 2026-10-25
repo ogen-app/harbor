@@ -36,8 +36,11 @@ import {
     Megaphone02Icon,
     AiGenerativeIcon,
     CreditCardIcon,
+    MailAdd01Icon,
+    Door01Icon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useSignupSettings } from "@/components/invites/useSignupSettings";
 import { logout } from "@/lib/auth";
 
 // Nav items render Hugeicons (https://hugeicons.com) via <HugeiconsIcon/>, taking
@@ -47,6 +50,9 @@ type NavItem = {
     icon: IconSvgElement;
     label: string;
     href: string;
+    // signupMode renders the persistent INVITE-ONLY / OPEN pill on the row —
+    // Harbor has no global header, so the mode badge lives here (CON-334).
+    badge?: "signupMode";
 };
 
 const NAV_GROUPS: { header: string; items: NavItem[] }[] = [
@@ -54,6 +60,13 @@ const NAV_GROUPS: { header: string; items: NavItem[] }[] = [
         header: "Tenants",
         items: [
             { icon: UserFullViewIcon, label: "Tenants", href: "/tenants" },
+            { icon: MailAdd01Icon, label: "Invites", href: "/invites" },
+            {
+                icon: Door01Icon,
+                label: "Signup mode",
+                href: "/signup-mode",
+                badge: "signupMode",
+            },
             { icon: Activity03Icon, label: "Activity", href: "/activity" },
             {
                 icon: UserGroupIcon,
@@ -174,6 +187,10 @@ export function AppSidebar({
         preventDefault: true,
     });
     useHotkeys("g>l", () => router.push("/links"), { preventDefault: true });
+    useHotkeys("g>i", () => router.push("/invites"), { preventDefault: true });
+    useHotkeys("g>u", () => router.push("/signup-mode"), {
+        preventDefault: true,
+    });
 
     return (
         <aside
@@ -267,6 +284,8 @@ export function AppSidebar({
                                     >
                                         {item.label}
                                     </span>
+                                    {item.badge === "signupMode" &&
+                                        !collapsed && <SignupModePill />}
                                 </Link>
                             );
                         })}
@@ -325,5 +344,26 @@ export function AppSidebar({
                 </DropdownMenu>
             </div>
         </aside>
+    );
+}
+
+// SignupModePill is the always-visible signup mode badge on the SIGNUP MODE nav
+// row: amber INVITE-ONLY or grey OPEN. Hidden until the mode is known (and
+// while the invite service is unavailable).
+function SignupModePill() {
+    const { settings } = useSignupSettings();
+    if (!settings) return null;
+    const inviteOnly = settings.mode === "invite_only";
+    return (
+        <span
+            className={cn(
+                "ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] leading-none font-semibold tracking-[0.04em] uppercase",
+                inviteOnly
+                    ? "bg-amber-500/15 text-amber-700"
+                    : "bg-neutral-400/15 text-tertiary-foreground",
+            )}
+        >
+            {inviteOnly ? "Invite-only" : "Open"}
+        </span>
     );
 }

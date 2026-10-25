@@ -24,12 +24,22 @@ type fakeBilling struct {
 	billingv1.UnimplementedBillingAdminServiceServer
 	lastRequired *billingv1.SetBillingRequiredRequest
 	lastTrial    *billingv1.SetFreeTrialTierRequest
+	lastComp     *billingv1.SetComplimentaryRequest
 	cutoverErr   error
 }
 
 func (f *fakeBilling) SetBillingRequired(_ context.Context, req *billingv1.SetBillingRequiredRequest) (*billingv1.SetBillingRequiredResponse, error) {
 	f.lastRequired = req
 	return &billingv1.SetBillingRequiredResponse{Billing: &billingv1.TenantBilling{TenantId: req.GetTenantId(), BillingRequired: req.GetRequired()}}, nil
+}
+
+func (f *fakeBilling) SetComplimentary(_ context.Context, req *billingv1.SetComplimentaryRequest) (*billingv1.SetComplimentaryResponse, error) {
+	f.lastComp = req
+	return &billingv1.SetComplimentaryResponse{Billing: &billingv1.TenantBilling{
+		TenantId:        req.GetTenantId(),
+		Complimentary:   req.GetComplimentary(),
+		BillingRequired: !req.GetComplimentary(),
+	}}, nil
 }
 
 func (f *fakeBilling) SetFreeTrialTier(_ context.Context, req *billingv1.SetFreeTrialTierRequest) (*billingv1.SetFreeTrialTierResponse, error) {
@@ -133,6 +143,7 @@ func TestBilling_WritesUnavailableAre503(t *testing.T) {
 
 	cases := []struct{ method, path, body string }{
 		{"PUT", "/api/tenants/t1/billing/required", `{"required":false,"reason":"design partner"}`},
+		{"PUT", "/api/tenants/t1/billing/complimentary", `{"complimentary":false,"reason":"beta ended"}`},
 		{"POST", "/api/tenants/t1/billing/resync", ""},
 		{"PUT", "/api/billing/free-trial-tier", `{"tierId":"pro","reason":"launch"}`},
 		{"POST", "/api/billing/cutover", `{"dryRun":true}`},
@@ -190,5 +201,30 @@ func TestBilling_FailedPreconditionPassesMessage(t *testing.T) {
 	}
 	if fake.lastTrial.GetTierId() != "" {
 		t.Errorf("tier id = %q, want empty (offer off)", fake.lastTrial.GetTierId())
+	}
+}
+
+// Ending (or granting) complimentary access needs a reason, passes it trimmed,
+// and returns the workspace's billing with the complimentary flag.
+func TestBilling_SetComplimentary(t *testing.T) {
+	fake := &fakeBilling{}
+	app := newBillingApp(t, fake)
+
+	if code, _ := doJSON(t, app, "PUT", "/api/tenants/t1/billing/complimentary", `{"complimentary":false,"reason":""}`); code != fiber.StatusBadRequest {
+		t.Errorf("without reason: status = %d, want 400", code)
+	}
+	if fake.lastComp != nil {
+		t.Fatalf("a request reached Ogen without a reason")
+	}
+
+	code, body := doJSON(t, app, "PUT", "/api/tenants/t1/billing/complimentary", `{"complimentary":true,"reason":" design partner "}`)
+	if code != fiber.StatusOK {
+		t.Fatalf("set complimentary: status = %d, body = %s", code, body)
+	}
+	if got := fake.lastComp; got.GetTenantId() != "t1" || !got.GetComplimentary() || got.GetReason() != "design partner" {
+		t.Errorf("SetComplimentary got %+v, want t1/true/trimmed reason", got)
+	}
+	if !strings.Contains(string(body), `"complimentary":true`) {
+		t.Errorf("body = %s, want complimentary:true", body)
 	}
 }

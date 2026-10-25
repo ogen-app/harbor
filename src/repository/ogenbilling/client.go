@@ -109,9 +109,12 @@ type OwnerTrial struct {
 
 // TenantBilling is one workspace's billing picture. Gated is the live 402 state
 // (billing required and no subscription yet); BillingRequired is the stored flag.
+// Complimentary marks a tester's workspace (CON-333): never billed, so
+// BillingRequired is always false with it.
 type TenantBilling struct {
 	TenantID            string            `json:"tenantId"`
 	BillingRequired     bool              `json:"billingRequired"`
+	Complimentary       bool              `json:"complimentary"`
 	Gated               bool              `json:"gated"`
 	Subscriptions       []Subscription    `json:"subscriptions"`
 	ScheduledChanges    []ScheduledChange `json:"scheduledChanges"`
@@ -261,6 +264,23 @@ func (c *Client) SetBillingRequired(ctx context.Context, tenantID string, requir
 	return tenantBillingFromProto(resp.GetBilling()), nil
 }
 
+// SetComplimentary makes a workspace a tester's complimentary one or ends that
+// (CON-333): ending it puts the workspace behind the billing gate until it checks
+// out. reason is required (InvalidArgument without it).
+func (c *Client) SetComplimentary(ctx context.Context, tenantID string, complimentary bool, reason string) (TenantBilling, error) {
+	if c == nil {
+		return TenantBilling{}, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.SetComplimentary(ctx, &billingv1.SetComplimentaryRequest{TenantId: tenantID, Complimentary: complimentary, Reason: reason})
+	if err != nil {
+		return TenantBilling{}, err
+	}
+	return tenantBillingFromProto(resp.GetBilling()), nil
+}
+
 // Resync re-reads the workspace's subscriptions from the provider. corrected is
 // the number of subscriptions whose mirror changed.
 func (c *Client) Resync(ctx context.Context, tenantID string) (TenantBilling, int32, error) {
@@ -377,6 +397,7 @@ func tenantBillingFromProto(b *billingv1.TenantBilling) TenantBilling {
 	out := TenantBilling{
 		TenantID:            b.GetTenantId(),
 		BillingRequired:     b.GetBillingRequired(),
+		Complimentary:       b.GetComplimentary(),
 		Gated:               b.GetGated(),
 		Subscriptions:       make([]Subscription, 0, len(b.GetSubscriptions())),
 		ScheduledChanges:    make([]ScheduledChange, 0, len(b.GetScheduledChanges())),

@@ -43,6 +43,7 @@ func (h *BillingHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Post("/api/billing/cutover", requireAuth, h.Cutover)
 	app.Get("/api/tenants/:id/billing", requireAuth, h.TenantBilling)
 	app.Put("/api/tenants/:id/billing/required", requireAuth, h.SetRequired)
+	app.Put("/api/tenants/:id/billing/complimentary", requireAuth, h.SetComplimentary)
 	app.Post("/api/tenants/:id/billing/resync", requireAuth, h.Resync)
 }
 
@@ -76,6 +77,11 @@ type freeTrialTierResponse struct {
 type setBillingRequiredRequest struct {
 	Required bool   `json:"required"`
 	Reason   string `json:"reason"`
+}
+
+type setComplimentaryRequest struct {
+	Complimentary bool   `json:"complimentary"`
+	Reason        string `json:"reason"`
 }
 
 type setFreeTrialTierRequest struct {
@@ -167,6 +173,33 @@ func (h *BillingHandler) SetRequired(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "a reason is required")
 	}
 	b, err := h.client.SetBillingRequired(c.Context(), c.Params("id"), req.Required, reason)
+	logBilling(c, start, err)
+	if err != nil {
+		return mapBillingError(err)
+	}
+	return c.JSON(tenantBillingResponse{Available: true, Billing: b})
+}
+
+// SetComplimentary godoc
+// @Summary  Make a workspace a complimentary tester one, or end its beta access
+// @Tags     billing
+// @Accept   json
+// @Produce  json
+// @Param    id  path  string  true  "Tenant id"
+// @Success  200  {object}  tenantBillingResponse
+// @Router   /api/tenants/{id}/billing/complimentary [put]
+func (h *BillingHandler) SetComplimentary(c *fiber.Ctx) error {
+	start := time.Now()
+	var req setComplimentaryRequest
+	if err := c.BodyParser(&req); err != nil {
+		logBilling(c, start, err)
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "a reason is required")
+	}
+	b, err := h.client.SetComplimentary(c.Context(), c.Params("id"), req.Complimentary, reason)
 	logBilling(c, start, err)
 	if err != nil {
 		return mapBillingError(err)
