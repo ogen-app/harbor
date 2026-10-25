@@ -63,16 +63,23 @@ tidy:
 # and transcribe slot pickers, CON-310) in v1.11.0; billing.v1
 # (BillingAdminService, CON-326 — the Billing screens, CON-327) plus
 # tenants.v1 Tenant.billing_status land in v1.17.0 (v1.12–v1.16 only add
-# jobs.v1/jobrpc.v1, which Harbor doesn't generate).
+# jobs.v1/jobrpc.v1, which Harbor doesn't generate). tenantinvites.v1
+# (TenantInviteAdminService, CON-333 — the Invites / Signup mode screens,
+# CON-334) plus billing.v1 SetComplimentary are not tagged yet: until they are,
+# generate from a local checkout with `make proto PROTO_SRC=../proto/proto`.
 PROTO_MODULE  := buf.build/ogen-app/proto
 PROTO_VERSION := v1.17.0
+PROTO_SRC     ?= $(PROTO_MODULE):$(PROTO_VERSION)
+PROTO_FILES   := tenants/v1/tenants.proto secrets/v1/secrets.proto \
+	platforms/v1/platforms.proto plans/v1/plans.proto email/v1/email.proto \
+	announcements/v1/announcements.proto modelconfig/v1/modelconfig.proto \
+	billing/v1/billing.proto tenantinvites/v1/tenant_invites.proto
+# A local directory input wants --path relative to the working directory, so
+# prefix each file with it; a buf.build module takes them module-relative.
+PROTO_PREFIX  := $(if $(findstring buf.build/,$(PROTO_SRC)),,$(PROTO_SRC)/)
 
 proto:
-	buf generate $(PROTO_MODULE):$(PROTO_VERSION) \
-		--path tenants/v1/tenants.proto --path secrets/v1/secrets.proto \
-		--path platforms/v1/platforms.proto --path plans/v1/plans.proto \
-		--path email/v1/email.proto --path announcements/v1/announcements.proto \
-		--path modelconfig/v1/modelconfig.proto --path billing/v1/billing.proto
+	buf generate $(PROTO_SRC) $(addprefix --path $(PROTO_PREFIX),$(PROTO_FILES))
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 docker:

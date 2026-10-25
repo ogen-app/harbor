@@ -23,6 +23,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogenannouncements"
 	"github.com/ogen-app/harbor/src/repository/ogenbilling"
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
+	"github.com/ogen-app/harbor/src/repository/ogeninvites"
 	"github.com/ogen-app/harbor/src/repository/ogenmodelconfig"
 	"github.com/ogen-app/harbor/src/repository/ogenplans"
 	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
@@ -35,7 +36,7 @@ import (
 // Harbor runs as a single binary. ogenDB and analyticsDB are pools to Ogen's
 // (external) control-plane and analytics databases — either may be nil when
 // Ogen is unreachable; they are held for forthcoming Ogen-backed handlers.
-func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, platformsAdminClient *ogenplatforms.Client, plansAdminClient *ogenplans.Client, emailClient *ogenemail.Client, announcementsClient *ogenannouncements.Client, modelConfigClient *ogenmodelconfig.Client, billingClient *ogenbilling.Client, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
+func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, platformsAdminClient *ogenplatforms.Client, plansAdminClient *ogenplans.Client, emailClient *ogenemail.Client, announcementsClient *ogenannouncements.Client, modelConfigClient *ogenmodelconfig.Client, billingClient *ogenbilling.Client, invitesClient *ogeninvites.Client, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: defaultErrorHandler,
 	})
@@ -99,6 +100,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	handlers.NewAnnouncementsHandler(announcementsClient).Register(app, requireAuth)
 	handlers.NewModelConfigHandler(modelConfigClient, tenantsAdminClient).Register(app, requireAuth)
 	handlers.NewBillingHandler(billingClient, cfg.OgenAppBaseURL).Register(app, requireAuth)
+	handlers.NewInvitesHandler(invitesClient, handlers.NewOperatorLookup(userRepo)).Register(app, requireAuth)
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route

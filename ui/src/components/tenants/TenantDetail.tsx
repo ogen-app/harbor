@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowLeftIcon,
@@ -45,6 +45,7 @@ import {
 } from "@/components/tenants/shared";
 import { ActivityCard } from "@/components/tenants/ActivityCard";
 import { EmailsCard } from "@/components/tenants/EmailsCard";
+import { AccessCard } from "@/components/tenants/AccessCard";
 import { TenantBillingCard } from "@/components/billing/TenantBillingCard";
 import { BillingStatusBadge } from "@/components/billing/format";
 
@@ -438,8 +439,9 @@ function ZernioSection({ state, total }: { state: ZernioState; total: number }) 
 
 // ── main ────────────────────────────────────────────────────────────────────
 
-// Section tabs on the detail page. "General information" holds the profile,
-// users, Zernio accounts and token cost; "Recent activity" the activity card;
+// Section tabs on the detail page. "General information" holds the access card
+// (complimentary tester status + who invited it, CON-334), profile, users,
+// Zernio accounts and token cost; "Recent activity" the activity card;
 // "Emails" the per-tenant email log (CON-192); "Billing" the subscriptions,
 // comp/exempt flag and webhook log (CON-327).
 const DETAIL_TABS = [
@@ -575,6 +577,18 @@ export function TenantDetail() {
       });
 
     return () => controller.abort();
+  }, [id]);
+
+  // refreshTenant re-reads the detail after an access change (complimentary on
+  // or off, a tier move) so the header's tier chip and billing badge follow.
+  const refreshTenant = useCallback(() => {
+    if (!id) return;
+    fetch(`/api/tenants/${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<DetailResponse>) : null))
+      .then((j) => {
+        if (j?.available && j.tenant) setData(j);
+      })
+      .catch(() => {});
   }, [id]);
 
   // Number keys 1..N jump straight to a tab (page-level, no focus needed).
@@ -725,6 +739,8 @@ export function TenantDetail() {
             tabIndex={0}
             className="space-y-6"
           >
+            <AccessCard tenant={t} users={users} onChanged={refreshTenant} />
+
             <ProfileCard tenant={t} />
 
             {/* Users and Zernio side by side on large screens (equal height,

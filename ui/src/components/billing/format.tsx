@@ -21,8 +21,10 @@ const TONE: Record<Tone, { dot: string; chip: string }> = {
 };
 
 // Every value a billing status can take: the tenant-list summary values
-// (not_required, awaiting_checkout) plus Lemon Squeezy's subscription statuses.
+// (complimentary, not_required, awaiting_checkout) plus Lemon Squeezy's
+// subscription statuses. complimentary is a tester's workspace (CON-333).
 const BILLING_STATUS: Record<string, { tone: Tone; label: string }> = {
+  complimentary: { tone: "good", label: "Complimentary" },
   not_required: { tone: "neutral", label: "Not required" },
   awaiting_checkout: { tone: "info", label: "Awaiting checkout" },
   on_trial: { tone: "info", label: "On trial" },

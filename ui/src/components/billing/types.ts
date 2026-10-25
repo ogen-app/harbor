@@ -74,6 +74,9 @@ export interface OwnerTrial {
 export interface TenantBilling {
   tenantId: string;
   billingRequired: boolean;
+  // A tester's workspace (CON-333): never billed, so billingRequired is false.
+  // End it with SetComplimentary, not the comp/exempt toggle.
+  complimentary: boolean;
   gated: boolean;
   subscriptions: Subscription[];
   scheduledChanges: ScheduledChange[];
