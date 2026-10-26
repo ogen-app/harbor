@@ -68,7 +68,7 @@ tidy:
 # CON-334) plus billing.v1 SetComplimentary land in v1.18.0. To try an untagged
 # contract, generate from a local checkout: `make proto PROTO_SRC=../proto/proto`.
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.18.0
+PROTO_VERSION := v1.19.0
 PROTO_SRC     ?= $(PROTO_MODULE):$(PROTO_VERSION)
 PROTO_FILES   := tenants/v1/tenants.proto secrets/v1/secrets.proto \
 	platforms/v1/platforms.proto plans/v1/plans.proto email/v1/email.proto \
