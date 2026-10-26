@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -179,5 +180,117 @@ func TestNilClientUnavailable(t *testing.T) {
 	}
 	if _, err := c.SetFreeTrialTier(t.Context(), "", "off"); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("SetFreeTrialTier err = %v", err)
+	}
+	if _, err := c.VariantMappings(t.Context(), true); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("VariantMappings err = %v", err)
+	}
+	if _, err := c.SetVariantMapping(t.Context(), "p1", true, "", "unmap"); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("SetVariantMapping err = %v", err)
+	}
+}
+
+// variantServer answers the variant-mapping RPCs (CON-404) and records the
+// modes and the write it was sent.
+type variantServer struct {
+	billingv1.UnimplementedBillingAdminServiceServer
+	modes   []bool
+	lastSet *billingv1.SetVariantMappingRequest
+}
+
+func (s *variantServer) ListProviderVariants(_ context.Context, req *billingv1.ListProviderVariantsRequest) (*billingv1.ListProviderVariantsResponse, error) {
+	s.modes = append(s.modes, req.GetTestMode())
+	return &billingv1.ListProviderVariantsResponse{Variants: []*billingv1.ProviderVariant{
+		{Id: "123459", ProductName: "Max", Name: "Yearly", PriceMinor: 100000, Currency: "EUR", Interval: "year", TestMode: true},
+		{Id: "123456", ProductName: "Pro", Name: "Monthly", PriceMinor: 5000, Currency: "EUR", Interval: "month", HasFreeTrial: true, TrialInterval: "month", TrialIntervalCount: 1, MappedPriceId: "p1"},
+	}}, nil
+}
+
+func (s *variantServer) ListVariantMappings(_ context.Context, req *billingv1.ListVariantMappingsRequest) (*billingv1.ListVariantMappingsResponse, error) {
+	s.modes = append(s.modes, req.GetTestMode())
+	return &billingv1.ListVariantMappingsResponse{TestMode: req.GetTestMode(), Checked: true, Mappings: []*billingv1.VariantMapping{
+		{
+			TierVersionPriceId: "p1", TierName: "Pro", TierVersion: 2, Interval: "month", NetMinor: 5000, Currency: "EUR", FreeTrialTier: true,
+			VariantId: "123456", Variant: &billingv1.ProviderVariant{Id: "123456"}, Status: "ok",
+			UpdatedAt: timestamppb.New(time.Unix(7000, 0)), UpdatedBy: "harbor",
+		},
+		{TierVersionPriceId: "p2", TierName: "Max", TierVersion: 1, Interval: "year", NetMinor: 100000, Currency: "EUR", Status: "unmapped", Message: "Not mapped"},
+	}}, nil
+}
+
+func (s *variantServer) SetVariantMapping(_ context.Context, req *billingv1.SetVariantMappingRequest) (*billingv1.SetVariantMappingResponse, error) {
+	s.lastSet = req
+	return &billingv1.SetVariantMappingResponse{Mapping: &billingv1.VariantMapping{TierVersionPriceId: req.GetTierVersionPriceId(), VariantId: req.GetVariantId(), Status: "ok"}}, nil
+}
+
+func (s *variantServer) SuggestVariantMappings(_ context.Context, req *billingv1.SuggestVariantMappingsRequest) (*billingv1.SuggestVariantMappingsResponse, error) {
+	s.modes = append(s.modes, req.GetTestMode())
+	return &billingv1.SuggestVariantMappingsResponse{Suggestions: []*billingv1.VariantSuggestion{
+		{TierVersionPriceId: "p2", Variant: &billingv1.ProviderVariant{Id: "123459", Interval: "year"}},
+	}}, nil
+}
+
+// TestVariantMappingRoundTrip covers the four variant-mapping RPCs: the mode is
+// passed through, an unmapped row has no variant and no updated_at, and a write
+// carries the price, mode, variant and reason.
+func TestVariantMappingRoundTrip(t *testing.T) {
+	fake := &variantServer{}
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	gs := grpc.NewServer()
+	billingv1.RegisterBillingAdminServiceServer(gs, fake)
+	go func() { _ = gs.Serve(lis) }()
+	t.Cleanup(gs.Stop)
+	c, err := New(lis.Addr().String(), "tok")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	ctx := t.Context()
+
+	list, err := c.VariantMappings(ctx, false)
+	if err != nil {
+		t.Fatalf("VariantMappings: %v", err)
+	}
+	if list.TestMode || !list.Checked || len(list.Mappings) != 2 {
+		t.Fatalf("list = %+v", list)
+	}
+	mapped, unmapped := list.Mappings[0], list.Mappings[1]
+	if mapped.Variant == nil || mapped.Variant.ID != "123456" || mapped.UpdatedAt == nil || !mapped.FreeTrialTier || mapped.TierVersion != 2 {
+		t.Errorf("mapped row = %+v", mapped)
+	}
+	if unmapped.Variant != nil || unmapped.UpdatedAt != nil || unmapped.Status != "unmapped" || unmapped.Message == "" {
+		t.Errorf("unmapped row = %+v", unmapped)
+	}
+
+	variants, err := c.ProviderVariants(ctx, true)
+	if err != nil {
+		t.Fatalf("ProviderVariants: %v", err)
+	}
+	if len(variants) != 2 || variants[1].MappedPriceID != "p1" || variants[1].TrialIntervalCount != 1 || variants[0].PriceMinor != 100000 {
+		t.Errorf("variants = %+v", variants)
+	}
+
+	sugg, err := c.SuggestVariantMappings(ctx, true)
+	if err != nil {
+		t.Fatalf("SuggestVariantMappings: %v", err)
+	}
+	if len(sugg) != 1 || sugg[0].TierVersionPriceID != "p2" || sugg[0].Variant.ID != "123459" {
+		t.Errorf("suggestions = %+v", sugg)
+	}
+	if !slices.Equal(fake.modes, []bool{false, true, true}) {
+		t.Errorf("modes sent = %v, want [false true true]", fake.modes)
+	}
+
+	m, err := c.SetVariantMapping(ctx, "p2", true, "123459", "created in the test store")
+	if err != nil {
+		t.Fatalf("SetVariantMapping: %v", err)
+	}
+	if got := fake.lastSet; got.GetTierVersionPriceId() != "p2" || !got.GetTestMode() || got.GetVariantId() != "123459" || got.GetReason() != "created in the test store" {
+		t.Errorf("SetVariantMapping request = %+v", got)
+	}
+	if m.Status != "ok" || m.VariantID != "123459" {
+		t.Errorf("mapping = %+v", m)
 	}
 }

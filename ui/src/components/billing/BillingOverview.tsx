@@ -12,7 +12,12 @@ import type { BillingSettingsResponse } from "./types";
 // BillingOverview is the /billing page body (CON-327): the provider settings
 // strip (test/live mode, whether Lemon Squeezy secrets are configured), the
 // attention list, the free-month offer and the go-live cutover.
-export function BillingOverview() {
+export function BillingOverview({
+  onOpenPrice,
+}: {
+  // Opens a price's variant-mapping drawer (unmapped_price attention rows).
+  onOpenPrice: (priceId: string) => void;
+}) {
   const [settings, setSettings] = useState<BillingSettingsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tiers = useTierCatalog();
@@ -42,7 +47,12 @@ export function BillingOverview() {
   return (
     <div className="space-y-6">
       <SettingsStrip settings={settings} error={error} />
-      <AttentionTable tiers={tiers} trialTeardownLive={s?.trialTeardownLive ?? false} />
+      <AttentionTable
+        tiers={tiers}
+        trialTeardownLive={s?.trialTeardownLive ?? false}
+        testMode={s?.testMode ?? true}
+        onOpenPrice={onOpenPrice}
+      />
       <div className="grid gap-6 xl:grid-cols-2">
         <FreeTrialCard tiers={tiers} appBaseUrl={settings?.appBaseUrl ?? ""} enabled={enabled} />
         <CutoverCard settings={s} enabled={enabled} />

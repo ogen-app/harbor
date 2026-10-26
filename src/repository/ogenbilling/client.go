@@ -132,6 +132,64 @@ type AttentionItem struct {
 	WebhookEvent   *WebhookEvent `json:"webhookEvent"`
 	Since          *time.Time    `json:"since"`
 	TeardownStatus string        `json:"teardownStatus"` // '' | dry_run | enqueued
+	// TierVersionPriceID is set for unmapped_price: a sellable price with no
+	// variant in the current mode (TenantID and TenantName are '' then).
+	TierVersionPriceID string `json:"tierVersionPriceId"`
+}
+
+// ProviderVariant is one subscription variant of the Lemon Squeezy store
+// (CON-404). MappedPriceID is the price row it sells in its mode ('' = none).
+type ProviderVariant struct {
+	ID                 string `json:"id"`
+	ProductID          string `json:"productId"`
+	ProductName        string `json:"productName"`
+	Name               string `json:"name"`
+	PriceMinor         int64  `json:"priceMinor"` // excluding tax
+	Currency           string `json:"currency"`
+	Interval           string `json:"interval"` // month | year
+	HasFreeTrial       bool   `json:"hasFreeTrial"`
+	TrialInterval      string `json:"trialInterval"` // day | week | month | year; '' without a trial
+	TrialIntervalCount int32  `json:"trialIntervalCount"`
+	Status             string `json:"status"` // the provider's variant status
+	TestMode           bool   `json:"testMode"`
+	MappedPriceID      string `json:"mappedPriceId"`
+}
+
+// VariantMapping is one sellable price row, the variant that sells it in one
+// mode and Ogen's check of the pair. Status is ok | unmapped | variant_missing |
+// price_mismatch | currency_mismatch | interval_mismatch | mode_mismatch |
+// trial_missing | unchecked; Message explains every status but ok.
+type VariantMapping struct {
+	TierVersionPriceID string           `json:"tierVersionPriceId"`
+	TierID             string           `json:"tierId"`
+	TierName           string           `json:"tierName"`
+	TierVersionID      string           `json:"tierVersionId"`
+	TierVersion        int32            `json:"tierVersion"`
+	Interval           string           `json:"interval"`
+	NetMinor           int64            `json:"netMinor"` // excluding tax
+	Currency           string           `json:"currency"`
+	CountryCode        string           `json:"countryCode"` // '' = the currency's default price
+	FreeTrialTier      bool             `json:"freeTrialTier"`
+	VariantID          string           `json:"variantId"` // '' when unmapped
+	Variant            *ProviderVariant `json:"variant"`   // nil when unmapped or unreadable
+	Status             string           `json:"status"`
+	Message            string           `json:"message"`
+	UpdatedAt          *time.Time       `json:"updatedAt"`
+	UpdatedBy          string           `json:"updatedBy"`
+}
+
+// VariantMappingList is one mode's map. Checked is false when the statuses could
+// not come from the provider (that mode's API key is not set, or it is down).
+type VariantMappingList struct {
+	TestMode bool             `json:"testMode"`
+	Checked  bool             `json:"checked"`
+	Mappings []VariantMapping `json:"mappings"`
+}
+
+// VariantSuggestion pairs an unmapped price row with the one variant matching it.
+type VariantSuggestion struct {
+	TierVersionPriceID string          `json:"tierVersionPriceId"`
+	Variant            ProviderVariant `json:"variant"`
 }
 
 // AttentionPage is one page of the attention list. NextPageToken is "" on the
@@ -350,7 +408,137 @@ func (c *Client) InvalidateTestSubscriptions(ctx context.Context, dryRun bool) (
 	return CutoverResult{DryRun: resp.GetDryRun(), Count: resp.GetCount(), TenantIDs: ids}, nil
 }
 
+// ProviderVariants lists the store's subscription variants in one mode, for the
+// mapping picker. FailedPrecondition, with a readable message, when that mode
+// cannot be read (its API key is not set).
+func (c *Client) ProviderVariants(ctx context.Context, testMode bool) ([]ProviderVariant, error) {
+	if c == nil {
+		return nil, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.ListProviderVariants(ctx, &billingv1.ListProviderVariantsRequest{TestMode: testMode})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProviderVariant, 0, len(resp.GetVariants()))
+	for _, v := range resp.GetVariants() {
+		out = append(out, variantFromProto(v))
+	}
+	return out, nil
+}
+
+// VariantMappings lists every sellable price row of one mode with its variant
+// and the check result.
+func (c *Client) VariantMappings(ctx context.Context, testMode bool) (VariantMappingList, error) {
+	if c == nil {
+		return VariantMappingList{}, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.ListVariantMappings(ctx, &billingv1.ListVariantMappingsRequest{TestMode: testMode})
+	if err != nil {
+		return VariantMappingList{}, err
+	}
+	out := VariantMappingList{
+		TestMode: resp.GetTestMode(),
+		Checked:  resp.GetChecked(),
+		Mappings: make([]VariantMapping, 0, len(resp.GetMappings())),
+	}
+	for _, m := range resp.GetMappings() {
+		out.Mappings = append(out.Mappings, mappingFromProto(m))
+	}
+	return out, nil
+}
+
+// SetVariantMapping maps a price row to a variant in one mode, or unmaps it with
+// variantID "". FailedPrecondition, with Ogen's readable message, when the
+// variant does not match the price or already sells another one; reason is
+// required.
+func (c *Client) SetVariantMapping(ctx context.Context, priceID string, testMode bool, variantID, reason string) (VariantMapping, error) {
+	if c == nil {
+		return VariantMapping{}, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.SetVariantMapping(ctx, &billingv1.SetVariantMappingRequest{
+		TierVersionPriceId: priceID,
+		TestMode:           testMode,
+		VariantId:          variantID,
+		Reason:             reason,
+	})
+	if err != nil {
+		return VariantMapping{}, err
+	}
+	return mappingFromProto(resp.GetMapping()), nil
+}
+
+// SuggestVariantMappings proposes a variant for every unmapped price row that
+// exactly one free variant matches. Nothing is saved.
+func (c *Client) SuggestVariantMappings(ctx context.Context, testMode bool) ([]VariantSuggestion, error) {
+	if c == nil {
+		return nil, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.rpc.SuggestVariantMappings(ctx, &billingv1.SuggestVariantMappingsRequest{TestMode: testMode})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]VariantSuggestion, 0, len(resp.GetSuggestions()))
+	for _, s := range resp.GetSuggestions() {
+		out = append(out, VariantSuggestion{TierVersionPriceID: s.GetTierVersionPriceId(), Variant: variantFromProto(s.GetVariant())})
+	}
+	return out, nil
+}
+
 // ── proto → DTO ────────────────────────────────────────────────────────────────
+
+func variantFromProto(v *billingv1.ProviderVariant) ProviderVariant {
+	return ProviderVariant{
+		ID:                 v.GetId(),
+		ProductID:          v.GetProductId(),
+		ProductName:        v.GetProductName(),
+		Name:               v.GetName(),
+		PriceMinor:         v.GetPriceMinor(),
+		Currency:           v.GetCurrency(),
+		Interval:           v.GetInterval(),
+		HasFreeTrial:       v.GetHasFreeTrial(),
+		TrialInterval:      v.GetTrialInterval(),
+		TrialIntervalCount: v.GetTrialIntervalCount(),
+		Status:             v.GetStatus(),
+		TestMode:           v.GetTestMode(),
+		MappedPriceID:      v.GetMappedPriceId(),
+	}
+}
+
+func mappingFromProto(m *billingv1.VariantMapping) VariantMapping {
+	out := VariantMapping{
+		TierVersionPriceID: m.GetTierVersionPriceId(),
+		TierID:             m.GetTierId(),
+		TierName:           m.GetTierName(),
+		TierVersionID:      m.GetTierVersionId(),
+		TierVersion:        m.GetTierVersion(),
+		Interval:           m.GetInterval(),
+		NetMinor:           m.GetNetMinor(),
+		Currency:           m.GetCurrency(),
+		CountryCode:        m.GetCountryCode(),
+		FreeTrialTier:      m.GetFreeTrialTier(),
+		VariantID:          m.GetVariantId(),
+		Status:             m.GetStatus(),
+		Message:            m.GetMessage(),
+		UpdatedAt:          timePtr(m.GetUpdatedAt()),
+		UpdatedBy:          m.GetUpdatedBy(),
+	}
+	if v := m.GetVariant(); v != nil {
+		out.Variant = new(variantFromProto(v))
+	}
+	return out
+}
 
 func subscriptionFromProto(s *billingv1.Subscription) Subscription {
 	return Subscription{
@@ -439,7 +627,8 @@ func attentionFromProto(a *billingv1.AttentionItem) AttentionItem {
 		TenantName:     a.GetTenantName(),
 		Reason:         a.GetReason(),
 		Since:          timePtr(a.GetSince()),
-		TeardownStatus: a.GetTeardownStatus(),
+		TeardownStatus:     a.GetTeardownStatus(),
+		TierVersionPriceID: a.GetTierVersionPriceId(),
 	}
 	if s := a.GetSubscription(); s != nil {
 		out.Subscription = new(subscriptionFromProto(s))

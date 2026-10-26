@@ -98,7 +98,8 @@ export type AttentionReason =
   | "expired_never_paid"
   | "duplicate"
   | "unresolved_webhook"
-  | "scheduled_change_failed";
+  | "scheduled_change_failed"
+  | "unmapped_price";
 
 export interface AttentionItem {
   tenantId: string;
@@ -108,6 +109,9 @@ export interface AttentionItem {
   webhookEvent: WebhookEvent | null;
   since: string | null;
   teardownStatus: "" | "dry_run" | "enqueued" | string;
+  // Set for unmapped_price: a sellable price with no variant in the current
+  // mode (tenantId and tenantName are '' then).
+  tierVersionPriceId: string;
 }
 
 export interface AttentionResponse {
@@ -126,6 +130,78 @@ export interface FreeTrialTier {
 export interface FreeTrialTierResponse {
   available: boolean;
   offer: FreeTrialTier;
+}
+
+// ── Variant mapping (CON-404/407) ──────────────────────────────────────────────
+// Each sellable tier price is sold through one Lemon Squeezy variant, mapped
+// separately for test and live mode.
+
+export type BillingMode = "test" | "live";
+
+export interface ProviderVariant {
+  id: string;
+  productId: string;
+  productName: string;
+  name: string;
+  priceMinor: number; // excluding tax
+  currency: string;
+  interval: string; // month | year
+  hasFreeTrial: boolean;
+  trialInterval: string; // day | week | month | year; '' without a trial
+  trialIntervalCount: number;
+  status: string; // the provider's variant status, e.g. published
+  testMode: boolean;
+  mappedPriceId: string; // the price this variant sells in its mode; '' = none
+}
+
+// ok | unmapped | variant_missing | price_mismatch | currency_mismatch |
+// interval_mismatch | mode_mismatch | trial_missing | unchecked
+export type MappingStatus = string;
+
+export interface VariantMapping {
+  tierVersionPriceId: string;
+  tierId: string;
+  tierName: string;
+  tierVersionId: string;
+  tierVersion: number;
+  interval: string; // month | year
+  netMinor: number; // excluding tax
+  currency: string;
+  countryCode: string; // '' = the currency's default price
+  freeTrialTier: boolean; // its variants must carry a one-month trial
+  variantId: string; // '' when unmapped
+  variant: ProviderVariant | null;
+  status: MappingStatus;
+  message: string; // Ogen's explanation for every status but ok
+  updatedAt: string | null;
+  updatedBy: string;
+}
+
+export interface VariantMappingsResponse {
+  available: boolean;
+  testMode: boolean;
+  // false: statuses could not come from Lemon Squeezy (no API key for the mode).
+  checked: boolean;
+  mappings: VariantMapping[];
+}
+
+export interface ProviderVariantsResponse {
+  available: boolean;
+  readable: boolean; // false: Ogen cannot read the mode; message says why
+  message: string;
+  variants: ProviderVariant[];
+}
+
+export interface VariantSuggestion {
+  tierVersionPriceId: string;
+  variant: ProviderVariant;
+}
+
+export interface VariantSuggestionsResponse {
+  available: boolean;
+  readable: boolean;
+  message: string;
+  suggestions: VariantSuggestion[];
 }
 
 export interface CutoverResult {
