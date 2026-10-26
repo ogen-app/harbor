@@ -349,7 +349,14 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	total := len(rows)
 
 	// Server-side power search: keep tenants matching every filter (AND).
-	if filters := parseFilters(c.Query("filters")); len(filters) > 0 {
+	filters := parseFilters(c.Query("filters"))
+	if !billingAvailable {
+		// Every billingStatus is '' when Ogen couldn't report them, so a billing
+		// filter would match nothing (or everything). Ignore it, like an unknown
+		// field; billingAvailable=false tells the UI why.
+		filters = slices.DeleteFunc(filters, func(f tenantFilter) bool { return f.Field == "billing" })
+	}
+	if len(filters) > 0 {
 		filtered := make([]tenantRow, 0, len(rows))
 		for _, r := range rows {
 			match := true
