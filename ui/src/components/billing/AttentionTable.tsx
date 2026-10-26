@@ -249,7 +249,7 @@ export function AttentionTable({
               <span aria-hidden />
             </div>
             {items.map((item, i) => {
-              const key = `${item.tenantId}:${item.reason}:${item.subscription?.id ?? item.webhookEvent?.id ?? item.tierVersionPriceId ?? i}`;
+              const key = `${item.tenantId}:${item.reason}:${item.subscription?.id || item.webhookEvent?.id || item.tierVersionPriceId || i}`;
               if (item.reason === "unmapped_price") {
                 return (
                   <UnmappedPriceRow
