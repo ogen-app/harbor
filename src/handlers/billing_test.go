@@ -25,6 +25,7 @@ type fakeBilling struct {
 	lastRequired *billingv1.SetBillingRequiredRequest
 	lastTrial    *billingv1.SetFreeTrialTierRequest
 	lastComp     *billingv1.SetComplimentaryRequest
+	lastVariant  *billingv1.SetVariantMappingRequest
 	cutoverErr   error
 }
 
@@ -55,6 +56,33 @@ func (f *fakeBilling) InvalidateTestSubscriptions(_ context.Context, req *billin
 		return nil, f.cutoverErr
 	}
 	return &billingv1.InvalidateTestSubscriptionsResponse{DryRun: req.GetDryRun(), Count: 1, TenantIds: []string{"t1"}}, nil
+}
+
+// The variant-mapping RPCs (CON-404): the live mode is unreadable (no live API
+// key), and a variant priced unlike the row is refused.
+func (f *fakeBilling) ListVariantMappings(_ context.Context, req *billingv1.ListVariantMappingsRequest) (*billingv1.ListVariantMappingsResponse, error) {
+	return &billingv1.ListVariantMappingsResponse{TestMode: req.GetTestMode(), Checked: req.GetTestMode(), Mappings: []*billingv1.VariantMapping{
+		{TierVersionPriceId: "p1", TierName: "Max", TierVersion: 1, Interval: "year", Status: "unmapped", Message: "Not mapped"},
+	}}, nil
+}
+
+func (f *fakeBilling) ListProviderVariants(_ context.Context, req *billingv1.ListProviderVariantsRequest) (*billingv1.ListProviderVariantsResponse, error) {
+	if !req.GetTestMode() {
+		return nil, status.Error(codes.FailedPrecondition, "cannot read that Lemon Squeezy mode: set lemonsqueezy_api_key_live in Harbor → Secrets to read live variants")
+	}
+	return &billingv1.ListProviderVariantsResponse{Variants: []*billingv1.ProviderVariant{{Id: "123459"}}}, nil
+}
+
+func (f *fakeBilling) SuggestVariantMappings(_ context.Context, _ *billingv1.SuggestVariantMappingsRequest) (*billingv1.SuggestVariantMappingsResponse, error) {
+	return &billingv1.SuggestVariantMappingsResponse{}, nil
+}
+
+func (f *fakeBilling) SetVariantMapping(_ context.Context, req *billingv1.SetVariantMappingRequest) (*billingv1.SetVariantMappingResponse, error) {
+	f.lastVariant = req
+	if req.GetVariantId() == "123461" {
+		return nil, status.Error(codes.FailedPrecondition, "Lemon Squeezy variant 123461 sells €100.00 / month; this price is €120.00 / month.")
+	}
+	return &billingv1.SetVariantMappingResponse{Mapping: &billingv1.VariantMapping{TierVersionPriceId: req.GetTierVersionPriceId(), VariantId: req.GetVariantId(), Status: "ok"}}, nil
 }
 
 func newBillingApp(t *testing.T, fake *fakeBilling) *fiber.App {
@@ -109,6 +137,9 @@ func TestBilling_ReadsSoftUnavailable(t *testing.T) {
 		"/api/billing/attention",
 		"/api/billing/free-trial-tier",
 		"/api/tenants/t1/billing",
+		"/api/billing/variant-mappings?mode=test",
+		"/api/billing/provider-variants?mode=live",
+		"/api/billing/variant-suggestions?mode=test",
 	} {
 		code, body := doJSON(t, app, "GET", path, "")
 		if code != fiber.StatusOK {
@@ -147,6 +178,7 @@ func TestBilling_WritesUnavailableAre503(t *testing.T) {
 		{"POST", "/api/tenants/t1/billing/resync", ""},
 		{"PUT", "/api/billing/free-trial-tier", `{"tierId":"pro","reason":"launch"}`},
 		{"POST", "/api/billing/cutover", `{"dryRun":true}`},
+		{"PUT", "/api/billing/variant-mappings/p1", `{"mode":"test","variantId":"1","reason":"created"}`},
 	}
 	for _, tc := range cases {
 		if code, _ := doJSON(t, app, tc.method, tc.path, tc.body); code != fiber.StatusServiceUnavailable {
@@ -226,5 +258,57 @@ func TestBilling_SetComplimentary(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"complimentary":true`) {
 		t.Errorf("body = %s, want complimentary:true", body)
+	}
+}
+
+// Variant mapping (CON-404): the mode is required and passed through, a reason
+// is required, an unreadable mode renders Ogen's message as readable:false, and
+// a refused mapping is a 409 with Ogen's message unchanged.
+func TestBilling_VariantMapping(t *testing.T) {
+	fake := &fakeBilling{}
+	app := newBillingApp(t, fake)
+
+	if code, _ := doJSON(t, app, "GET", "/api/billing/variant-mappings", ""); code != fiber.StatusBadRequest {
+		t.Errorf("no mode: status = %d, want 400", code)
+	}
+	code, body := doJSON(t, app, "GET", "/api/billing/variant-mappings?mode=live", "")
+	if code != fiber.StatusOK || !strings.Contains(string(body), `"testMode":false`) || !strings.Contains(string(body), `"checked":false`) || !strings.Contains(string(body), `"tierVersionPriceId":"p1"`) {
+		t.Errorf("live mappings: status = %d, body = %s", code, body)
+	}
+
+	code, body = doJSON(t, app, "GET", "/api/billing/provider-variants?mode=live", "")
+	if code != fiber.StatusOK || !strings.Contains(string(body), `"readable":false`) || !strings.Contains(string(body), "lemonsqueezy_api_key_live") || !strings.Contains(string(body), `"variants":[]`) {
+		t.Errorf("unreadable live variants: status = %d, body = %s", code, body)
+	}
+	code, body = doJSON(t, app, "GET", "/api/billing/provider-variants?mode=test", "")
+	if code != fiber.StatusOK || !strings.Contains(string(body), `"readable":true`) || !strings.Contains(string(body), `"id":"123459"`) {
+		t.Errorf("test variants: status = %d, body = %s", code, body)
+	}
+	code, body = doJSON(t, app, "GET", "/api/billing/variant-suggestions?mode=test", "")
+	if code != fiber.StatusOK || !strings.Contains(string(body), `"suggestions":[]`) {
+		t.Errorf("suggestions: status = %d, body = %s", code, body)
+	}
+
+	if code, _ := doJSON(t, app, "PUT", "/api/billing/variant-mappings/p1", `{"mode":"test","variantId":"123459","reason":" "}`); code != fiber.StatusBadRequest {
+		t.Errorf("without reason: status = %d, want 400", code)
+	}
+	if code, _ := doJSON(t, app, "PUT", "/api/billing/variant-mappings/p1", `{"variantId":"123459","reason":"x"}`); code != fiber.StatusBadRequest {
+		t.Errorf("without mode: status = %d, want 400", code)
+	}
+	if fake.lastVariant != nil {
+		t.Fatalf("a request reached Ogen without a reason or mode")
+	}
+
+	code, body = doJSON(t, app, "PUT", "/api/billing/variant-mappings/p2", `{"mode":"test","variantId":"123461","reason":"price change"}`)
+	if code != fiber.StatusConflict || !strings.Contains(string(body), "sells €100.00 / month") {
+		t.Errorf("refused mapping: status = %d, body = %s; want 409 with Ogen's message", code, body)
+	}
+
+	code, body = doJSON(t, app, "PUT", "/api/billing/variant-mappings/p1", `{"mode":"live","variantId":"","reason":" retired "}`)
+	if code != fiber.StatusOK {
+		t.Fatalf("unmap: status = %d, body = %s", code, body)
+	}
+	if got := fake.lastVariant; got.GetTierVersionPriceId() != "p1" || got.GetTestMode() || got.GetVariantId() != "" || got.GetReason() != "retired" {
+		t.Errorf("SetVariantMapping got %+v, want p1/live/unmap/trimmed reason", got)
 	}
 }

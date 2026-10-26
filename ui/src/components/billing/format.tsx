@@ -98,6 +98,11 @@ const REASON: Record<string, { tone: Tone; label: string; hint: string }> = {
     label: "Scheduled change failed",
     hint: "A downgrade scheduled for the billing boundary could not be applied.",
   },
+  unmapped_price: {
+    tone: "warn",
+    label: "Price not sellable",
+    hint: "No Lemon Squeezy variant sells this price, so the pricing page shows it as unavailable.",
+  },
 };
 
 export function ReasonBadge({ reason }: { reason: string }) {
@@ -219,6 +224,55 @@ export function lemonSqueezySubscriptionUrl(providerSubscriptionId: string): str
   return providerSubscriptionId
     ? `${LEMON_SQUEEZY_DASHBOARD}/${encodeURIComponent(providerSubscriptionId)}`
     : LEMON_SQUEEZY_DASHBOARD;
+}
+
+// Products and variants are created in the Lemon Squeezy dashboard (its API
+// cannot create them), then mapped in Harbor.
+export const LEMON_SQUEEZY_PRODUCTS = "https://app.lemonsqueezy.com/products";
+
+// Variant-mapping checks (CON-404). The label is Harbor's; the explanation under
+// it is always Ogen's message. "suggested" is Harbor-side: an unmapped price
+// with a suggestion from SuggestVariantMappings.
+const MAPPING_STATUS: Record<string, { tone: Tone; label: string }> = {
+  ok: { tone: "good", label: "Matches" },
+  suggested: { tone: "info", label: "Suggested" },
+  unmapped: { tone: "warn", label: "Not mapped" },
+  variant_missing: { tone: "bad", label: "Variant gone" },
+  price_mismatch: { tone: "bad", label: "Price differs" },
+  currency_mismatch: { tone: "bad", label: "Currency differs" },
+  interval_mismatch: { tone: "bad", label: "Interval differs" },
+  mode_mismatch: { tone: "bad", label: "Wrong mode" },
+  trial_missing: { tone: "warn", label: "No 1-month trial" },
+  unchecked: { tone: "neutral", label: "Not checked" },
+};
+
+export function MappingStatusBadge({ status }: { status: string }) {
+  const s = MAPPING_STATUS[status] ?? { tone: "neutral" as Tone, label: humanize(status) };
+  return <Chip tone={s.tone} label={s.label} />;
+}
+
+// formatMoney renders minor units in the price's currency, e.g. €1,000.00.
+export function formatMoney(minor: number, currency: string): string {
+  const cur = (currency || "").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-IE", { style: "currency", currency: cur }).format(minor / 100);
+  } catch {
+    return `${(minor / 100).toFixed(2)} ${cur}`.trim();
+  }
+}
+
+// intervalLabel: month → Monthly, year → Yearly.
+export function intervalLabel(interval: string): string {
+  if (interval === "month") return "Monthly";
+  if (interval === "year") return "Yearly";
+  return humanize(interval);
+}
+
+// trialLabel describes a variant's trial, e.g. "trial 1 month" or "no trial".
+export function trialLabel(v: { hasFreeTrial: boolean; trialInterval: string; trialIntervalCount: number }): string {
+  if (!v.hasFreeTrial || !v.trialInterval) return "no trial";
+  const n = v.trialIntervalCount || 1;
+  return `trial ${n} ${v.trialInterval}${n === 1 ? "" : "s"}`;
 }
 
 // The cutover runbook lives in the ogen repo.

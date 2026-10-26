@@ -6,6 +6,7 @@ import {
   ArrowSquareOutIcon,
   ArrowsClockwiseIcon,
   CheckCircleIcon,
+  LinkSimpleIcon,
   PauseIcon,
   StackIcon,
 } from "@phosphor-icons/react";
@@ -29,13 +30,20 @@ import {
   ReasonBadge,
   errorText,
   formatDate,
+  formatMoney,
+  intervalLabel,
   lemonSqueezySubscriptionUrl,
   reasonHint,
   tierName,
 } from "./format";
 import { ReasonDialog, type ReasonRequest } from "./ReasonDialog";
 import { MoveTierDialog, useTierVersions } from "./MoveTierDialog";
-import type { AttentionItem, AttentionResponse } from "./types";
+import type {
+  AttentionItem,
+  AttentionResponse,
+  VariantMapping,
+  VariantMappingsResponse,
+} from "./types";
 
 // Columns: workspace · reason · status · since · renews/ends · tier · actions.
 const GRID =
@@ -51,9 +59,14 @@ const GRID =
 export function AttentionTable({
   tiers,
   trialTeardownLive,
+  testMode,
+  onOpenPrice,
 }: {
   tiers: CatalogEntry[];
   trialTeardownLive: boolean;
+  // The mode Ogen runs in: unmapped_price items are about its map.
+  testMode: boolean;
+  onOpenPrice: (priceId: string) => void;
 }) {
   const [data, setData] = useState<AttentionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,6 +174,25 @@ export function AttentionTable({
   };
 
   const items = data?.items ?? [];
+  const hasUnmapped = items.some((it) => it.reason === "unmapped_price");
+
+  // unmapped_price items carry only a price id; the tier, version and interval
+  // are resolved from the current mode's variant map.
+  const [prices, setPrices] = useState<Map<string, VariantMapping>>(new Map());
+  useEffect(() => {
+    if (!hasUnmapped) return;
+    const controller = new AbortController();
+    fetch(`/api/billing/variant-mappings?mode=${testMode ? "test" : "live"}`, {
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<VariantMappingsResponse>) : null))
+      .then((j) =>
+        setPrices(new Map((j?.mappings ?? []).map((m) => [m.tierVersionPriceId, m]))),
+      )
+      .catch(() => {});
+    return () => controller.abort();
+  }, [hasUnmapped, testMode]);
+
   const hasPrev = prevTokens.length > 0;
   const hasNext = !!data?.nextPageToken;
 
@@ -217,7 +249,17 @@ export function AttentionTable({
               <span aria-hidden />
             </div>
             {items.map((item, i) => {
-              const key = `${item.tenantId}:${item.reason}:${item.subscription?.id ?? item.webhookEvent?.id ?? i}`;
+              const key = `${item.tenantId}:${item.reason}:${item.subscription?.id ?? item.webhookEvent?.id ?? item.tierVersionPriceId ?? i}`;
+              if (item.reason === "unmapped_price") {
+                return (
+                  <UnmappedPriceRow
+                    key={key}
+                    item={item}
+                    price={prices.get(item.tierVersionPriceId)}
+                    onOpen={() => onOpenPrice(item.tierVersionPriceId)}
+                  />
+                );
+              }
               return (
                 <AttentionRow
                   key={key}
@@ -414,6 +456,64 @@ function AttentionRow({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+    </div>
+  );
+}
+
+// UnmappedPriceRow is an unmapped_price item: a sellable price with no Lemon
+// Squeezy variant in the current mode. It has no workspace; its one action
+// opens the price's map drawer on the Variant mapping tab.
+function UnmappedPriceRow({
+  item,
+  price,
+  onOpen,
+}: {
+  item: AttentionItem;
+  price: VariantMapping | undefined;
+  onOpen: () => void;
+}) {
+  const name = price
+    ? `${price.tierName} v${price.tierVersion} ${intervalLabel(price.interval).toLowerCase()}`
+    : item.tierVersionPriceId;
+  return (
+    <div className={`${GRID} px-6 py-3.5 text-sm transition-colors hover:bg-secondary/40`}>
+      <span className="flex min-w-0 flex-col">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="w-fit truncate text-left font-medium text-foreground hover:underline cursor-pointer"
+        >
+          Price not sellable: {name}
+        </button>
+        {price && (
+          <span className="truncate font-mono text-xs text-tertiary-foreground">
+            {formatMoney(price.netMinor, price.currency)} excl. tax
+          </span>
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col items-start gap-1">
+        <ReasonBadge reason={item.reason} />
+        <span className="line-clamp-1 text-xs text-tertiary-foreground">
+          {reasonHint(item.reason)}
+        </span>
+      </span>
+      <span className="text-tertiary-foreground">—</span>
+      <span className="text-xs tabular-nums text-secondary-foreground">
+        {formatDate(item.since)}
+      </span>
+      <span className="text-tertiary-foreground">—</span>
+      <span className="truncate text-secondary-foreground">{price?.tierName ?? "—"}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="smIcon"
+        onClick={onOpen}
+        aria-label={`Map ${name} to Lemon Squeezy`}
+        title="Map to Lemon Squeezy"
+        className="h-9 w-9 justify-self-end text-tertiary-foreground"
+      >
+        <LinkSimpleIcon className="size-5" />
+      </Button>
     </div>
   );
 }

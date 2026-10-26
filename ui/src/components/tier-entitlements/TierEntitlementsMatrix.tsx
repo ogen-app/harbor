@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import type { VariantMappingsResponse } from "@/components/billing/types";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Archive02Icon,
@@ -256,6 +258,36 @@ export function TierEntitlementsMatrix() {
     setRetireOpen(true);
   };
 
+  // After a publish: the version's prices that Lemon Squeezy can't sell yet in
+  // the mode Ogen runs in (CON-407 §C). Publishing never waits for this — it
+  // only links to the variant map, filtered to the version.
+  const [unsold, setUnsold] = useState<{
+    versionId: string;
+    label: string;
+    count: number;
+  } | null>(null);
+  const checkMapping = useCallback(async (versionId: string) => {
+    try {
+      const s = await fetch("/api/billing/settings").then((r) => (r.ok ? r.json() : null));
+      if (!s?.available || !s.settings?.provider || s.settings.provider === "none") return;
+      const mode = s.settings.testMode ? "test" : "live";
+      const j = (await fetch(`/api/billing/variant-mappings?mode=${mode}`).then((r) =>
+        r.ok ? r.json() : null,
+      )) as VariantMappingsResponse | null;
+      const rows = (j?.mappings ?? []).filter((m) => m.tierVersionId === versionId);
+      const bad = rows.filter((m) => m.status !== "ok");
+      if (bad.length > 0) {
+        setUnsold({
+          versionId,
+          label: `${bad[0].tierName} v${bad[0].tierVersion}`,
+          count: bad.length,
+        });
+      }
+    } catch {
+      // Billing is optional here: a failed check just shows no link.
+    }
+  }, []);
+
   const reload = useCallback((signal?: AbortSignal) => {
     return fetch("/api/tier-entitlements", { signal })
       .then((r) => {
@@ -348,6 +380,31 @@ export function TierEntitlementsMatrix() {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden rounded-xl bg-primary">
+      {unsold && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2.5 text-sm text-amber-900"
+        >
+          <span className="min-w-0 flex-1">
+            {unsold.label} is published, but {unsold.count} of its price
+            {unsold.count === 1 ? " is" : "s are"} not sellable yet in Lemon Squeezy.
+          </span>
+          <Link
+            href={`/billing?tab=mapping&version=${encodeURIComponent(unsold.versionId)}`}
+            className="shrink-0 font-medium underline underline-offset-2"
+          >
+            Map to Lemon Squeezy
+          </Link>
+          <button
+            type="button"
+            onClick={() => setUnsold(null)}
+            aria-label="Dismiss"
+            className="shrink-0 text-amber-900/70 hover:text-amber-900 cursor-pointer"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {/* The scroll region fills the card height (both axes scroll): the frozen
           Feature/Status block stays pinned horizontally (with a right-edge
           shadow while scrolled), and the column-header row stays pinned
@@ -682,7 +739,10 @@ export function TierEntitlementsMatrix() {
         baseVersion={drawer?.version ?? null}
         siblingVersions={drawer?.tier.versions ?? []}
         features={features}
-        onSaved={() => reload()}
+        onSaved={(publishedVersionId) => {
+          reload();
+          if (publishedVersionId) checkMapping(publishedVersionId);
+        }}
       />
 
       {/* Guarded retire drawer (active versions). */}

@@ -95,7 +95,8 @@ interface VersionFormDrawerProps {
   // version.
   siblingVersions: TierVersion[];
   features: Feature[];
-  onSaved: () => void;
+  // publishedVersionId is set when this save published the version.
+  onSaved: (publishedVersionId?: string) => void;
 }
 
 // VersionFormDrawer authors a tier version (CON-294): create a new draft
@@ -268,7 +269,7 @@ export function VersionFormDrawer({
         if (!pr.ok) throw new Error(await errorText(pr));
       }
       onOpenChange(false);
-      onSaved();
+      onSaved(draft ? undefined : versionId);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Save failed.");
     } finally {
