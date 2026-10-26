@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowLeftIcon,
@@ -581,11 +581,16 @@ export function TenantDetail() {
 
   // refreshTenant re-reads the detail after an access change (complimentary on
   // or off, a tier move) so the header's tier chip and billing badge follow.
+  // Each refresh claims a sequence number; only the latest may write, so a
+  // slower, superseded response can't restore a stale chip or badge.
+  const refreshSeqRef = useRef(0);
   const refreshTenant = useCallback(() => {
     if (!id) return;
+    const seq = ++refreshSeqRef.current;
     fetch(`/api/tenants/${encodeURIComponent(id)}`)
       .then((r) => (r.ok ? (r.json() as Promise<DetailResponse>) : null))
       .then((j) => {
+        if (seq !== refreshSeqRef.current) return;
         if (j?.available && j.tenant) setData(j);
       })
       .catch(() => {});

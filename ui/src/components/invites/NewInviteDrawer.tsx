@@ -127,6 +127,13 @@ function NewInviteForm({
   const [bulk, setBulk] = useState<BulkRow[] | null>(null);
   const bulkDone = !!bulk && bulk.every((r) => r.outcome !== "pending");
 
+  // The tab buttons are disabled while sending and once bulk results show; the
+  // hotkey below honours the same lock. A ref, since its listener mounts once.
+  const tabsLockedRef = useRef(false);
+  useEffect(() => {
+    tabsLockedRef.current = submitting || !!bulk;
+  }, [submitting, bulk]);
+
   // Number keys 1..N switch the drawer's tabs (mirrors the announcements
   // drawer). Ignored while typing in a field, and once bulk results show.
   useEffect(() => {
@@ -141,6 +148,7 @@ function NewInviteForm({
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (tabsLockedRef.current) return;
       const n = Number(e.key);
       if (Number.isInteger(n) && n >= 1 && n <= FORM_TABS.length) {
         e.preventDefault();
