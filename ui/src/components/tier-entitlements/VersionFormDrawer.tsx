@@ -199,12 +199,15 @@ export function VersionFormDrawer({
     setPrices((prev) => prev.filter((_, idx) => idx !== i));
 
   async function save() {
-    // Only one non-draft (published) version of a tier may be purchasable.
+    // Only one active version of a tier may be purchasable. Retired versions
+    // keep their purchasable flag (published versions are immutable) but Ogen
+    // ignores them for purchasing, so they never conflict.
     if (!draft && purchasable) {
       const conflict = siblingVersions.find(
         (v) =>
           v.id !== baseVersion?.id &&
-          v.status !== "draft" &&
+          v.id !== createdId &&
+          v.status === "active" &&
           v.purchasable,
       );
       if (conflict) {
