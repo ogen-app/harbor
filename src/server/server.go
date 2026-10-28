@@ -15,6 +15,7 @@ import (
 
 	"github.com/ogen-app/harbor/src/auth"
 	"github.com/ogen-app/harbor/src/config"
+	"github.com/ogen-app/harbor/src/finance"
 	"github.com/ogen-app/harbor/src/handlers"
 	"github.com/ogen-app/harbor/src/logging"
 	"github.com/ogen-app/harbor/src/repository/analytics"
@@ -36,7 +37,7 @@ import (
 // Harbor runs as a single binary. ogenDB and analyticsDB are pools to Ogen's
 // (external) control-plane and analytics databases — either may be nil when
 // Ogen is unreachable; they are held for forthcoming Ogen-backed handlers.
-func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, platformsAdminClient *ogenplatforms.Client, plansAdminClient *ogenplans.Client, emailClient *ogenemail.Client, announcementsClient *ogenannouncements.Client, modelConfigClient *ogenmodelconfig.Client, billingClient *ogenbilling.Client, invitesClient *ogeninvites.Client, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
+func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, platformsAdminClient *ogenplatforms.Client, plansAdminClient *ogenplans.Client, emailClient *ogenemail.Client, announcementsClient *ogenannouncements.Client, modelConfigClient *ogenmodelconfig.Client, billingClient *ogenbilling.Client, invitesClient *ogeninvites.Client, financeSvc *finance.Service, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: defaultErrorHandler,
 	})
@@ -92,7 +93,12 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	if emailClient != nil {
 		notifier = emailClient
 	}
-	handlers.NewWebhooksHandler(notifier, userRepo, strings.Split(cfg.AuthAllowedEmails, ","), cfg.OgenWebhookSecret).Register(app)
+	// CON-420: the same webhook carries receipt.received for the finance ledger.
+	var receiptEvents handlers.ReceiptEvents
+	if financeSvc != nil {
+		receiptEvents = financeSvc
+	}
+	handlers.NewWebhooksHandler(notifier, receiptEvents, userRepo, strings.Split(cfg.AuthAllowedEmails, ","), cfg.OgenWebhookSecret).Register(app)
 	handlers.NewAuthHandler(
 		userRepo, sessionRepo, verifier,
 		strings.Split(cfg.AuthAllowedEmails, ","),
@@ -111,6 +117,10 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	handlers.NewModelConfigHandler(modelConfigClient, tenantsAdminClient).Register(app, requireAuth)
 	handlers.NewBillingHandler(billingClient, cfg.OgenAppBaseURL).Register(app, requireAuth)
 	handlers.NewInvitesHandler(invitesClient, handlers.NewOperatorLookup(userRepo)).Register(app, requireAuth)
+	// CON-420: the Profit & loss page over Harbor's own finance ledger.
+	if financeSvc != nil {
+		handlers.NewPnLHandler(financeSvc, tenantRepo, handlers.NewOperatorLookup(userRepo)).Register(app, requireAuth)
+	}
 
 	// ── Embedded UI ───────────────────────────────────────────────────────
 	// Registered last: a catch-all that serves the static export for any route

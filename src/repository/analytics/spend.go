@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/uptrace/bun"
 )
@@ -46,6 +47,16 @@ type DailyModelCost struct {
 	CostMicros int64  `bun:"cost_micros"`
 }
 
+// DailyModelTenantCost is one (UTC calendar day, model, tenant) cost bucket,
+// the grain the finance ledger materialises AI usage at (CON-420). Date is an
+// ISO "YYYY-MM-DD" string; TenantID is ” for untenanted usage.
+type DailyModelTenantCost struct {
+	Date       string `bun:"date"`
+	Model      string `bun:"model"`
+	TenantID   string `bun:"tenant_id"`
+	CostMicros int64  `bun:"cost_micros"`
+}
+
 type SpendRepository interface {
 	// Available reports whether the analytics pool is configured.
 	Available() bool
@@ -64,6 +75,11 @@ type SpendRepository interface {
 	// DailyCostByModelForTenant is DailyCostByModel scoped to a single tenant,
 	// powering the per-tenant daily token-cost chart on the detail page.
 	DailyCostByModelForTenant(ctx context.Context, tenantID string, windowDays int) ([]DailyModelCost, error)
+	// DailyCostByModelTenant returns per-day, per-model, per-tenant summed cost
+	// for every UTC day from the given UTC midnight on, bucketed exactly like
+	// DailyCostByModel. A zero from means all history. Returns ErrUnavailable if
+	// the pool is nil.
+	DailyCostByModelTenant(ctx context.Context, from time.Time) ([]DailyModelTenantCost, error)
 }
 
 type spendRepository struct{ db *bun.DB }
@@ -151,6 +167,30 @@ func (r *spendRepository) dailyCostByModel(ctx context.Context, tenantID string,
 	var rows []DailyModelCost
 	if err := r.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
 		logFail("spend.dailyCostByModel", err)
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *spendRepository) DailyCostByModelTenant(ctx context.Context, from time.Time) ([]DailyModelTenantCost, error) {
+	if r.db == nil {
+		return nil, ErrUnavailable
+	}
+	// Same day bucketing and model coalescing as dailyCostByModel, so each
+	// day's sum over tenants equals that chart's day. The bare occurred_at
+	// comparison keeps hypertable chunk exclusion.
+	var rows []DailyModelTenantCost
+	err := r.db.NewRaw(`
+		SELECT to_char((occurred_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
+		       COALESCE(NULLIF(model, ''), 'unknown') AS model,
+		       COALESCE(tenant_id::text, '') AS tenant_id,
+		       sum(cost_micros) AS cost_micros
+		FROM vendor_usage_events
+		WHERE occurred_at >= ?
+		GROUP BY date, model, 3
+		ORDER BY date, model, 3`, from.UTC()).Scan(ctx, &rows)
+	if err != nil {
+		logFail("spend.dailyCostByModelTenant", err)
 		return nil, err
 	}
 	return rows, nil

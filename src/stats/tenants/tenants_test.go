@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	"github.com/ogen-app/harbor/src/repository/ogen"
@@ -94,6 +95,12 @@ func (f *fakeSpendRepo) DailyCostByModel(context.Context, int) ([]analytics.Dail
 	return nil, nil // unused by Collect
 }
 func (f *fakeSpendRepo) DailyCostByModelForTenant(context.Context, string, int) ([]analytics.DailyModelCost, error) {
+	if !f.available {
+		return nil, analytics.ErrUnavailable
+	}
+	return nil, nil // unused by Collect
+}
+func (f *fakeSpendRepo) DailyCostByModelTenant(context.Context, time.Time) ([]analytics.DailyModelTenantCost, error) {
 	if !f.available {
 		return nil, analytics.ErrUnavailable
 	}

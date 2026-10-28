@@ -138,7 +138,7 @@ type AttentionItem struct {
 }
 
 // ProviderVariant is one subscription variant of the Lemon Squeezy store
-// (CON-404). MappedPriceID is the price row it sells in its mode ('' = none).
+// (CON-404). MappedPriceID is the price row it sells in its mode (” = none).
 type ProviderVariant struct {
 	ID                 string `json:"id"`
 	ProductID          string `json:"productId"`
@@ -496,6 +496,96 @@ func (c *Client) SuggestVariantMappings(ctx context.Context, testMode bool) ([]V
 	return out, nil
 }
 
+// Payment is one money movement at the provider (CON-415), for the finance
+// ledger's revenue sync (CON-420). Amounts are in minor units of Currency and
+// positive for every kind; Kind (order | subscription_invoice | refund |
+// chargeback) gives the direction. The *USD fields are US cents converted by
+// the provider at payment time. Fee is estimated by Ogen while FeeIsEstimated.
+type Payment struct {
+	ID                string
+	Provider          string
+	ProviderID        string // a refund carries the id of the order it reverses
+	Kind              string
+	TenantID          string
+	TierID            string
+	ProviderVariantID string
+	Currency          string
+	Subtotal          int64
+	Discount          int64
+	Tax               int64
+	Total             int64
+	Refunded          int64
+	SubtotalUSD       int64
+	DiscountUSD       int64
+	TaxUSD            int64
+	TotalUSD          int64
+	RefundedUSD       int64
+	Fee               int64
+	FeeUSD            int64
+	FeeIsEstimated    bool
+	Status            string
+	OccurredAt        time.Time
+	TestMode          bool
+}
+
+// PaymentPage is one keyset page; NextPageToken is ” on the last page.
+type PaymentPage struct {
+	Payments      []Payment
+	NextPageToken string
+}
+
+// ListPayments lists the payments that occurred in [from, to) in one mode,
+// oldest first. A zero from means "from the first payment", a zero to "now".
+func (c *Client) ListPayments(ctx context.Context, from, to time.Time, testMode bool, pageSize int32, pageToken string) (PaymentPage, error) {
+	if c == nil {
+		return PaymentPage{}, ErrUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	req := &billingv1.ListPaymentsRequest{TestMode: testMode, PageSize: pageSize, PageToken: pageToken}
+	if !from.IsZero() {
+		req.From = timestamppb.New(from)
+	}
+	if !to.IsZero() {
+		req.To = timestamppb.New(to)
+	}
+	resp, err := c.rpc.ListPayments(ctx, req)
+	if err != nil {
+		return PaymentPage{}, err
+	}
+	out := PaymentPage{Payments: make([]Payment, 0, len(resp.GetPayments())), NextPageToken: resp.GetNextPageToken()}
+	for _, p := range resp.GetPayments() {
+		out.Payments = append(out.Payments, Payment{
+			ID:                p.GetId(),
+			Provider:          p.GetProvider(),
+			ProviderID:        p.GetProviderId(),
+			Kind:              p.GetKind(),
+			TenantID:          p.GetTenantId(),
+			TierID:            p.GetTierId(),
+			ProviderVariantID: p.GetProviderVariantId(),
+			Currency:          p.GetCurrency(),
+			Subtotal:          p.GetSubtotal(),
+			Discount:          p.GetDiscount(),
+			Tax:               p.GetTax(),
+			Total:             p.GetTotal(),
+			Refunded:          p.GetRefunded(),
+			SubtotalUSD:       p.GetSubtotalUsd(),
+			DiscountUSD:       p.GetDiscountUsd(),
+			TaxUSD:            p.GetTaxUsd(),
+			TotalUSD:          p.GetTotalUsd(),
+			RefundedUSD:       p.GetRefundedUsd(),
+			Fee:               p.GetFee(),
+			FeeUSD:            p.GetFeeUsd(),
+			FeeIsEstimated:    p.GetFeeIsEstimated(),
+			Status:            p.GetStatus(),
+			OccurredAt:        p.GetOccurredAt().AsTime(),
+			TestMode:          p.GetTestMode(),
+		})
+	}
+	return out, nil
+}
+
 // ── proto → DTO ────────────────────────────────────────────────────────────────
 
 func variantFromProto(v *billingv1.ProviderVariant) ProviderVariant {
@@ -623,10 +713,10 @@ func tenantBillingFromProto(b *billingv1.TenantBilling) TenantBilling {
 
 func attentionFromProto(a *billingv1.AttentionItem) AttentionItem {
 	out := AttentionItem{
-		TenantID:       a.GetTenantId(),
-		TenantName:     a.GetTenantName(),
-		Reason:         a.GetReason(),
-		Since:          timePtr(a.GetSince()),
+		TenantID:           a.GetTenantId(),
+		TenantName:         a.GetTenantName(),
+		Reason:             a.GetReason(),
+		Since:              timePtr(a.GetSince()),
 		TeardownStatus:     a.GetTeardownStatus(),
 		TierVersionPriceID: a.GetTierVersionPriceId(),
 	}
