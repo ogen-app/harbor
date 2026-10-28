@@ -384,7 +384,9 @@ function AttentionEditor({
     const tax = parseMoney(draft.tax) ?? 0;
     const total = parseMoney(draft.total);
     const linesOk = draft.lines.length === 0 || subtotal == null || (linesSum != null && Math.abs(linesSum - subtotal) <= TOLERANCE);
-    const totalsOk = total != null && (subtotal == null || Math.abs(subtotal + tax - total) <= TOLERANCE);
+    // Same rule as the server: with no printed subtotal, the lines stand in.
+    const base = subtotal ?? linesSum ?? 0;
+    const totalsOk = total != null && Math.abs(base + tax - total) <= TOLERANCE;
     return { linesSum, subtotal, tax, total, linesOk, totalsOk };
   }, [draft]);
 
@@ -721,10 +723,13 @@ function AddsUp({
 }) {
   const f = (v: number | null) => (v == null ? "—" : money(v, currency));
   if (calc.linesOk && calc.totalsOk) {
+    // Without a printed subtotal the line items stand in for it, as on the
+    // server; never show the total in the subtotal's place.
+    const base = calc.subtotal ?? calc.linesSum ?? 0;
     return (
       <p className={cn("flex items-center gap-1.5", TONE_TEXT.positive)}>
         <CheckCircleIcon className="size-4" weight="bold" aria-hidden />
-        Adds up: {f(calc.subtotal ?? calc.total)} + {f(calc.tax)} = {f(calc.total)}
+        Adds up: {f(base)} + {f(calc.tax)} = {f(calc.total)}
       </p>
     );
   }
@@ -733,7 +738,7 @@ function AddsUp({
       <ClockIcon className="size-4" weight="bold" aria-hidden />
       {!calc.linesOk
         ? `Line items ${f(calc.linesSum)} ≠ subtotal ${f(calc.subtotal)}`
-        : `Subtotal ${f(calc.subtotal)} + tax ${f(calc.tax)} ≠ total ${f(calc.total)}`}
+        : `Subtotal ${f(calc.subtotal ?? calc.linesSum ?? 0)} + tax ${f(calc.tax)} ≠ total ${f(calc.total)}`}
     </p>
   );
 }

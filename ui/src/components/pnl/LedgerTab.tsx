@@ -143,19 +143,41 @@ export function LedgerTab({
     return () => controller.abort();
   }, [query, version]);
 
+  // A page belongs to the query that asked for it: when the filters or range
+  // change (or the ledger reloads) while it is in flight, it is aborted and
+  // dropped rather than appended to the new results.
+  const activeQuery = useRef(query);
+  const moreController = useRef<AbortController | null>(null);
+  useEffect(() => {
+    activeQuery.current = query;
+    moreController.current?.abort();
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setLoadingMore(false);
+  }, [query, version]);
+
   const loadMore = () => {
     if (!data?.nextCursor) return;
+    moreController.current?.abort();
+    const controller = new AbortController();
+    moreController.current = controller;
+    const issuedFor = query;
     setLoadingMore(true);
     const q = new URLSearchParams(query);
     q.set("limit", String(PAGE));
     q.set("cursor", data.nextCursor);
-    api<LedgerResponse>(`/api/pnl/ledger?${q}`)
+    const current = () => !controller.signal.aborted && activeQuery.current === issuedFor;
+    api<LedgerResponse>(`/api/pnl/ledger?${q}`, { signal: controller.signal })
       .then((j) => {
+        if (!current()) return;
         setData(j);
         setRows((r) => [...r, ...j.rows]);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Loading more failed"))
-      .finally(() => setLoadingMore(false));
+      .catch((e: unknown) => {
+        if (current()) setError(e instanceof Error ? e.message : "Loading more failed");
+      })
+      .finally(() => {
+        if (current()) setLoadingMore(false);
+      });
   };
 
   const toggle = useCallback(
