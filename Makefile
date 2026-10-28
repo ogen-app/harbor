@@ -66,15 +66,18 @@ tidy:
 # tenants.v1 Tenant.billing_status land in v1.17.0 (v1.12–v1.16 only add
 # jobs.v1/jobrpc.v1, which Harbor doesn't generate); tenantinvites.v1
 # (TenantInviteAdminService, CON-333 — the Invites / Signup mode screens,
-# CON-334) plus billing.v1 SetComplimentary land in v1.18.0. To try an untagged
+# CON-334) plus billing.v1 SetComplimentary land in v1.18.0; receipts.v1
+# (ReceiptService.ProcessReceipt) plus billing.v1 ListPayments (CON-415, for
+# the Profit & loss page, CON-420) land in v1.23.0. To try an untagged
 # contract, generate from a local checkout: `make proto PROTO_SRC=../proto/proto`.
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.19.0
+PROTO_VERSION := v1.23.0
 PROTO_SRC     ?= $(PROTO_MODULE):$(PROTO_VERSION)
 PROTO_FILES   := tenants/v1/tenants.proto secrets/v1/secrets.proto \
 	platforms/v1/platforms.proto plans/v1/plans.proto email/v1/email.proto \
 	announcements/v1/announcements.proto modelconfig/v1/modelconfig.proto \
-	billing/v1/billing.proto tenantinvites/v1/tenant_invites.proto
+	billing/v1/billing.proto tenantinvites/v1/tenant_invites.proto \
+	receipts/v1/receipts.proto
 # A local directory input wants --path relative to the working directory, so
 # prefix each file with it; a buf.build module takes them module-relative.
 PROTO_PREFIX  := $(if $(findstring buf.build/,$(PROTO_SRC)),,$(PROTO_SRC)/)
