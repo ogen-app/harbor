@@ -14,12 +14,20 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/uptrace/bun"
 
 	"github.com/ogen-app/harbor/src/config"
 	"github.com/ogen-app/harbor/src/database"
+	"github.com/ogen-app/harbor/src/finance"
+	"github.com/ogen-app/harbor/src/handlers"
+	"github.com/ogen-app/harbor/src/jobs"
 	"github.com/ogen-app/harbor/src/logging"
+	"github.com/ogen-app/harbor/src/repository/analytics"
+	financerepo "github.com/ogen-app/harbor/src/repository/finance"
+	"github.com/ogen-app/harbor/src/repository/harbor"
 	"github.com/ogen-app/harbor/src/repository/ogenannouncements"
 	"github.com/ogen-app/harbor/src/repository/ogenbilling"
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
@@ -27,6 +35,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogenmodelconfig"
 	"github.com/ogen-app/harbor/src/repository/ogenplans"
 	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
+	"github.com/ogen-app/harbor/src/repository/ogenreceipts"
 	"github.com/ogen-app/harbor/src/repository/ogensecrets"
 	"github.com/ogen-app/harbor/src/repository/ogentenants"
 	"github.com/ogen-app/harbor/src/server"
@@ -208,12 +217,48 @@ func main() {
 		slog.Info("ogen tenant-invite-admin client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
+	// ReceiptService (ProcessReceipt — CON-415, the receipt ingest of the Profit &
+	// loss page CON-420). Same shared OGEN_GRPC_ADDR/OGEN_GRPC_TOKEN and
+	// never-block-boot contract; unconfigured, received receipts wait as pending.
+	receiptsClient, err := ogenreceipts.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen receipt client", err)
+	}
+	if receiptsClient != nil {
+		defer receiptsClient.Close()
+		slog.Info("ogen receipt client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	}
+
+	// The finance ledger behind /pnl (CON-420) lives in Harbor's own database.
+	// It reads AI usage from the analytics pool, payments from billing.v1 and
+	// receipts through ProcessReceipt; each source fails open on its own.
+	financeSvc := finance.New(
+		financerepo.New(db),
+		receiptsClient,
+		billingClient,
+		analytics.NewSpendRepository(analyticsDB),
+		handlers.OperatorDirectory{AllowedEmails: strings.Split(cfg.AuthAllowedEmails, ","), Users: harbor.NewUserRepository(db)},
+		cfg.PnLInboxAddress,
+	)
+	if cfg.PnLJobs {
+		// Harbor's first background work. Each job runs under a Postgres advisory
+		// lock, so several replicas never run the same job at once.
+		runner := jobs.NewRunner(db,
+			jobs.Job{Name: "pnl.receipts", Interval: 10 * time.Second, Run: financeSvc.ProcessDueEmails},
+			jobs.Job{Name: "pnl.ai_usage", Interval: 10 * time.Minute, Run: financeSvc.MaterialiseAIUsage},
+			jobs.Job{Name: "pnl.revenue", Interval: 15 * time.Minute, Run: financeSvc.SyncRevenue},
+			jobs.Job{Name: "pnl.purge_rejected", Interval: time.Hour, Run: financeSvc.PurgeRejected},
+		)
+		runner.Start(context.Background())
+		slog.Info("finance jobs started", logging.AttrComponent, "boot")
+	}
+
 	uiFS, err := ui.Dist()
 	if err != nil {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, billingClient, invitesClient, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, billingClient, invitesClient, financeSvc, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}

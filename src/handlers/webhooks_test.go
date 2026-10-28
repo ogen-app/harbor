@@ -88,7 +88,7 @@ func TestWebhookTenantRegistered_HappyPath(t *testing.T) {
 	users := newFakeUserRepo()
 	_ = users.Upsert(context.Background(), &models.User{ID: "u1", Email: "Dev@Ogen.app", GoogleSub: "g1"})
 	notifier := &fakeNotifier{enqueued: 2}
-	h := NewWebhooksHandler(notifier, users, []string{"ops@ogen.app", " ops@ogen.app "}, testWebhookSecret)
+	h := NewWebhooksHandler(notifier, nil, users, []string{"ops@ogen.app", " ops@ogen.app "}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"event": "tenant.registered", "tenant_id": "tn-1"})
@@ -108,7 +108,7 @@ func TestWebhookTenantRegistered_HappyPath(t *testing.T) {
 
 func TestWebhookTenantRegistered_BadSignature(t *testing.T) {
 	notifier := &fakeNotifier{enqueued: 1}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
+	h := NewWebhooksHandler(notifier, nil, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
@@ -123,7 +123,7 @@ func TestWebhookTenantRegistered_BadSignature(t *testing.T) {
 
 func TestWebhookTenantRegistered_MissingSignatureHeader(t *testing.T) {
 	notifier := &fakeNotifier{enqueued: 1}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
+	h := NewWebhooksHandler(notifier, nil, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
@@ -139,7 +139,7 @@ func TestWebhookTenantRegistered_MissingSignatureHeader(t *testing.T) {
 func TestWebhookTenantRegistered_NoSecretFailsClosed(t *testing.T) {
 	// A public endpoint with no secret configured must reject (503), not skip auth.
 	notifier := &fakeNotifier{enqueued: 1}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, "") // no secret
+	h := NewWebhooksHandler(notifier, nil, newFakeUserRepo(), []string{"ops@ogen.app"}, "") // no secret
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
@@ -154,7 +154,7 @@ func TestWebhookTenantRegistered_NoSecretFailsClosed(t *testing.T) {
 
 func TestWebhookTenantRegistered_NoRecipientsIsNoOp(t *testing.T) {
 	notifier := &fakeNotifier{enqueued: 5}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"", "  "}, testWebhookSecret) // no real recipients
+	h := NewWebhooksHandler(notifier, nil, newFakeUserRepo(), []string{"", "  "}, testWebhookSecret) // no real recipients
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
@@ -171,7 +171,7 @@ func TestWebhookTenantRegistered_NoRecipientsIsNoOp(t *testing.T) {
 }
 
 func TestWebhookTenantRegistered_MissingTenantID(t *testing.T) {
-	h := NewWebhooksHandler(&fakeNotifier{}, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
+	h := NewWebhooksHandler(&fakeNotifier{}, nil, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"event": "tenant.registered"})
@@ -185,7 +185,7 @@ func TestWebhookTenantRegistered_RecipientLookupFails(t *testing.T) {
 	// A users-table read failure must 5xx (so Ogen retries), not silently drop
 	// users-table recipients by proceeding with the allowlist alone.
 	notifier := &fakeNotifier{enqueued: 1}
-	h := NewWebhooksHandler(notifier, erroringUserRepo{}, []string{"ops@ogen.app"}, testWebhookSecret)
+	h := NewWebhooksHandler(notifier, nil, erroringUserRepo{}, []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})
@@ -201,7 +201,7 @@ func TestWebhookTenantRegistered_RecipientLookupFails(t *testing.T) {
 func TestWebhookTenantRegistered_Unavailable(t *testing.T) {
 	// The notifier surfaces ErrUnavailable → 503 so Ogen retries.
 	notifier := &fakeNotifier{err: ogenemail.ErrUnavailable}
-	h := NewWebhooksHandler(notifier, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
+	h := NewWebhooksHandler(notifier, nil, newFakeUserRepo(), []string{"ops@ogen.app"}, testWebhookSecret)
 	app := newWebhookApp(h)
 
 	body, _ := json.Marshal(map[string]string{"tenant_id": "tn-1"})

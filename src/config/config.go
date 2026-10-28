@@ -59,6 +59,17 @@ type Config struct {
 	// Must be set to enable the feature and must equal Ogen's HARBOR_WEBHOOK_SECRET.
 	OgenWebhookSecret string `envconfig:"OGEN_WEBHOOK_SECRET" default:""`
 
+	// PnLInboxAddress is the Resend Inbound address operators forward vendor
+	// receipts to (CON-412/420), e.g. receipts@inbound.getogen.com. It lives on
+	// Ogen's Resend account; Harbor only shows it on the Profit & loss page so
+	// operators know where to forward. Empty hides it.
+	PnLInboxAddress string `envconfig:"PNL_INBOX_ADDRESS" default:""`
+
+	// PnLJobs runs the finance background jobs (receipt ingest, AI usage,
+	// revenue sync, rejected-receipt purge). Each takes a Postgres advisory lock,
+	// so it is safe on every replica; turn it off only to keep a replica idle.
+	PnLJobs bool `envconfig:"PNL_JOBS" default:"true"`
+
 	// CORS allowlist for a decoupled UI origin. Empty (the default) disables
 	// the CORS middleware entirely — the production build serves the UI from
 	// the same origin as the API (single binary, embedded export), and
