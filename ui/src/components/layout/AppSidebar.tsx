@@ -38,6 +38,7 @@ import {
     CreditCardIcon,
     MailAdd01Icon,
     Door01Icon,
+    ChartLineData01Icon,
 } from "@hugeicons/core-free-icons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useSignupSettings } from "@/components/invites/useSignupSettings";
@@ -84,6 +85,11 @@ const NAV_GROUPS: { header: string; items: NavItem[] }[] = [
                 href: "/announcements",
             },
             { icon: CreditCardIcon, label: "Billing", href: "/billing" },
+            {
+                icon: ChartLineData01Icon,
+                label: "Profit & loss",
+                href: "/pnl",
+            },
         ],
     },
     {
