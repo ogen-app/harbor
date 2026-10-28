@@ -304,6 +304,9 @@ function MonthlyCard({
   const months = useMemo(() => monthsBetween(range), [range]);
 
   useEffect(() => {
+    // The picker never yields an inverted range; an empty one is still not a
+    // reason to throw inside an effect.
+    if (months.length === 0) return;
     const controller = new AbortController();
     const from = months[0];
     const to = months[months.length - 1];

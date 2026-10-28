@@ -104,12 +104,13 @@ function parseTyped(text: string): string | null {
   return iso(date);
 }
 
-// widenToMonths snaps a range to whole UTC months, the end capped at today.
+// widenToMonths snaps a range to whole UTC months, the end capped at today. A
+// range wholly in the future would then start after it ends, so the start is
+// clamped to the end's month and the result is never inverted.
 export function widenToMonths(r: DateRange): DateRange {
-  return {
-    from: iso(monthStart(parse(r.from))),
-    to: iso(minDate(monthEnd(parse(r.to)), today())),
-  };
+  const to = minDate(monthEnd(parse(r.to)), today());
+  const from = minDate(monthStart(parse(r.from)), monthStart(to));
+  return { from: iso(from), to: iso(to) };
 }
 
 type Preset = { label: string; range: () => DateRange };

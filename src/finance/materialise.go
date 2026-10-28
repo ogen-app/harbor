@@ -23,7 +23,8 @@ const (
 // booked from its receipts and would otherwise count twice.
 //
 // The first successful pass backfills all history; later passes re-run the
-// trailing days, upserting changed buckets and deleting vanished ones.
+// trailing days (or everything since the last covered day, after an outage),
+// upserting changed buckets and deleting vanished ones.
 func (s *Service) MaterialiseAIUsage(ctx context.Context) error {
 	state, err := s.repo.GetSync(ctx, SyncAIUsage)
 	if err != nil {
@@ -31,8 +32,13 @@ func (s *Service) MaterialiseAIUsage(ctx context.Context) error {
 	}
 	today := dateOnly(s.now())
 	from := today.AddDate(0, 0, -(aiTrailingDays - 1))
-	if state.LastSuccessAt == nil {
+	switch {
+	case state.LastSuccessAt == nil:
 		from = time.Time{}
+	case state.ThroughDate != nil && state.ThroughDate.Before(from):
+		// Recovering from an outage longer than the trailing window: re-read
+		// from the last covered day so no day in the gap is skipped.
+		from = dateOnly(*state.ThroughDate)
 	}
 
 	rows, err := s.usage.DailyCostByModelTenant(ctx, from)

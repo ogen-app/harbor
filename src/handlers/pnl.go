@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	"github.com/ogen-app/harbor/src/finance"
 	"github.com/ogen-app/harbor/src/logging"
@@ -46,16 +47,30 @@ func (h *PnLHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/pnl/attention", requireAuth, h.Attention)
 	app.Get("/api/pnl/vendors", requireAuth, h.Vendors)
 	app.Post("/api/pnl/vendors", requireAuth, h.CreateVendor)
-	app.Get("/api/pnl/receipts/:id", requireAuth, h.Receipt)
-	app.Get("/api/pnl/receipts/:id/attachments/:attId", requireAuth, h.Attachment)
-	app.Patch("/api/pnl/receipts/:id", requireAuth, h.UpdateReceipt)
-	app.Post("/api/pnl/receipts/:id/approve", requireAuth, h.receiptAction("approve"))
-	app.Post("/api/pnl/receipts/:id/reject", requireAuth, h.receiptAction("reject"))
-	app.Post("/api/pnl/receipts/:id/restore", requireAuth, h.receiptAction("restore"))
-	app.Post("/api/pnl/receipts/:id/void", requireAuth, h.receiptAction("void"))
-	app.Post("/api/pnl/receipts/:id/reextract", requireAuth, h.receiptAction("reextract"))
-	app.Post("/api/pnl/emails/:id/retry", requireAuth, h.emailAction("retry"))
-	app.Post("/api/pnl/emails/:id/ignore", requireAuth, h.emailAction("ignore"))
+	app.Get("/api/pnl/receipts/:id", requireAuth, uuidParams, h.Receipt)
+	app.Get("/api/pnl/receipts/:id/attachments/:attId", requireAuth, uuidParams, h.Attachment)
+	app.Patch("/api/pnl/receipts/:id", requireAuth, uuidParams, h.UpdateReceipt)
+	app.Post("/api/pnl/receipts/:id/approve", requireAuth, uuidParams, h.receiptAction("approve"))
+	app.Post("/api/pnl/receipts/:id/reject", requireAuth, uuidParams, h.receiptAction("reject"))
+	app.Post("/api/pnl/receipts/:id/restore", requireAuth, uuidParams, h.receiptAction("restore"))
+	app.Post("/api/pnl/receipts/:id/void", requireAuth, uuidParams, h.receiptAction("void"))
+	app.Post("/api/pnl/receipts/:id/reextract", requireAuth, uuidParams, h.receiptAction("reextract"))
+	app.Post("/api/pnl/emails/:id/retry", requireAuth, uuidParams, h.emailAction("retry"))
+	app.Post("/api/pnl/emails/:id/ignore", requireAuth, uuidParams, h.emailAction("ignore"))
+}
+
+// uuidParams answers 404 for a malformed :id or :attId. Receipt, email and
+// attachment ids are UUID columns, so a bad one would otherwise fail in
+// Postgres and surface as a 500.
+func uuidParams(c *fiber.Ctx) error {
+	for _, name := range []string{"id", "attId"} {
+		if v := c.Params(name); v != "" {
+			if _, err := uuid.Parse(v); err != nil {
+				return fiber.NewError(fiber.StatusNotFound, "not found")
+			}
+		}
+	}
+	return c.Next()
 }
 
 // Status godoc

@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS finance_vendors
 
 INSERT INTO finance_vendors (id, name, category, match_rules, is_ai_pipeline)
 VALUES ('anthropic', 'Anthropic', 'ai', '{"merchant": ["anthropic"], "senders": ["anthropic.com"]}', true),
-       ('google', 'Google', 'ai', '{"merchant": ["google"], "senders": ["google.com"]}', true),
+       -- Only Gemini / AI Studio / Cloud billing: every receipt from an AI-pipeline
+       -- vendor is prepaid credit, so a Workspace, Domains or Ads invoice must not
+       -- match here (it lands in Needs attention as an unknown vendor instead).
+       ('google', 'Google', 'ai', '{"merchant": ["gemini", "ai studio", "google cloud"]}', true),
        ('resend', 'Resend', 'email', '{"merchant": ["resend"], "senders": ["resend.com", "resend.dev"]}', false),
        ('railway', 'Railway', 'infra', '{"merchant": ["railway"], "senders": ["railway.app", "railway.com"]}', false),
        ('cloudflare', 'Cloudflare', 'domains', '{"merchant": ["cloudflare"], "senders": ["cloudflare.com"]}', false),
