@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -42,12 +42,17 @@ export function AlertSettingsPopover({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setDrafts(Object.fromEntries(vendors.map((v) => [v.vendorId, draftOf(v)])));
-    setErrors({});
-    setSaved(null);
-  }, [open, vendors]);
+  // Drafts start from the server's values when the popover opens, and only
+  // then: the refetch after a save must not wipe another vendor's unsaved
+  // edits or the "Saved" note.
+  const onOpenChange = (next: boolean) => {
+    if (next) {
+      setDrafts(Object.fromEntries(vendors.map((v) => [v.vendorId, draftOf(v)])));
+      setErrors({});
+      setSaved(null);
+    }
+    setOpen(next);
+  };
 
   const set = (id: string, patch: Partial<Draft>) =>
     setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
@@ -85,7 +90,7 @@ export function AlertSettingsPopover({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
