@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DateRangePicker, type DateRange } from "@/components/ui/date-range-picker";
+import type { DateRange } from "@/components/ui/date-range-picker";
 import { cn } from "@/lib/utils";
 import {
   api,
@@ -17,6 +17,7 @@ import {
   usd,
 } from "./format";
 import { EmptyInbox } from "./EmptyInbox";
+import { PnlChartCard } from "./PnlChartCard";
 import {
   ErrorLine,
   PendingBanner,
@@ -36,7 +37,6 @@ export function ProfitLossTab({
   status,
   range,
   compare,
-  onRangeChange,
   version,
   onDrill,
   onReviewAttention,
@@ -44,7 +44,6 @@ export function ProfitLossTab({
   status: PnlStatus | null;
   range: DateRange;
   compare: boolean;
-  onRangeChange: (r: DateRange, compare: boolean) => void;
   version: number;
   onDrill: (d: Drill) => void;
   onReviewAttention: () => void;
@@ -64,6 +63,8 @@ export function ProfitLossTab({
       });
     return () => controller.abort();
   }, [version]);
+
+  const monthly = useMonthly(range, version);
 
   const stale =
     status && (status.aiUsage.state !== "ok" || status.revenue.state !== "ok") ? status : null;
@@ -85,14 +86,11 @@ export function ProfitLossTab({
         </PendingBanner>
       )}
 
-      <MonthlyCard
-        status={status}
-        range={range}
-        compare={compare}
-        onRangeChange={onRangeChange}
-        version={version}
-        onDrill={onDrill}
-      />
+      {monthly.data && !monthly.error && !isEmpty(monthly.data) && (
+        <PnlChartCard monthly={monthly.data} lastMonth={monthly.months[monthly.months.length - 1]} version={version} />
+      )}
+
+      <MonthlyCard status={status} monthly={monthly} compare={compare} version={version} onDrill={onDrill} />
     </div>
   );
 }
@@ -282,47 +280,24 @@ function previousPeriod(months: string[]): { from: string; to: string } {
   return { from: from.toISOString().slice(0, 7), to: to.toISOString().slice(0, 7) };
 }
 
-function MonthlyCard({
-  status,
-  range,
-  compare,
-  onRangeChange,
-  version,
-  onDrill,
-}: {
-  status: PnlStatus | null;
-  range: DateRange;
-  compare: boolean;
-  onRangeChange: (r: DateRange, compare: boolean) => void;
-  version: number;
-  onDrill: (d: Drill) => void;
-}) {
+// useMonthly loads the Monthly P&L once for the range. The chart and the table
+// both draw this one response, so they always agree.
+function useMonthly(range: DateRange, version: number): MonthlyState {
+  const months = useMemo(() => monthsBetween(range), [range]);
   const [data, setData] = useState<PnlMonthly | null>(null);
-  const [prev, setPrev] = useState<PnlMonthly | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const months = useMemo(() => monthsBetween(range), [range]);
 
   useEffect(() => {
     // The picker never yields an inverted range; an empty one is still not a
     // reason to throw inside an effect.
     if (months.length === 0) return;
     const controller = new AbortController();
-    const from = months[0];
-    const to = months[months.length - 1];
-    /* eslint-disable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    if (!compare) setPrev(null);
-    /* eslint-enable react-hooks/set-state-in-effect */
-    const main = api<PnlMonthly>(`/api/pnl/monthly?from=${from}&to=${to}`, { signal: controller.signal });
-    const p = previousPeriod(months);
-    const before = compare
-      ? api<PnlMonthly>(`/api/pnl/monthly?from=${p.from}&to=${p.to}`, { signal: controller.signal })
-      : Promise.resolve(null);
-    Promise.all([main, before])
-      .then(([m, b]) => {
+    api<PnlMonthly>(`/api/pnl/monthly?from=${months[0]}&to=${months[months.length - 1]}`, { signal: controller.signal })
+      .then((m) => {
         setData(m);
-        setPrev(b);
         setError(null);
       })
       .catch((e: unknown) => {
@@ -332,12 +307,68 @@ function MonthlyCard({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
+  }, [months, version]);
+
+  return { months, data, error, loading };
+}
+
+interface MonthlyState {
+  months: string[];
+  data: PnlMonthly | null;
+  error: string | null;
+  loading: boolean;
+}
+
+function isEmpty(data: PnlMonthly): boolean {
+  return (
+    data.provisional.length === 0 &&
+    data.rows.every((r) => r.kind === "margin" || r.cells.every((c) => c.value == null || c.value === 0))
+  );
+}
+
+function MonthlyCard({
+  status,
+  monthly,
+  compare,
+  version,
+  onDrill,
+}: {
+  status: PnlStatus | null;
+  monthly: MonthlyState;
+  compare: boolean;
+  version: number;
+  onDrill: (d: Drill) => void;
+}) {
+  const { months, data, loading } = monthly;
+  const [prev, setPrev] = useState<PnlMonthly | null>(null);
+  const [prevError, setPrevError] = useState<string | null>(null);
+  const error = monthly.error ?? prevError;
+
+  // Compare loads the same number of months just before the range.
+  useEffect(() => {
+    if (!compare || months.length === 0) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setPrev(null);
+      setPrevError(null);
+      /* eslint-enable react-hooks/set-state-in-effect */
+      return;
+    }
+    const controller = new AbortController();
+    const p = previousPeriod(months);
+    api<PnlMonthly>(`/api/pnl/monthly?from=${p.from}&to=${p.to}`, { signal: controller.signal })
+      .then((m) => {
+        setPrev(m);
+        setPrevError(null);
+      })
+      .catch((e: unknown) => {
+        if (controller.signal.aborted) return;
+        setPrev(null);
+        setPrevError(`The comparison period could not be loaded: ${e instanceof Error ? e.message : "request failed"}`);
+      });
+    return () => controller.abort();
   }, [months, compare, version]);
 
-  const empty =
-    data &&
-    data.provisional.length === 0 &&
-    data.rows.every((r) => r.kind === "margin" || r.cells.every((c) => c.value == null || c.value === 0));
+  const empty = data && isEmpty(data);
 
   return (
     <section className="overflow-hidden rounded-[3px] border border-border bg-primary">
@@ -348,12 +379,6 @@ function MonthlyCard({
             USD. Receipts count on their invoice date, AI usage on the day it happened. Click an amount to see its entries.
           </p>
         </div>
-        <DateRangePicker
-          value={range}
-          compare={compare}
-          mode="month"
-          onChange={onRangeChange}
-        />
       </div>
 
       {error ? (

@@ -254,7 +254,7 @@ func (s *Service) Summary(ctx context.Context) (Summary, error) {
 }
 
 func (s *Service) periodTotals(ctx context.Context, from, to time.Time, testMode bool) (totals, error) {
-	buckets, err := s.repo.Buckets(ctx, from, to, testMode, false)
+	buckets, err := s.repo.Buckets(ctx, from, to, testMode, fin.GrainNone)
 	if err != nil {
 		return totals{}, err
 	}
@@ -393,7 +393,7 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 	if !out.RevenueAvailable {
 		out.RevenueError = cmp.Or(rev.LastError, "Payments have not been synced yet")
 	}
-	buckets, err := s.repo.Buckets(ctx, months[0], rangeEnd, testMode, true)
+	buckets, err := s.repo.Buckets(ctx, months[0], rangeEnd, testMode, fin.GrainMonth)
 	if err != nil {
 		return out, err
 	}
@@ -431,7 +431,7 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 		sums := make([]int64, len(months))
 		has := make([]bool, len(months))
 		for _, b := range buckets {
-			i, ok := col[b.Month]
+			i, ok := col[b.Period]
 			if !ok || !match(b) {
 				continue
 			}
@@ -517,16 +517,7 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 	for id := range expVendors {
 		ids = append(ids, id)
 	}
-	slices.SortFunc(ids, func(a, b string) int {
-		va, vb := vendorByID[a], vendorByID[b]
-		if a == "unmatched" || b == "unmatched" {
-			return cmp.Compare(boolInt(a == "unmatched"), boolInt(b == "unmatched"))
-		}
-		if c := cmp.Compare(boolInt(!va.IsAIPipeline), boolInt(!vb.IsAIPipeline)); c != 0 {
-			return c
-		}
-		return cmp.Compare(va.Name, vb.Name)
-	})
+	sortVendorIDs(ids, vendorByID)
 	var expenseRows []Row
 	for _, id := range ids {
 		v := vendorByID[id]
@@ -618,6 +609,21 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 	}
 	slices.SortFunc(out.Provisional, func(a, b Provisional) int { return cmp.Compare(a.Month, b.Month) })
 	return out, nil
+}
+
+// sortVendorIDs orders expense vendors as every P&L view shows them:
+// AI-pipeline vendors first, then by name, "unmatched" last.
+func sortVendorIDs(ids []string, vendorByID map[string]fin.Vendor) {
+	slices.SortFunc(ids, func(a, b string) int {
+		va, vb := vendorByID[a], vendorByID[b]
+		if a == "unmatched" || b == "unmatched" {
+			return cmp.Compare(boolInt(a == "unmatched"), boolInt(b == "unmatched"))
+		}
+		if c := cmp.Compare(boolInt(!va.IsAIPipeline), boolInt(!vb.IsAIPipeline)); c != 0 {
+			return c
+		}
+		return cmp.Compare(va.Name, vb.Name)
+	})
 }
 
 func expenseSourceLabel(v fin.Vendor, sources map[string]bool) string {
