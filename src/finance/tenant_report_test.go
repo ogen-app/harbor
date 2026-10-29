@@ -57,7 +57,9 @@ func TestTenantMargins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !m.RevenueAvailable || m.Period.Label != "Oct 1–26" || m.SharedIncluded {
+	// The default rules split shared vendors (CON-432), though nothing is billed
+	// yet, so every share is 0.
+	if !m.RevenueAvailable || m.Period.Label != "Oct 1–26" || !m.SharedIncluded {
 		t.Fatalf("meta = available %v, label %q, shared %v", m.RevenueAvailable, m.Period.Label, m.SharedIncluded)
 	}
 

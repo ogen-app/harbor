@@ -238,26 +238,32 @@ function MonthCell({
 }) {
   const drill = cell.drill;
   const pending = cell.pending && cell.pending.count > 0 ? cell.pending : null;
+  // A shared vendor's month whose bill isn't posted yet (tenant P&L).
+  const waiting = !!pending || !!cell.awaiting;
   const when = month ? monthLabel(month) : "Total";
 
   const body =
-    cell.value == null && pending && !cell.unavailable ? (
+    cell.value == null && waiting && !cell.unavailable ? (
       <PendingMark />
     ) : (
       <span className="inline-flex items-center justify-end gap-1.5">
-        {pending && <PendingMark label="" />}
+        {waiting && <PendingMark label="" />}
         <Figure row={row} cell={cell} />
       </span>
     );
 
   const pendingNote = pending
     ? `${pendingSentence(pending.count, pending.amountMicros)} pending in Needs attention, not counted`
-    : "";
+    : cell.awaiting
+      ? month
+        ? `${row.label}’s ${monthLabel(month)} bill isn’t posted yet. It counts as $0 until its receipt is approved.`
+        : `Some months’ ${row.label} bills aren’t posted yet and count as $0`
+      : "";
 
   if (!drill || cell.value == null || cell.unavailable) {
     return (
       <td className={cn(NUM, row.section === "profit" && "text-[15px]")}>
-        {pending ? (
+        {waiting ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <span tabIndex={0} className="outline-none focus-visible:underline">

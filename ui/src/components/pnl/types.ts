@@ -102,6 +102,8 @@ export interface Cell {
   value: number | null;
   unavailable: boolean;
   pending: { count: number; amountMicros: number } | null;
+  // A shared vendor's month whose bill isn't posted yet (tenant P&L).
+  awaiting?: boolean;
   provenance: Provenance;
   drill: Drill | null;
 }
@@ -166,6 +168,8 @@ export interface TenantPnlSummary {
   sharedCosts: Comparable;
   contribution: Comparable;
   marginPct: Comparable;
+  // Shared vendors whose bill for this month isn't posted yet.
+  sharedPending: number;
   // Blended over every tenant with revenue this month; not the company margin.
   allTenantsMarginPct: number | null;
   hasRevenue: boolean;
