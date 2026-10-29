@@ -15,6 +15,8 @@ export type FieldKey =
   | "status"
   | "billing"
   | "spend"
+  | "revenue"
+  | "margin"
   | "zernio"
   | "tier"
   | "group";
@@ -68,6 +70,23 @@ const FIELDS: FilterField[] = [
     valuePrefix: "$",
     valuePlaceholder: "amount in USD",
   },
+  // Month to date, from the Harbor ledger (CON-434). Ignored server-side while
+  // revenue is unavailable; a tenant without revenue never matches a margin.
+  {
+    key: "revenue",
+    label: "Revenue",
+    type: "number",
+    operators: ["more than", "less than"],
+    valuePrefix: "$",
+    valuePlaceholder: "net revenue in USD",
+  },
+  {
+    key: "margin",
+    label: "Margin",
+    type: "number",
+    operators: ["less than", "more than"],
+    valuePlaceholder: "percent, e.g. 10",
+  },
   {
     key: "zernio",
     label: "Zernio profiles",
@@ -81,7 +100,8 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 // How a committed value reads inside a chip.
 function displayValue(field: FieldKey, value: string): string {
-  if (field === "spend") return `$${value}`;
+  if (field === "spend" || field === "revenue") return `$${value}`;
+  if (field === "margin") return `${value}%`;
   if (field === "status") return cap(value);
   if (field === "billing") return billingStatusLabel(value);
   return value;
@@ -130,7 +150,7 @@ export function TenantsFilterBar({
       fields={fields}
       tokens={tokens}
       onTokensChange={onTokensChange}
-      emptyPlaceholder="Filter by name, status, tier, group, AI spend…"
+      emptyPlaceholder="Filter by name, status, tier, group, AI spend, margin…"
     />
   );
 }

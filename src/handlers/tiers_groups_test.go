@@ -93,7 +93,7 @@ func TestTenantAssignment_WriteUnavailableIs503(t *testing.T) {
 	for _, tc := range cases {
 		app := fiber.New()
 		// Only the admin client is exercised by these routes; the repos are unused.
-		NewTenantsHandler(nil, nil, nil, nil).Register(app, passAuth)
+		NewTenantsHandler(nil, nil, nil, nil, nil).Register(app, passAuth)
 
 		var body io.Reader
 		if tc.method == "PUT" {

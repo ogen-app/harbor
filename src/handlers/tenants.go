@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/ogen-app/harbor/src/finance"
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	"github.com/ogen-app/harbor/src/repository/ogen"
 	"github.com/ogen-app/harbor/src/repository/ogentenants"
@@ -33,10 +34,13 @@ type TenantsHandler struct {
 	// assignment). Reads come from the Ogen DB via `tenants`. May be nil when the
 	// gRPC surface is unconfigured — writes then return 503.
 	admin *ogentenants.Client
+	// finance is the Harbor ledger behind the Revenue and Margin columns
+	// (CON-434). Nil when the ledger isn't wired; the columns then show "—".
+	finance *finance.Service
 }
 
-func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository, activity analytics.ActivityRepository, admin *ogentenants.Client) *TenantsHandler {
-	return &TenantsHandler{tenants: tenants, spend: spend, activity: activity, admin: admin}
+func NewTenantsHandler(tenants ogen.TenantRepository, spend analytics.SpendRepository, activity analytics.ActivityRepository, admin *ogentenants.Client, fin *finance.Service) *TenantsHandler {
+	return &TenantsHandler{tenants: tenants, spend: spend, activity: activity, admin: admin, finance: fin}
 }
 
 func (h *TenantsHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
@@ -94,6 +98,14 @@ type tenantRow struct {
 	// off or the gRPC surface is unreachable; not_required; awaiting_checkout; or
 	// the Lemon Squeezy status of the current subscription.
 	BillingStatus string `json:"billingStatus"`
+	// Revenue and margin (CON-434) are month to date, from the Harbor ledger
+	// through the same fold as the Tenant P&L tab. RevenueMicros is net revenue,
+	// nil when the tenant has no payments in the period (trial / not paying) or
+	// revenue is unavailable; ContributionMicros follows it. MarginPct is nil
+	// when net revenue is 0 or less.
+	RevenueMicros      *int64   `json:"revenueMicros"`
+	ContributionMicros *int64   `json:"contributionMicros"`
+	MarginPct          *float64 `json:"marginPct"`
 }
 
 // rowFromMetrics builds a table row from a tenant's Ogen-side metrics and its
@@ -146,15 +158,20 @@ func (f tenantFilter) match(t tenantRow) bool {
 		}
 		return t.BillingStatus == f.Value
 	case "spend":
-		n, err := strconv.ParseFloat(strings.TrimSpace(f.Value), 64)
-		if err != nil {
-			return true
+		return f.compare(float64(t.Spend.TotalMicros) / 1e6)
+	case "revenue":
+		// No payments reads as $0, so "revenue more than 0" drops trials.
+		var micros int64
+		if t.RevenueMicros != nil {
+			micros = *t.RevenueMicros
 		}
-		usd := float64(t.Spend.TotalMicros) / 1e6
-		if f.Operator == "less than" {
-			return usd < n
+		return f.compare(float64(micros) / 1e6)
+	case "margin":
+		// No margin (no revenue) matches no margin bound.
+		if t.MarginPct == nil {
+			return false
 		}
-		return usd > n
+		return f.compare(*t.MarginPct)
 	case "zernio":
 		n, err := strconv.Atoi(strings.TrimSpace(f.Value))
 		if err != nil {
@@ -188,6 +205,19 @@ func (f tenantFilter) match(t tenantRow) bool {
 		return has
 	}
 	return true
+}
+
+// compare applies a numeric "more than" / "less than" filter to v. An
+// unparseable value is a no-op, like an unknown field.
+func (f tenantFilter) compare(v float64) bool {
+	n, err := strconv.ParseFloat(strings.TrimSpace(f.Value), 64)
+	if err != nil {
+		return true
+	}
+	if f.Operator == "less than" {
+		return v < n
+	}
+	return v > n
 }
 
 // parseFilters decodes the JSON `filters` query param. A missing or malformed
@@ -247,6 +277,12 @@ func buildActivitySparklines(rows []analytics.TenantDayCount, windowDays int) ma
 // @Description  Tenants in the Ogen control-plane database with per-tenant
 // @Description  metrics: user counts, connected Zernio (social) profiles, R2
 // @Description  storage bytes, and current-period AI spend split by vendor.
+// @Description  Revenue and margin are month to date from the Harbor ledger
+// @Description  (revenueMicros, contributionMicros, marginPct per row; null
+// @Description  without payments). revenueAvailable=false (reason in
+// @Description  revenueError) nulls them and ignores the revenue/margin filters.
+// @Description  marginPeriod is the period; sharedCostsIncluded says whether
+// @Description  allocated shared costs are in the contribution.
 // @Tags         tenants
 // @Produce      json
 // @Success      200  {object}  map[string]any
@@ -333,6 +369,18 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// Revenue and margin (CON-434): one grouped ledger read for every row.
+	margins := h.tenantMargins(c.Context())
+	if margins.RevenueAvailable {
+		for i := range rows {
+			if f, ok := margins.ByTenant[rows[i].ID]; ok && f.NetRevenue != nil {
+				rows[i].RevenueMicros = f.NetRevenue
+				rows[i].ContributionMicros = new(f.Contribution)
+				rows[i].MarginPct = f.MarginPct
+			}
+		}
+	}
+
 	// Distinct statuses across all tenants, for the filter dropdowns — computed
 	// before filtering so the option lists never shrink with the results.
 	statusSet := map[string]struct{}{}
@@ -356,6 +404,11 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 		// field; billingAvailable=false tells the UI why.
 		filters = slices.DeleteFunc(filters, func(f tenantFilter) bool { return f.Field == "billing" })
 	}
+	if !margins.RevenueAvailable {
+		// Same for revenue and margin: every value is null while revenue is
+		// unavailable, so their filters are ignored too.
+		filters = slices.DeleteFunc(filters, func(f tenantFilter) bool { return f.Field == "revenue" || f.Field == "margin" })
+	}
 	if len(filters) > 0 {
 		filtered := make([]tenantRow, 0, len(rows))
 		for _, r := range rows {
@@ -374,17 +427,37 @@ func (h *TenantsHandler) List(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"tenants":           rows,
-		"total":             total,
-		"statuses":          statuses,
-		"billingStatuses":   billingStatuses,
-		"billingAvailable":  billingAvailable,
-		"tiers":             tierCatalog,
-		"groups":            groupCatalog,
-		"available":         true,
-		"spendAvailable":    spendAvailable,
-		"activityAvailable": activityAvailable,
+		"tenants":             rows,
+		"total":               total,
+		"statuses":            statuses,
+		"billingStatuses":     billingStatuses,
+		"billingAvailable":    billingAvailable,
+		"tiers":               tierCatalog,
+		"groups":              groupCatalog,
+		"available":           true,
+		"spendAvailable":      spendAvailable,
+		"activityAvailable":   activityAvailable,
+		"revenueAvailable":    margins.RevenueAvailable,
+		"revenueError":        margins.RevenueError,
+		"marginPeriod":        margins.Period,
+		"sharedCostsIncluded": margins.SharedIncluded,
 	})
+}
+
+// tenantMargins is the month-to-date revenue and margin of every tenant.
+// Best-effort: no ledger or a failed read reports revenue unavailable, with
+// the reason, rather than failing the list.
+func (h *TenantsHandler) tenantMargins(ctx context.Context) finance.TenantMargins {
+	if h.finance == nil {
+		return finance.TenantMargins{RevenueError: "The finance ledger is not configured"}
+	}
+	from, to := h.finance.MonthToDate()
+	m, err := h.finance.TenantMargins(ctx, from, to)
+	if err != nil {
+		m.RevenueAvailable = false
+		m.RevenueError = "Revenue could not be read: " + err.Error()
+	}
+	return m
 }
 
 // Detail godoc

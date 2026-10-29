@@ -76,6 +76,7 @@ import {
   Sparkline,
 } from "@/components/tenants/shared";
 import { BillingStatusBadge } from "@/components/billing/format";
+import { MarginCell, RevenueCell } from "@/components/tenants/MarginCell";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,14 @@ interface TenantsResponse {
   // edit menu. Empty when Ogen's classification tables aren't present.
   tiers?: ClassificationLabel[];
   groups?: ClassificationLabel[];
+  // Month-to-date revenue and margin (CON-434). revenueAvailable is false
+  // (reason in revenueError) when the revenue sync is failing or the ledger
+  // isn't wired; the columns then show "—" and their filters are ignored.
+  revenueAvailable?: boolean;
+  revenueError?: string;
+  marginPeriod?: { from: string; to: string; label: string };
+  // Whether allocated shared costs are in the contribution yet (CON-432).
+  sharedCostsIncluded?: boolean;
   error?: string;
 }
 
@@ -113,11 +122,15 @@ type SortKey =
   | "activity"
   | "users"
   | "spend"
+  | "revenue"
+  | "margin"
   | "zernio"
   | "r2";
 type SortDir = "asc" | "desc";
 
-const sortValue = (t: Tenant, key: SortKey): string | number => {
+// A null sort value (no revenue / no margin) always sorts last, whichever the
+// direction.
+const sortValue = (t: Tenant, key: SortKey): string | number | null => {
   switch (key) {
     case "name":
       return t.name.toLowerCase();
@@ -135,6 +148,10 @@ const sortValue = (t: Tenant, key: SortKey): string | number => {
       return t.users;
     case "spend":
       return t.spend.totalMicros;
+    case "revenue":
+      return t.revenueMicros ?? null;
+    case "margin":
+      return t.marginPct ?? null;
     case "zernio":
       return t.zernioProfiles;
     case "r2":
@@ -155,9 +172,29 @@ const SORT_KEYS: SortKey[] = [
   "activity",
   "users",
   "spend",
+  "revenue",
+  "margin",
   "zernio",
   "r2",
 ];
+
+// compareTenants orders two rows by the sort, keeping null values last.
+function compareTenants(a: Tenant, b: Tenant, sort: Sort): number {
+  const av = sortValue(a, sort.key);
+  const bv = sortValue(b, sort.key);
+  if (av === null || bv === null) {
+    return av === bv ? 0 : av === null ? 1 : -1;
+  }
+  if (av < bv) return sort.dir === "asc" ? -1 : 1;
+  if (av > bv) return sort.dir === "asc" ? 1 : -1;
+  return 0;
+}
+
+// The direction a column sorts in when first clicked. Margin starts lowest
+// first, so the tenants losing money lead.
+function firstSortDir(key: SortKey): SortDir {
+  return key === "name" || key === "status" || key === "margin" ? "asc" : "desc";
+}
 
 function loadSort(): Sort {
   if (typeof window === "undefined") return DEFAULT_SORT;
@@ -232,6 +269,8 @@ type ColumnKey =
   | "activity"
   | "users"
   | "spend"
+  | "revenue"
+  | "margin"
   | "zernio"
   | "r2";
 
@@ -243,6 +282,8 @@ const COLUMN_KEYS: ColumnKey[] = [
   "activity",
   "users",
   "spend",
+  "revenue",
+  "margin",
   "zernio",
   "r2",
 ];
@@ -255,6 +296,8 @@ const COLUMN_LABEL: Record<ColumnKey, string> = {
   activity: "Activity",
   users: "Users",
   spend: "AI spend",
+  revenue: "Revenue",
+  margin: "Margin",
   zernio: "Zernio",
   r2: "R2",
 };
@@ -273,6 +316,8 @@ const COLUMN_MIN: Record<ColumnKey, number> = {
   activity: 9,
   users: 7,
   spend: 8,
+  revenue: 8,
+  margin: 12,
   zernio: 7,
   r2: 7,
 };
@@ -284,6 +329,8 @@ const COLUMN_TRACK: Record<ColumnKey, string> = {
   activity: "minmax(9rem, 1fr)",
   users: "minmax(7rem, 1fr)",
   spend: "minmax(8rem, 1fr)",
+  revenue: "minmax(8rem, 1fr)",
+  margin: "minmax(12rem, 1.5fr)",
   zernio: "minmax(7rem, 1fr)",
   r2: "minmax(7rem, 1fr)",
 };
@@ -332,6 +379,38 @@ function loadColumnPrefs(): ColumnPref[] {
     return prefs;
   } catch {
     return DEFAULT_COLUMN_PREFS;
+  }
+}
+
+// Columns added after a viewer's first visit carry a "new column" badge in
+// their header until the viewer has seen them once. Seen columns persist per
+// viewer in localStorage; storage that can't be read shows no badges.
+const NEW_COLUMNS: ColumnKey[] = ["revenue", "margin"];
+const SEEN_COLUMNS_STORAGE_KEY = "harbor.tenants.seenColumns";
+
+function loadUnseenColumns(): ColumnKey[] {
+  try {
+    const raw = window.localStorage.getItem(SEEN_COLUMNS_STORAGE_KEY);
+    const seen = raw ? (JSON.parse(raw) as unknown) : [];
+    if (!Array.isArray(seen)) return [];
+    return NEW_COLUMNS.filter((k) => !seen.includes(k));
+  } catch {
+    return [];
+  }
+}
+
+function markColumnsSeen(keys: ColumnKey[]) {
+  try {
+    const raw = window.localStorage.getItem(SEEN_COLUMNS_STORAGE_KEY);
+    const prev = raw ? (JSON.parse(raw) as unknown) : [];
+    const seen = new Set(Array.isArray(prev) ? prev : []);
+    for (const k of keys) seen.add(k);
+    window.localStorage.setItem(
+      SEEN_COLUMNS_STORAGE_KEY,
+      JSON.stringify([...seen]),
+    );
+  } catch {
+    // storage unavailable — the badge just shows again next time
   }
 }
 
@@ -455,6 +534,7 @@ function SortHeader({
   className,
   accent,
   info,
+  isNew,
 }: {
   label: string;
   col: SortKey;
@@ -464,6 +544,7 @@ function SortHeader({
   className?: string;
   accent?: boolean;
   info?: string;
+  isNew?: boolean;
 }) {
   const active = sort.key === col;
   return (
@@ -494,6 +575,11 @@ function SortHeader({
         )}
       </button>
       {info && <InfoIcon text={info} />}
+      {isNew && (
+        <span className="whitespace-nowrap rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-blue-700">
+          new column
+        </span>
+      )}
     </div>
   );
 }
@@ -984,6 +1070,8 @@ export function TenantsTable() {
   // Gates the persistence effects so the initial defaults don't overwrite the
   // stored preferences before the mount effect has loaded them.
   const [prefsHydrated, setPrefsHydrated] = useState(false);
+  // New columns this viewer hasn't seen yet (header badge), read on mount.
+  const [unseenColumns, setUnseenColumns] = useState<ColumnKey[]>([]);
   // True once the table is scrolled off its left edge — shows the frozen-column
   // edge shadow only while content is actually sliding under Name/Tier.
   const [scrolled, setScrolled] = useState(false);
@@ -1074,6 +1162,7 @@ export function TenantsTable() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSort(loadSort());
     setColumnPrefs(loadColumnPrefs());
+    setUnseenColumns(loadUnseenColumns());
     setPrefsHydrated(true);
   }, []);
 
@@ -1105,6 +1194,16 @@ export function TenantsTable() {
   // frozen columns (Name, Tier) lead; the toggleable middle set follows in its
   // saved order; the actions menu is the tail.
   const orderedColumns = columnPrefs.filter((p) => p.visible).map((p) => p.key);
+
+  // A new column counts as seen once its header has rendered for the viewer.
+  // The badge stays for this visit and is gone on the next.
+  const shownNewColumns = data?.tenants.length
+    ? unseenColumns.filter((k) => orderedColumns.includes(k))
+    : [];
+  const shownNewKey = shownNewColumns.join(",");
+  useEffect(() => {
+    if (shownNewKey) markColumnsSeen(shownNewKey.split(",") as ColumnKey[]);
+  }, [shownNewKey]);
   const gridTemplate = [
     NAME_TRACK,
     TIER_TRACK,
@@ -1125,7 +1224,7 @@ export function TenantsTable() {
     setSort((s) =>
       s.key === key
         ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: key === "name" || key === "status" ? "asc" : "desc" },
+        : { key, dir: firstSortDir(key) },
     );
 
   // Status options for the filter come from the server (all statuses, not just
@@ -1134,13 +1233,7 @@ export function TenantsTable() {
 
   const rows = useMemo(() => {
     if (!data?.tenants) return [];
-    return [...data.tenants].sort((a, b) => {
-      const av = sortValue(a, sort.key);
-      const bv = sortValue(b, sort.key);
-      if (av < bv) return sort.dir === "asc" ? -1 : 1;
-      if (av > bv) return sort.dir === "asc" ? 1 : -1;
-      return 0;
-    });
+    return [...data.tenants].sort((a, b) => compareTenants(a, b, sort));
   }, [data, sort]);
 
   // Column maxima for the numeric heatmap (AI spend / Users / Zernio / R2), over
@@ -1161,6 +1254,8 @@ export function TenantsTable() {
 
   const spendAvailable = data?.spendAvailable ?? false;
   const activityAvailable = data?.activityAvailable ?? false;
+  const revenueAvailable = data?.revenueAvailable ?? false;
+  const revenueError = data?.revenueError;
 
   // Classification catalogs for the filter options and the row edit menu.
   const allTiers = data?.tiers ?? [];
@@ -1422,7 +1517,29 @@ export function TenantsTable() {
               col="spend"
               sort={sort}
               onSort={onSort}
-              info="This tenant's AI model cost for the current billing period, from the Timescale analytics rollups."
+              info="This tenant's AI model cost for the month to date, live from the Timescale analytics rollups. The Margin column uses the ledger copy of the same usage, refreshed every 10 minutes, so the two can differ briefly."
+            />
+          );
+        case "revenue":
+          return (
+            <SortHeader
+              label="Revenue"
+              col="revenue"
+              sort={sort}
+              onSort={onSort}
+              isNew={shownNewColumns.includes("revenue")}
+              info="Net revenue for the month to date: Lemon Squeezy payments less tax, fees and refunds, from the Profit & loss ledger."
+            />
+          );
+        case "margin":
+          return (
+            <SortHeader
+              label="Margin"
+              col="margin"
+              sort={sort}
+              onSort={onSort}
+              isNew={shownNewColumns.includes("margin")}
+              info="Contribution as a share of net revenue, month to date. The same figures as the tenant's Profit & loss tab."
             />
           );
         case "zernio":
@@ -1480,6 +1597,14 @@ export function TenantsTable() {
         case "spend":
           if (spendAvailable) heat = heatStyle(t.spend.totalMicros, heatMax.spend);
           return <SpendCell spend={t.spend} available={spendAvailable} />;
+        case "revenue":
+          return (
+            <RevenueCell tenant={t} available={revenueAvailable} reason={revenueError} />
+          );
+        case "margin":
+          return (
+            <MarginCell tenant={t} available={revenueAvailable} reason={revenueError} />
+          );
         case "zernio":
           heat = heatStyle(t.zernioProfiles, heatMax.zernio);
           return (
@@ -1707,6 +1832,23 @@ export function TenantsTable() {
           </div>
         )}
       </div>
+
+      {/* How the Margin column is computed, while it's shown (CON-434). */}
+      {orderedColumns.includes("margin") && (data?.tenants.length ?? 0) > 0 && (
+        <p className="border-t border-border px-6 py-3 text-xs text-tertiary-foreground">
+          {revenueAvailable
+            ? `Margin = net revenue − direct AI cost${
+                data?.sharedCostsIncluded
+                  ? " − allocated shared costs"
+                  : " (shared costs aren't allocated to tenants yet)"
+              }, ${data?.marginPeriod?.label ?? "month to date"}.${
+                sort.key === "margin" && sort.dir === "asc"
+                  ? " Sorted lowest first."
+                  : ""
+              }`
+            : `Revenue and margin unavailable: ${revenueError || "revenue could not be read"}.`}
+        </p>
+      )}
 
       {/* Lifecycle confirm/reason dialog, driven by the row Status submenu. */}
       <StatusDialog
