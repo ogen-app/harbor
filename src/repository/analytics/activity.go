@@ -295,3 +295,33 @@ func (r *activityRepository) ActivityByTenantDaily(ctx context.Context, windowDa
 	}
 	return rows, nil
 }
+
+// ActiveUsersByTenant counts each tenant's distinct users with at least one
+// activity event in the month starting at month (first day, UTC): the "active
+// users" driver of shared cost allocation (CON-432). The bare occurred_at range
+// keeps hypertable chunk exclusion. Returns ErrUnavailable if the pool is nil.
+func ActiveUsersByTenant(ctx context.Context, db *bun.DB, month time.Time) (map[string]int64, error) {
+	if db == nil {
+		return nil, ErrUnavailable
+	}
+	var rows []struct {
+		TenantID string `bun:"tenant_id"`
+		Users    int64  `bun:"users"`
+	}
+	err := db.NewRaw(`
+		SELECT tenant_id, count(DISTINCT user_id) AS users
+		FROM tenant_activity_events
+		WHERE occurred_at >= ? AND occurred_at < ?
+		  AND tenant_id IS NOT NULL AND tenant_id <> ''
+		  AND user_id IS NOT NULL AND user_id <> ''
+		GROUP BY tenant_id`, month, month.AddDate(0, 1, 0)).Scan(ctx, &rows)
+	if err != nil {
+		logFail("activity.activeUsers", err)
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		out[row.TenantID] = row.Users
+	}
+	return out, nil
+}

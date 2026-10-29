@@ -28,6 +28,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	financerepo "github.com/ogen-app/harbor/src/repository/finance"
 	"github.com/ogen-app/harbor/src/repository/harbor"
+	"github.com/ogen-app/harbor/src/repository/ogen"
 	"github.com/ogen-app/harbor/src/repository/ogenannouncements"
 	"github.com/ogen-app/harbor/src/repository/ogenbilling"
 	"github.com/ogen-app/harbor/src/repository/ogenemail"
@@ -238,6 +239,7 @@ func main() {
 		billingClient,
 		analytics.NewSpendRepository(analyticsDB),
 		handlers.OperatorDirectory{AllowedEmails: strings.Split(cfg.AuthAllowedEmails, ","), Users: harbor.NewUserRepository(db)},
+		finance.DriverSources{Ogen: ogen.NewAllocationDrivers(ogenDB), Analytics: analyticsDB},
 		cfg.PnLInboxAddress,
 	)
 	if cfg.PnLJobs {
@@ -248,6 +250,7 @@ func main() {
 			jobs.Job{Name: "pnl.ai_usage", Interval: 10 * time.Minute, Run: financeSvc.MaterialiseAIUsage},
 			jobs.Job{Name: "pnl.revenue", Interval: 15 * time.Minute, Run: financeSvc.SyncRevenue},
 			jobs.Job{Name: "pnl.purge_rejected", Interval: time.Hour, Run: financeSvc.PurgeRejected},
+			jobs.Job{Name: "pnl.allocations", Interval: time.Minute, Run: financeSvc.AllocateShared},
 		)
 		runner.Start(context.Background())
 		slog.Info("finance jobs started", logging.AttrComponent, "boot")
