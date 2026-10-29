@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -318,6 +319,10 @@ func TestFetchReconcilesWithinThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bucketsBefore, err := h.svc.repo.TenantBuckets(ctx, day("2026-09-01"), day("2026-09-30"), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	costs := []ogenvendorcost.DailyCost{{Date: "2026-10-10", Model: "claude-sonnet-5", CostType: "tokens", USDMicros: usd(400)}}
 	// $1,048.20 over Sep: $34.94 a day on the 1st–30th.
@@ -360,6 +365,10 @@ func TestFetchReconcilesWithinThreshold(t *testing.T) {
 	tenantsAfter, _ := h.svc.repo.AICostByTenant(ctx, day("2026-09-01"))
 	if tenantsAfter["t-a"] != tenantsBefore["t-a"] || tenantsAfter["t-b"] != tenantsBefore["t-b"] {
 		t.Fatalf("tenant AI cost moved: %v → %v", tenantsBefore, tenantsAfter)
+	}
+	bucketsAfter, _ := h.svc.repo.TenantBuckets(ctx, day("2026-09-01"), day("2026-09-30"), false, "")
+	if !slices.Equal(bucketsBefore, bucketsAfter) {
+		t.Fatalf("tenant P&L buckets moved: %v → %v", bucketsBefore, bucketsAfter)
 	}
 
 	// Late usage changes the estimate: the adjustment follows, the total stays.
