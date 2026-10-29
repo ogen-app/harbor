@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AiChemistry02Icon,
@@ -18,13 +18,17 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
   CapabilityBadge,
+  compareModelVersionDesc,
   friendlyModel,
-  HeadlinePrice,
   humanize,
-  ModelCapabilityBadges,
-  PRICE_KINDS,
+  modelDetail,
+  modelFamily,
+  PriceHead,
+  priceDelta,
+  priceIn,
+  priceOut,
+  rate,
   servesCapability,
-  usd,
 } from "./format";
 import type {
   Flow,
@@ -56,6 +60,9 @@ interface SlotModelDrawerProps {
   onOpenChange: (open: boolean) => void;
   flow: Flow;
   slot: FlowSlot;
+  // System flows run for Harbor itself: like global-only slots, they have no
+  // tier tabs.
+  system?: boolean;
   models: Model[];
   tiers: Tier[];
   assignments: SlotAssignment[];
@@ -72,10 +79,11 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 }
 
 // SlotModelDrawer edits the model assignment for one (flow, slot). It presents a
-// "Global (default)" tab plus one tab per tier (unless the slot is global-only);
-// each tab is a capability-filtered model picker with pricing, capability badges
-// and a per-model Verify (golden probe). The footer saves the active scope, or
-// applies the pick to every tier at once.
+// "Global (default)" tab plus one tab per tier (unless the slot is global-only
+// or the flow is a system flow); each tab is a capability-filtered model picker
+// grouped by vendor and model family, with In / Out pricing, the change against
+// the current model, and a per-model compatibility test. The footer states the
+// consequence of saving before the operator commits it.
 export function SlotModelDrawer(props: SlotModelDrawerProps) {
   return (
     <Drawer open={props.open} onOpenChange={props.onOpenChange}>
@@ -90,23 +98,24 @@ function SlotModelForm({
   onOpenChange,
   flow,
   slot,
+  system = false,
   models,
   tiers,
   assignments,
   onChanged,
 }: SlotModelDrawerProps) {
+  const tierTabs = !slot.globalOnly && !system;
   const scopes = useMemo<Scope[]>(() => {
     const s: Scope[] = [{ key: "", label: "Global (default)" }];
-    if (!slot.globalOnly) {
+    if (tierTabs) {
       for (const t of tiers) s.push({ key: t.id, label: t.name, tier: t });
     }
     return s;
-  }, [slot.globalOnly, tiers]);
+  }, [tierTabs, tiers]);
 
-  // Selection per scope: a model id, or INHERIT for a tier tab with no override.
-  // Seeded once from the current assignments (the drawer is remounted per open).
-  const [draft, setDraft] = useState<Record<string, string>>(() => {
-    const d: Record<string, string> = {};
+  // What is saved today per scope: a model id, or INHERIT for a tier with no
+  // override.
+  const saved = useMemo(() => {
     const here = (tierId: string) =>
       assignments.find(
         (a) =>
@@ -114,13 +123,14 @@ function SlotModelForm({
           a.slotKey === slot.key &&
           a.tierId === tierId,
       );
-    d[""] = here("")?.modelId ?? "";
-    for (const t of tiers) {
-      const ov = here(t.id);
-      d[t.id] = ov ? ov.modelId : INHERIT;
-    }
+    const d: Record<string, string> = { "": here("")?.modelId ?? "" };
+    for (const t of tiers) d[t.id] = here(t.id)?.modelId ?? INHERIT;
     return d;
-  });
+  }, [assignments, flow.key, slot.key, tiers]);
+
+  // Selection per scope, seeded once from what is saved (the drawer is
+  // remounted per open).
+  const [draft, setDraft] = useState<Record<string, string>>(() => ({ ...saved }));
 
   const [active, setActive] = useState(0);
   const [testByModel, setTestByModel] = useState<Record<string, TestState>>({});
@@ -154,30 +164,53 @@ function SlotModelForm({
   const scope = scopes[active] ?? scopes[0];
   const isTier = scope.key !== "";
   const current = draft[scope.key] ?? (isTier ? INHERIT : "");
+  const savedHere = saved[scope.key] ?? (isTier ? INHERIT : "");
   const globalModelId = draft[""];
+  const savedGlobalId = saved[""];
+
+  const modelsById = useMemo(
+    () => new Map(models.map((m) => [m.id, m])),
+    [models],
+  );
+  // The model this scope runs on today: its own override, else the global
+  // default. Price changes in the picker are shown against it.
+  const baselineId =
+    savedHere && savedHere !== INHERIT ? savedHere : savedGlobalId;
+  const baseline = modelsById.get(baselineId);
 
   const slotModels = useMemo(
     () => models.filter((m) => servesCapability(m, slot.capability)),
     [models, slot.capability],
   );
 
-  // Group the picker by vendor (Anthropic, then Google), each under a logo'd
-  // header. Unknown vendors sort last.
+  // Group the picker by vendor (Anthropic, then Google; unknown vendors last),
+  // then by model family. Families run cheapest first (by the input rate of
+  // their newest model); versions within a family run newest first.
   const groupedModels = useMemo(() => {
-    const order = ["anthropic", "gemini"];
-    const map = new Map<string, Model[]>();
+    const vendorOrder = ["anthropic", "gemini"];
+    const byVendor = new Map<string, Map<string, Model[]>>();
     for (const m of slotModels) {
-      const arr = map.get(m.vendor);
-      if (arr) arr.push(m);
-      else map.set(m.vendor, [m]);
+      const families = byVendor.get(m.vendor) ?? new Map<string, Model[]>();
+      const fam = modelFamily(m.id);
+      families.set(fam, [...(families.get(fam) ?? []), m]);
+      byVendor.set(m.vendor, families);
     }
-    return [...map.entries()]
+    const inputRate = (m: Model) => rate(m, "input") ?? Number.MAX_SAFE_INTEGER;
+    return [...byVendor.entries()]
       .sort(([a], [b]) => {
-        const ia = order.indexOf(a);
-        const ib = order.indexOf(b);
+        const ia = vendorOrder.indexOf(a);
+        const ib = vendorOrder.indexOf(b);
         return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
       })
-      .map(([vendor, list]) => ({ vendor, models: list }));
+      .map(([vendor, families]) => ({
+        vendor,
+        families: [...families.entries()]
+          .map(([family, list]) => ({
+            family,
+            models: [...list].sort((a, b) => compareModelVersionDesc(a.id, b.id)),
+          }))
+          .sort((a, b) => inputRate(a.models[0]) - inputRate(b.models[0])),
+      }));
   }, [slotModels]);
 
   const select = (modelId: string) =>
@@ -209,6 +242,7 @@ function SlotModelForm({
     }
   };
 
+  const title = flow.slots.length > 1 ? `${humanize(flow.key)} · ${humanize(slot.key)}` : humanize(flow.key);
   const scopeLabel = scope.tier ? ` · ${scope.tier.name}` : "";
 
   const save = async () => {
@@ -245,7 +279,7 @@ function SlotModelForm({
         });
       }
       if (!res.ok) throw new Error(await errorMessage(res, `Request failed (${res.status})`));
-      onChanged(`Updated ${humanize(flow.key)} · ${slot.key}${scopeLabel}`);
+      onChanged(`Updated ${title}${scopeLabel}`);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
@@ -272,9 +306,7 @@ function SlotModelForm({
         }),
       });
       if (!res.ok) throw new Error(await errorMessage(res, `Request failed (${res.status})`));
-      onChanged(
-        `${friendlyModel(sel)} set for all tiers · ${humanize(flow.key)} · ${slot.key}`,
-      );
+      onChanged(`${friendlyModel(sel)} set for all tiers · ${title}`);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
@@ -282,7 +314,8 @@ function SlotModelForm({
     }
   };
 
-  const canSaveAll = !slot.globalOnly && !!current && current !== INHERIT;
+  const dirty = current !== savedHere;
+  const canSaveAll = tierTabs && !isTier && !!current && current !== INHERIT;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -294,16 +327,18 @@ function SlotModelForm({
             className="size-5 text-tertiary-foreground"
           />
           <DrawerTitle className="font-display text-lg font-medium">
-            {humanize(flow.key)}{" "}
-            <span className="text-tertiary-foreground">/</span>{" "}
-            <span className="text-base">{slot.key}</span>
+            {title}
           </DrawerTitle>
-          <CapabilityBadge capability={slot.capability} />
+          {slot.capability !== "chat" && (
+            <CapabilityBadge capability={slot.capability} />
+          )}
         </div>
         <DrawerDescription className="mt-1">
-          {slot.description}
-          {slot.globalOnly &&
-            " This slot is global-only — it can't be overridden per tier."}
+          {flow.slots.length > 1 ? slot.description : flow.description}
+          {system
+            ? " Runs for Harbor itself, so it has no tier overrides."
+            : slot.globalOnly &&
+              " This slot is global-only — it can't be overridden per tier."}
         </DrawerDescription>
       </div>
 
@@ -316,29 +351,38 @@ function SlotModelForm({
             role="tablist"
             className="flex gap-6 overflow-x-auto border-b border-border"
           >
-            {scopes.map((s, i) => (
-              <button
-                key={s.key || "__global__"}
-                type="button"
-                role="tab"
-                aria-selected={i === active}
-                onClick={() => setActive(i)}
-                className={cn(
-                  "relative -mb-px flex items-center gap-1.5 border-b-2 py-2.5 text-sm whitespace-nowrap transition-colors outline-none",
-                  i === active
-                    ? "border-foreground font-semibold text-foreground"
-                    : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
-                )}
-              >
-                {s.tier && (
-                  <span
-                    className="size-2 rounded-full"
-                    style={{ backgroundColor: s.tier.color }}
-                  />
-                )}
-                {s.label}
-              </button>
-            ))}
+            {scopes.map((s, i) => {
+              const edited = draft[s.key] !== saved[s.key];
+              return (
+                <button
+                  key={s.key || "__global__"}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === active}
+                  onClick={() => setActive(i)}
+                  className={cn(
+                    "relative -mb-px flex items-center gap-1.5 border-b-2 py-2.5 text-sm whitespace-nowrap transition-colors outline-none",
+                    i === active
+                      ? "border-foreground font-semibold text-foreground"
+                      : "border-transparent font-medium text-tertiary-foreground hover:text-secondary-foreground",
+                  )}
+                >
+                  {s.tier && (
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ backgroundColor: s.tier.color }}
+                    />
+                  )}
+                  {s.label}
+                  {edited && (
+                    <span
+                      className="size-1.5 rounded-full bg-editable"
+                      aria-label="unsaved change"
+                    />
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -347,31 +391,35 @@ function SlotModelForm({
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         {/* Per-tier effective-config note */}
         {isTier && (
-          <p className="mb-3 text-xs text-tertiary-foreground">
-            {current === INHERIT ? (
+          <p className="mb-3 text-xs text-secondary-foreground">
+            {savedHere === INHERIT ? (
               <>
                 <span className="font-medium text-foreground">
                   {scope.label}
                 </span>{" "}
                 inherits the global default
-                {globalModelId ? (
+                {savedGlobalId ? (
                   <>
                     {" "}
                     (
                     <span className="text-foreground">
-                      {friendlyModel(globalModelId)}
+                      {friendlyModel(savedGlobalId)}
                     </span>
                     )
                   </>
                 ) : null}
-                . Pick a model below to override it for this tier.
+                . Pick a model to override it.
               </>
             ) : (
               <>
                 <span className="font-medium text-foreground">
                   {scope.label}
                 </span>{" "}
-                overrides the global default for this slot.
+                overrides the global default with{" "}
+                <span className="text-foreground">
+                  {friendlyModel(savedHere)}
+                </span>
+                .
               </>
             )}
           </p>
@@ -399,7 +447,7 @@ function SlotModelForm({
                 <div className="text-sm font-medium">
                   Use global default (inherit)
                 </div>
-                <div className="text-xs">
+                <div className="text-xs text-secondary-foreground">
                   {globalModelId
                     ? `Currently ${friendlyModel(globalModelId)}`
                     : "No global default set"}
@@ -408,25 +456,34 @@ function SlotModelForm({
             </button>
           )}
 
-          {groupedModels.map(({ vendor, models: vendorModels }) => (
+          {groupedModels.map(({ vendor, families }) => (
             <div key={vendor} className="flex flex-col gap-2">
               <VendorHeader vendor={vendor} />
-              {vendorModels.map((m) => (
-                <ModelOption
-                  key={m.id}
-                  model={m}
-                  slotVendors={slot.vendors ?? []}
-                  selected={current === m.id}
-                  test={testByModel[m.id]}
-                  onSelect={() => select(m.id)}
-                  onTest={() => runTest(m.id)}
-                />
+              {families.map(({ family, models: familyModels }) => (
+                <div key={family} className="flex flex-col gap-2">
+                  <div className="px-1 pt-1 text-[15px] font-medium text-foreground">
+                    {family} family
+                  </div>
+                  {familyModels.map((m) => (
+                    <ModelOption
+                      key={m.id}
+                      model={m}
+                      slotVendors={slot.vendors ?? []}
+                      selected={current === m.id}
+                      isGlobalDefault={m.id === savedGlobalId}
+                      baseline={baseline}
+                      test={testByModel[m.id]}
+                      onSelect={() => select(m.id)}
+                      onTest={() => runTest(m.id)}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           ))}
 
           {slotModels.length === 0 && (
-            <p className="text-sm text-tertiary-foreground">
+            <p className="text-sm text-secondary-foreground">
               No {slot.capability} models are available.
             </p>
           )}
@@ -442,9 +499,18 @@ function SlotModelForm({
         </div>
       )}
 
-      {/* Footer (fixed) */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-6 py-4">
-        <div>
+      {/* Footer (fixed): what saving will do, then the actions. */}
+      <div className="flex shrink-0 items-center justify-between gap-4 border-t border-border px-6 py-4">
+        <Consequence
+          dirty={dirty}
+          scope={scope}
+          from={savedHere}
+          to={current}
+          globalId={savedGlobalId}
+          modelsById={modelsById}
+          tierTabs={tierTabs}
+        />
+        <div className="flex shrink-0 items-center gap-2">
           {canSaveAll && (
             <Button
               type="button"
@@ -453,11 +519,9 @@ function SlotModelForm({
               onClick={saveAllTiers}
               disabled={submitting}
             >
-              Save and use for all Tiers
+              Save and use for all tiers
             </Button>
           )}
-        </div>
-        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="ghost"
@@ -473,7 +537,7 @@ function SlotModelForm({
             size="sm"
             className="font-semibold"
             onClick={save}
-            disabled={submitting}
+            disabled={submitting || !dirty}
           >
             {submitting
               ? "Saving…"
@@ -482,6 +546,73 @@ function SlotModelForm({
                 : "Save global default"}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Consequence states what saving the active scope will change and for whom, so
+// a production-affecting edit is never a blind click.
+function Consequence({
+  dirty,
+  scope,
+  from,
+  to,
+  globalId,
+  modelsById,
+  tierTabs,
+}: {
+  dirty: boolean;
+  scope: Scope;
+  from: string;
+  to: string;
+  globalId: string;
+  modelsById: Map<string, Model>;
+  tierTabs: boolean;
+}) {
+  if (!dirty) {
+    return (
+      <p className="min-w-0 text-xs text-secondary-foreground">
+        No changes yet. Pick a model to see what saving will do.
+      </p>
+    );
+  }
+  const name = (id: string) =>
+    id === INHERIT
+      ? `global default (${friendlyModel(globalId)})`
+      : id
+        ? friendlyModel(id)
+        : "not set";
+  // Effective models before and after, for the price change.
+  const effective = (id: string) => modelsById.get(id === INHERIT ? globalId : id);
+  const before = effective(from);
+  const after = effective(to);
+  const dIn = after ? priceDelta(after, before, "input") : null;
+  const dOut = after ? priceDelta(after, before, "output") : null;
+  const who = scope.tier
+    ? `every ${scope.tier.name} tenant`
+    : tierTabs
+      ? "every tier without an override"
+      : "every run";
+  const priceNote =
+    dIn && dOut && dIn.label === dOut.label
+      ? ` · in / out ${dIn.label}`
+      : [dIn && ` · in ${dIn.label}`, dOut && ` · out ${dOut.label}`]
+          .filter(Boolean)
+          .join("");
+
+  return (
+    <div className="min-w-0 text-[13px]">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+        <span className="text-secondary-foreground">
+          {scope.tier ? scope.tier.name : "Global default"}:
+        </span>
+        <span>{name(from)}</span>
+        <span className="text-tertiary-foreground">→</span>
+        <span className="font-medium text-editable">{name(to)}</span>
+      </div>
+      <div className="mt-0.5 text-xs text-secondary-foreground">
+        Applies to {who} on its next run{priceNote}
       </div>
     </div>
   );
@@ -508,14 +639,17 @@ function VendorMark({
   return <Icon name="anthropic" className={className} />;
 }
 
-// VendorHeader is the group divider in the model picker.
+// VendorHeader is the group divider in the model picker. It carries the In /
+// Out column heads, aligned with the price columns of the options below.
 function VendorHeader({ vendor }: { vendor: string }) {
   return (
     <div className="flex items-center gap-2.5 px-1 pt-1">
       <VendorMark vendor={vendor} className="size-6 text-foreground" />
-      <span className="text-lg font-normal">
-        {vendorLabel(vendor)}
-      </span>
+      <span className="flex-1 text-lg font-normal">{vendorLabel(vendor)}</span>
+      <div className="mr-8 grid grid-cols-[4.5rem_4.5rem] gap-2 text-[11px] font-medium tracking-wide text-secondary-foreground uppercase">
+        <PriceHead kind="input" />
+        <PriceHead kind="output" />
+      </div>
     </div>
   );
 }
@@ -524,6 +658,8 @@ function ModelOption({
   model,
   slotVendors,
   selected,
+  isGlobalDefault,
+  baseline,
   test,
   onSelect,
   onTest,
@@ -531,6 +667,8 @@ function ModelOption({
   model: Model;
   slotVendors: string[];
   selected: boolean;
+  isGlobalDefault: boolean;
+  baseline: Model | undefined;
   test?: TestState;
   onSelect: () => void;
   onTest: () => void;
@@ -543,6 +681,8 @@ function ModelOption({
       ? `${slotVendors.map(vendorLabel).join(" / ")} only`
       : null;
   const disabled = !!blockedReason;
+  const dIn = priceDelta(model, baseline, "input");
+  const dOut = priceDelta(model, baseline, "output");
 
   return (
     <div
@@ -552,12 +692,11 @@ function ModelOption({
         disabled && "opacity-60",
       )}
     >
-      {/* Selected marker — lives in the left gutter the card padding reserves,
-          aligned under the vendor name. */}
+      {/* Selected marker — lives in the left gutter the card padding reserves. */}
       {selected && (
         <HugeiconsIcon
           icon={CircleCheckBigIcon}
-          className="pointer-events-none absolute left-2.5 top-3.5 size-5 text-[#1c7ef6] duration-200 animate-in fade-in zoom-in-75"
+          className="pointer-events-none absolute top-3.5 left-2.5 size-5 text-[#1c7ef6] duration-200 animate-in fade-in zoom-in-75"
         />
       )}
       <button
@@ -573,31 +712,31 @@ function ModelOption({
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">
+            <span className="text-sm font-medium" title={model.id}>
               {friendlyModel(model.id)}
             </span>
+            {isGlobalDefault && (
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                Global default
+              </span>
+            )}
             {blockedReason && (
-              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-tertiary-foreground">
+              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
                 {blockedReason}
               </span>
             )}
           </div>
-          <div className="truncate text-[11px] text-tertiary-foreground">
-            {model.id}
+          <div className="truncate text-[11px] text-secondary-foreground">
+            {modelDetail(model)}
           </div>
-          {/*<div className="mt-1.5">
-            <ModelCapabilityBadges model={model} />
-          </div>*/}
         </div>
-        <div className="shrink-0 text-right mr-4">
-          <HeadlinePrice model={model} className="text-sm" />
-          <div className="mt-0.5 text-[10px] text-tertiary-foreground">
-            prices v{model.priceVersion}
-          </div>
+        <div className="mr-4 grid shrink-0 grid-cols-[4.5rem_4.5rem] gap-2 text-right text-sm tabular-nums">
+          <PriceCell value={priceIn(model)} delta={dIn} />
+          <PriceCell value={priceOut(model)} delta={dOut} />
         </div>
       </button>
 
-      {/* Selected: Verify (golden probe) with an explainer, then results */}
+      {/* Selected: compatibility test with its explainer, then results */}
       {selected && !disabled && (
         <div className="border-t border-border py-3 pr-4 pl-[38px] duration-200 animate-in fade-in slide-in-from-top-1">
           <div className="flex items-start gap-3">
@@ -612,23 +751,23 @@ function ModelOption({
               <HugeiconsIcon icon={AiChemistry02Icon} className="size-4" />
               {test?.loading ? "Testing…" : "Test model compatibility"}
             </Button>
-            <p className="w-72 shrink-0 text-[11px] leading-snug text-tertiary-foreground">
+            <p className="w-72 shrink-0 text-[11px] leading-snug text-secondary-foreground">
               Runs the flow’s golden probe against this model: a static
               capability check, then one real call exercising its tools, schema
-              and streaming — reporting pass/fail, latency and a sample.
+              and streaming.
             </p>
           </div>
 
           {(test?.result || test?.error) && (
-            <div className="mt-2.5 flex flex-wrap items-center gap-3">
-              {test?.result && <TestBadge result={test.result} />}
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              {test?.result && <TestBadges result={test.result} />}
               {test?.error && (
                 <span className="text-xs text-destructive">{test.error}</span>
               )}
             </div>
           )}
           {test?.result?.passed && test.result.sample && (
-            <p className="mt-2 text-xs text-tertiary-foreground">
+            <p className="mt-2 text-xs text-secondary-foreground">
               {test.result.sample}
             </p>
           )}
@@ -638,46 +777,86 @@ function ModelOption({
   );
 }
 
-function PriceBreakdown({ model }: { model: Model }) {
+function PriceCell({
+  value,
+  delta,
+}: {
+  value: string;
+  delta: { label: string; cheaper: boolean } | null;
+}) {
   return (
-    <div className="flex flex-wrap gap-x-5 gap-y-1">
-      {PRICE_KINDS.map(({ kind, label }) => {
-        const r = model.rates.find((x) => x.kind === kind);
-        if (!r) return null;
-        return (
-          <div key={kind} className="text-xs">
-            <span className="text-tertiary-foreground">{label}: </span>
-            <span className="tabular-nums text-foreground">
-              {usd(r.microsPerMillion)}
-              <span className="text-tertiary-foreground"> /1M</span>
-            </span>
-          </div>
-        );
-      })}
+    <div>
+      <div className={cn(value === "—" && "text-secondary-foreground")}>
+        {value}
+      </div>
+      {delta && (
+        <div
+          className={cn(
+            "text-[11px] font-medium",
+            delta.cheaper ? "text-emerald-700" : "text-destructive",
+          )}
+        >
+          {delta.label}
+        </div>
+      )}
     </div>
   );
 }
 
-function TestBadge({ result }: { result: TestResult }) {
-  if (result.passed) {
+// TestBadges splits the probe result into its two steps. A non-empty
+// unmetRequirements means the static check failed (the live call never ran);
+// otherwise the static check passed and the live probe decided the outcome.
+function TestBadges({ result }: { result: TestResult }) {
+  const unmet = result.unmetRequirements ?? [];
+  if (unmet.length > 0) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700">
-        <span className="size-1.5 rounded-full bg-emerald-500" />
-        Passed · {result.latencyMs}ms
-      </span>
+      <Pill ok={false} title={result.detail}>
+        Static check failed · needs {unmet.join(", ")}
+      </Pill>
     );
   }
-  const unmet =
-    result.unmetRequirements && result.unmetRequirements.length > 0
-      ? ` · needs ${result.unmetRequirements.join(", ")}`
-      : "";
+  return (
+    <>
+      <Pill ok>Static check passed</Pill>
+      <Pill ok={result.passed} title={result.detail}>
+        {result.passed
+          ? `Live probe passed · ${formatLatency(result.latencyMs)}`
+          : "Live probe failed"}
+      </Pill>
+    </>
+  );
+}
+
+function Pill({
+  ok,
+  title,
+  children,
+}: {
+  ok: boolean;
+  title?: string;
+  children: ReactNode;
+}) {
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive"
-      title={result.detail}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+        ok
+          ? "bg-emerald-500/10 text-emerald-700"
+          : "bg-destructive/10 text-destructive",
+      )}
+      title={title}
     >
-      <span className="size-1.5 rounded-full bg-destructive" />
-      Failed{unmet}
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          ok ? "bg-emerald-500" : "bg-destructive",
+        )}
+      />
+      {children}
     </span>
   );
+}
+
+function formatLatency(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
 }
