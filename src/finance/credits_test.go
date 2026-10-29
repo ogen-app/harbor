@@ -104,11 +104,11 @@ func TestWithinThreshold(t *testing.T) {
 		pct               int
 		want              bool
 	}{
-		{usd(1021.80), usd(1048.20), 5, true},  // +2.6%
-		{usd(162.90), usd(149.10), 5, false},   // −8.5%
-		{usd(162.90), usd(149.10), 10, true},   // −8.5% under 10%
-		{usd(100), usd(105), 5, true},          // exactly 5%
-		{usd(100), usd(105.01), 5, false},      // just over
+		{usd(1021.80), usd(1048.20), 5, true}, // +2.6%
+		{usd(162.90), usd(149.10), 5, false},  // −8.5%
+		{usd(162.90), usd(149.10), 10, true},  // −8.5% under 10%
+		{usd(100), usd(105), 5, true},         // exactly 5%
+		{usd(100), usd(105.01), 5, false},     // just over
 		{0, 0, 5, true},
 		{0, usd(1), 5, false},
 	} {
@@ -498,6 +498,7 @@ func TestNotConnectedStillAllowsManual(t *testing.T) {
 	h := newHarness(t)
 	ctx := t.Context()
 	dailyUsage(t, h, "anthropic", "claude-sonnet-5", "2026-09-01", "2026-09-30", usd(10))
+	dailyUsage(t, h, "google", "gemini-3.8-flash", "2026-09-01", "2026-09-30", usd(2))
 	h.svc.SetVendorCosts(&fakeVendorCosts{rep: ogenvendorcost.Report{Configured: false}})
 	if err := h.svc.FetchVendorCharges(ctx); err != nil {
 		t.Fatal(err)

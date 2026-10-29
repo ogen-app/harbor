@@ -615,6 +615,10 @@ func (s *Service) Reconciliation(ctx context.Context, from, to time.Time) (Recon
 			key := chargeKey(v.ID, m)
 			row := ReconRow{VendorID: v.ID, VendorName: v.Name, Month: m.Format(monthLayout), EstimateMicros: est[key]}
 			c, has := byKey[key]
+			if !has && row.EstimateMicros == 0 {
+				// No usage and no charge: nothing to reconcile.
+				continue
+			}
 			if has {
 				row.Source = c.Source
 				row.Note = c.Note
@@ -735,7 +739,10 @@ type ReconAudit struct {
 	At     string `json:"at"`
 	Actor  string `json:"actor"`
 	Action string `json:"action"`
-	Note   string `json:"note"`
+	// Status is the charge's status after the action.
+	Status string `json:"status"`
+	// Note is the operator's note on a manual charge or a kept estimate.
+	Note string `json:"note"`
 }
 
 // ReconDetail is the Review drawer.
@@ -822,7 +829,11 @@ func (s *Service) ReconciliationDetail(ctx context.Context, vendorID string, mon
 		return out, err
 	}
 	for _, a := range audit {
-		out.Audit = append(out.Audit, ReconAudit{At: a.CreatedAt.UTC().Format(time.RFC3339), Actor: a.Actor, Action: a.Action, Note: auditNote(a.After)})
+		status, note := auditFields(a.After)
+		if a.Action != "reconciliation.manual" && a.Action != "reconciliation.dismiss" {
+			note = ""
+		}
+		out.Audit = append(out.Audit, ReconAudit{At: a.CreatedAt.UTC().Format(time.RFC3339), Actor: a.Actor, Action: a.Action, Status: status, Note: note})
 	}
 	return out, nil
 }
@@ -836,13 +847,13 @@ func normaliseModel(m string) string {
 	return strings.ToLower(strings.TrimSpace(m))
 }
 
-func auditNote(after []byte) string {
-	var m map[string]any
+func auditFields(after []byte) (status, note string) {
+	var m struct {
+		Status string `json:"status"`
+		Note   string `json:"note"`
+	}
 	if len(after) == 0 || json.Unmarshal(after, &m) != nil {
-		return ""
+		return "", ""
 	}
-	if n, ok := m["note"].(string); ok {
-		return n
-	}
-	return ""
+	return m.Status, m.Note
 }

@@ -3,7 +3,7 @@
 // YYYY-MM-DD (UTC), months YYYY-MM, instants RFC 3339.
 
 export type Direction = "revenue" | "tax" | "fee" | "refund" | "expense" | "prepayment";
-export type Source = "receipt" | "token_pipeline" | "billing_v1" | "receipt_extraction";
+export type Source = "receipt" | "token_pipeline" | "billing_v1" | "receipt_extraction" | "reconciliation";
 
 export type VendorCategory = "ai" | "infra" | "email" | "domains" | "social" | "revenue";
 

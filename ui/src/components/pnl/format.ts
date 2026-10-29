@@ -191,6 +191,7 @@ export const SOURCE_LABEL: Record<Source, string> = {
   token_pipeline: "AI usage",
   billing_v1: "Payments",
   receipt_extraction: "Receipt reading",
+  reconciliation: "Reconciliation",
 };
 
 export const DIRECTION_LABEL: Record<Direction, string> = {
@@ -212,7 +213,7 @@ export const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export const DIRECTIONS: Direction[] = ["revenue", "fee", "tax", "refund", "expense", "prepayment"];
-export const SOURCES: Source[] = ["billing_v1", "token_pipeline", "receipt", "receipt_extraction"];
+export const SOURCES: Source[] = ["billing_v1", "token_pipeline", "receipt", "receipt_extraction", "reconciliation"];
 
 // ── fetch ────────────────────────────────────────────────────────────────────
 

@@ -6,6 +6,7 @@ import { PnlHeader } from "@/components/pnl/PnlHeader";
 import { ProfitLossTab } from "@/components/pnl/ProfitLossTab";
 import { LedgerTab, drillFromSearch, drillToTokens, type LedgerToken } from "@/components/pnl/LedgerTab";
 import { AttentionTab } from "@/components/pnl/AttentionTab";
+import { AiCreditsTab } from "@/components/pnl/AiCreditsTab";
 import { ReceiptDrawer } from "@/components/pnl/ReceiptDrawer";
 import { DateRangePicker, type DateRange } from "@/components/ui/date-range-picker";
 import { api, isoDate, todayUTC } from "@/components/pnl/format";
@@ -13,16 +14,18 @@ import type { Drill, PnlStatus } from "@/components/pnl/types";
 
 // Profit & loss (CON-412/420): Ogen's money in and out, for operators only.
 // Tab 1 is the monthly P&L, tab 2 the ledger every figure drills into, tab 3
-// the receipts that failed a check and stay out of the books until approved.
+// the receipts that failed a check and stay out of the books until approved,
+// tab 4 the prepaid AI credits and the estimate-vs-charged reconciliation.
 // The header on every tab says how complete the data is.
 //
-// Deep links: ?tab=ledger|attention opens that tab; ?tab=ledger with from/to
-// (and vendor, type, source, tenant) opens the Ledger filtered to a drill, as
-// the tenant Profit & loss tab links it.
+// Deep links: ?tab=ledger|attention|credits opens that tab; ?tab=ledger with
+// from/to (and vendor, type, source, tenant) opens the Ledger filtered to a
+// drill, as the tenant Profit & loss tab links it.
 const TABS = [
   { key: "pnl", label: "Profit & loss" },
   { key: "ledger", label: "Ledger" },
   { key: "attention", label: "Needs attention" },
+  { key: "credits", label: "AI credits" },
 ] as const;
 
 const tabId = (i: number) => `pnl-tab-${i}`;
@@ -227,6 +230,7 @@ export default function PnlPage() {
               onOpenReceipt={setReceiptId}
             />
           )}
+          {tab === 3 && <AiCreditsTab version={version} onChanged={changed} />}
         </div>
       </div>
 
