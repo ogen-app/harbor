@@ -26,16 +26,18 @@ type TenantNamer interface {
 
 // PnLHandler is the REST surface of the Profit & loss page (CON-420): status,
 // the summary strip, the monthly P&L, the Ledger, the receipt drawer and the
-// Needs attention actions. Every number comes from the finance ledger through
-// one aggregation, and every mutation is audited and returns its effect.
+// Needs attention actions, plus the Tenant P&L tab (CON-433). Every number
+// comes from the finance ledger through one aggregation, and every mutation is
+// audited and returns its effect.
 type PnLHandler struct {
 	svc      *finance.Service
 	tenants  TenantNamer
 	operator OperatorLookup
+	plans    PlanSource
 }
 
-func NewPnLHandler(svc *finance.Service, tenants TenantNamer, operator OperatorLookup) *PnLHandler {
-	return &PnLHandler{svc: svc, tenants: tenants, operator: operator}
+func NewPnLHandler(svc *finance.Service, tenants TenantNamer, operator OperatorLookup, plans PlanSource) *PnLHandler {
+	return &PnLHandler{svc: svc, tenants: tenants, operator: operator, plans: plans}
 }
 
 func (h *PnLHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
@@ -43,6 +45,7 @@ func (h *PnLHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/pnl/summary", requireAuth, h.Summary)
 	app.Get("/api/pnl/monthly", requireAuth, h.Monthly)
 	app.Get("/api/pnl/daily", requireAuth, h.Daily)
+	app.Get("/api/tenants/:id/pnl", requireAuth, h.TenantPnL)
 	app.Get("/api/pnl/ledger", requireAuth, h.Ledger)
 	app.Get("/api/pnl/ledger/children", requireAuth, h.LedgerChildren)
 	app.Get("/api/pnl/attention", requireAuth, h.Attention)
@@ -113,21 +116,9 @@ func (h *PnLHandler) Summary(c *fiber.Ctx) error {
 // @Success  200   {object}  finance.Monthly
 // @Router   /api/pnl/monthly [get]
 func (h *PnLHandler) Monthly(c *fiber.Ctx) error {
-	now := time.Now().UTC()
-	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	to, err := parseMonth(c.Query("to"), thisMonth)
+	from, to, err := monthRange(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "to is YYYY-MM")
-	}
-	from, err := parseMonth(c.Query("from"), to.AddDate(0, -5, 0))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "from is YYYY-MM")
-	}
-	if from.After(to) {
-		return fiber.NewError(fiber.StatusBadRequest, "from is after to")
-	}
-	if from.AddDate(0, finance.MaxMonths-1, 0).Before(to) {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("at most %d months", finance.MaxMonths))
+		return err
 	}
 	m, err := h.svc.Monthly(c.Context(), from, to)
 	if err != nil {

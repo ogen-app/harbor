@@ -15,11 +15,13 @@ import { DIRECTIONS, SOURCES, SOURCE_LABEL, api, cash, dayLabel, money, parseMon
 import { EmptyInbox } from "./EmptyInbox";
 import { ErrorLine, KeyHint, PendingBanner, SkeletonBar, TypePill, pendingSentence } from "./shared";
 import type {
+  Direction,
   Drill,
   LedgerChild,
   LedgerResponse,
   LedgerRow,
   PnlStatus,
+  Source,
   Vendor,
 } from "./types";
 
@@ -46,7 +48,33 @@ export function drillToTokens(d: Drill): LedgerToken[] {
   if (d.vendor) out.push({ field: "vendor", operator: "is", value: d.vendor });
   d.direction?.forEach((v) => out.push({ field: "type", operator: "is", value: v }));
   d.source?.forEach((v) => out.push({ field: "source", operator: "is", value: v }));
+  if (d.tenant) out.push({ field: "tenant", operator: "is", value: d.tenant });
   return out;
+}
+
+// drillHref links a drill from outside /pnl (the tenant Profit & loss tab) to
+// the Ledger filtered to its entries; drillFromSearch reads it back.
+export function drillHref(d: Drill): string {
+  const q = new URLSearchParams({ tab: "ledger", from: d.from, to: d.to });
+  if (d.vendor) q.set("vendor", d.vendor);
+  d.direction?.forEach((v) => q.append("type", v));
+  d.source?.forEach((v) => q.append("source", v));
+  if (d.tenant) q.set("tenant", d.tenant);
+  return `/pnl?${q}`;
+}
+
+export function drillFromSearch(q: URLSearchParams): Drill | null {
+  const from = q.get("from");
+  const to = q.get("to");
+  if (!from || !to) return null;
+  return {
+    from,
+    to,
+    vendor: q.get("vendor") ?? undefined,
+    direction: q.getAll("type").filter((v): v is Direction => (DIRECTIONS as string[]).includes(v)),
+    source: q.getAll("source").filter((v): v is Source => (SOURCES as string[]).includes(v)),
+    tenant: q.get("tenant") ?? undefined,
+  };
 }
 
 // filterQuery maps chips to the ledger's query parameters. Repeated "is" chips

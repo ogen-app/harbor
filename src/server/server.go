@@ -119,7 +119,7 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 	handlers.NewInvitesHandler(invitesClient, handlers.NewOperatorLookup(userRepo)).Register(app, requireAuth)
 	// CON-420: the Profit & loss page over Harbor's own finance ledger.
 	if financeSvc != nil {
-		handlers.NewPnLHandler(financeSvc, tenantRepo, handlers.NewOperatorLookup(userRepo)).Register(app, requireAuth)
+		handlers.NewPnLHandler(financeSvc, tenantRepo, handlers.NewOperatorLookup(userRepo), billingClient).Register(app, requireAuth)
 	}
 
 	// ── Embedded UI ───────────────────────────────────────────────────────

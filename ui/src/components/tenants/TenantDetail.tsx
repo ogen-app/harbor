@@ -47,6 +47,7 @@ import { ActivityCard } from "@/components/tenants/ActivityCard";
 import { EmailsCard } from "@/components/tenants/EmailsCard";
 import { AccessCard } from "@/components/tenants/AccessCard";
 import { TenantBillingCard } from "@/components/billing/TenantBillingCard";
+import { TenantPnlTab } from "./TenantPnlTab";
 import { BillingStatusBadge } from "@/components/billing/format";
 
 interface DetailResponse {
@@ -443,13 +444,20 @@ function ZernioSection({ state, total }: { state: ZernioState; total: number }) 
 // (complimentary tester status + who invited it, CON-334), profile, users,
 // Zernio accounts and token cost; "Recent activity" the activity card;
 // "Emails" the per-tenant email log (CON-192); "Billing" the subscriptions,
-// comp/exempt flag and webhook log (CON-327).
+// comp/exempt flag and webhook log (CON-327); "Profit & loss" whether the
+// tenant makes money (CON-433).
 const DETAIL_TABS = [
   "General information",
   "Recent activity",
   "Emails",
   "Billing",
+  "Profit & loss",
 ] as const;
+
+// Deep-link keys for ?tab=, where the lower-cased label won't do.
+const TAB_KEYS: Partial<Record<(typeof DETAIL_TABS)[number], string>> = {
+  "Profit & loss": "pnl",
+};
 
 // Stable, consistently-derived ids linking each tab to its panel (ARIA).
 const tabId = (i: number) => `tenant-tab-${i}`;
@@ -471,7 +479,7 @@ export function TenantDetail() {
     setId(tenantIdFromLocation());
     // ?tab=billing deep-links a tab (e.g. from the /billing attention list).
     const wanted = new URLSearchParams(window.location.search).get("tab");
-    const i = DETAIL_TABS.findIndex((label) => label.toLowerCase() === wanted);
+    const i = DETAIL_TABS.findIndex((label) => (TAB_KEYS[label] ?? label.toLowerCase()) === wanted);
     if (i >= 0) setTab(i);
   }, []);
 
@@ -793,6 +801,17 @@ export function TenantDetail() {
             tabIndex={0}
           >
             <TenantBillingCard tenantId={t.id} />
+          </div>
+        )}
+
+        {tab === 4 && (
+          <div
+            role="tabpanel"
+            id={tabPanelId(4)}
+            aria-labelledby={tabId(4)}
+            tabIndex={0}
+          >
+            <TenantPnlTab tenant={t} />
           </div>
         )}
       </div>

@@ -95,6 +95,7 @@ export interface Drill {
   vendor?: string;
   direction?: Direction[];
   source?: Source[];
+  tenant?: string;
 }
 
 export interface Cell {
@@ -107,7 +108,8 @@ export interface Cell {
 
 export interface MonthlyRow {
   key: string;
-  section: "revenue" | "expenses" | "profit" | "memo";
+  // direct and shared are the tenant P&L's cost sections (CON-433).
+  section: "revenue" | "expenses" | "direct" | "shared" | "profit" | "memo";
   label: string;
   sourceLabel: string;
   kind: "line" | "total" | "margin";
@@ -151,6 +153,44 @@ export interface PnlDaily {
   totals: DailyTotals;
   previous: DailyTotals;
   provisional: { month: string; count: number; amountMicros: number } | null;
+}
+
+// ── tenant P&L (CON-433) ─────────────────────────────────────────────────────
+
+export interface TenantPnlSummary {
+  period: Period;
+  compare: Period;
+  netRevenue: Comparable;
+  directAi: Comparable;
+  directAiBy: { vendorId: string; name: string; amountMicros: number }[];
+  sharedCosts: Comparable;
+  contribution: Comparable;
+  marginPct: Comparable;
+  // Blended over every tenant with revenue this month; not the company margin.
+  allTenantsMarginPct: number | null;
+  hasRevenue: boolean;
+  asOf: string;
+}
+
+export interface TenantPlan {
+  tierName: string;
+  netMinor: number;
+  currency: string;
+  interval: string;
+  status: string;
+}
+
+export interface TenantPnl {
+  tenantId: string;
+  months: string[];
+  revenueAvailable: boolean;
+  revenueError: string;
+  testMode: boolean;
+  revenueSeen: boolean;
+  sharedConfigured: boolean;
+  rows: MonthlyRow[];
+  summary: TenantPnlSummary;
+  plan: TenantPlan | null;
 }
 
 // ── ledger ───────────────────────────────────────────────────────────────────
