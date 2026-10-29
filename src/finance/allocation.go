@@ -286,7 +286,10 @@ func (s *Service) captureDrivers(ctx context.Context, month time.Time, refresh b
 			}
 			continue
 		}
-		if err := s.repo.ReplaceDrivers(ctx, month, d, q); err != nil {
+		err = s.repo.InTx(ctx, func(ctx context.Context, tx *fin.Repository) error {
+			return tx.ReplaceDrivers(ctx, month, d, q, s.now())
+		})
+		if err != nil {
 			return captured, err
 		}
 		captured = true
@@ -385,14 +388,16 @@ func (s *Service) AllocateShared(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		// Age only: a driver whose source is down is retried with the hourly
-		// refresh, not on every tick.
-		stale := len(snaps) == 0
+		// The newest capture decides: a driver whose source is down keeps an
+		// old timestamp, and is retried with the hourly refresh rather than on
+		// every tick.
+		var newest time.Time
 		for _, at := range snaps {
-			if now.Sub(at) >= snapshotRefresh {
-				stale = true
+			if at.After(newest) {
+				newest = at
 			}
 		}
+		stale := len(snaps) == 0 || now.Sub(newest) >= snapshotRefresh
 		if !stale {
 			continue
 		}
@@ -646,7 +651,7 @@ type AllocationChange struct {
 // month are read first.
 func (s *Service) Allocation(ctx context.Context, month time.Time, tenantID string) (AllocationView, error) {
 	month = firstOfMonth(month)
-	out := AllocationView{Month: month.Format(monthLayout), Rules: AllocationRuleOptions, Vendors: []AllocationVendor{}, Changes: []AllocationChange{}}
+	out := AllocationView{Month: month.Format(monthLayout), Rules: AllocationRuleOptions, Tenants: []AllocationTenant{}, Vendors: []AllocationVendor{}, Changes: []AllocationChange{}}
 	if _, err := s.captureDrivers(ctx, month, false); err != nil {
 		slog.WarnContext(ctx, "allocation: driver capture failed", logging.AttrComponent, "pnl", logging.AttrError, err)
 	}

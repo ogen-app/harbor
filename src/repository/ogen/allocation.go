@@ -31,7 +31,10 @@ func (d *AllocationDrivers) ActiveTenants(ctx context.Context, month time.Time) 
 	if d.r.db == nil {
 		return nil, ErrUnavailable
 	}
-	cols := d.r.tableColumns(ctx, "tenants")
+	cols, err := d.columns(ctx, "tenants")
+	if err != nil {
+		return nil, err
+	}
 	where := "t.created_at < ?1 AND t.id <> ?2"
 	if cols["deleted_at"] {
 		where += " AND (t.deleted_at IS NULL OR t.deleted_at >= ?0)"
@@ -41,7 +44,7 @@ func (d *AllocationDrivers) ActiveTenants(ctx context.Context, month time.Time) 
 		where += " AND NOT (t.status = 'deleted' AND t.updated_at < ?0)"
 	}
 	var rows []tenantQuantity
-	err := d.r.db.NewRaw(`SELECT t.id AS tenant_id, 1 AS quantity FROM tenants AS t WHERE `+where,
+	err = d.r.db.NewRaw(`SELECT t.id AS tenant_id, 1 AS quantity FROM tenants AS t WHERE `+where,
 		month, month.AddDate(0, 1, 0), DefaultTenantID).Scan(ctx, &rows)
 	return quantities(rows), err
 }
@@ -52,7 +55,10 @@ func (d *AllocationDrivers) PostsPublished(ctx context.Context, month time.Time)
 	if d.r.db == nil {
 		return nil, ErrUnavailable
 	}
-	cols := d.r.tableColumns(ctx, "posts")
+	cols, err := d.columns(ctx, "posts")
+	if err != nil {
+		return nil, err
+	}
 	if !cols["tenant_id"] {
 		return map[string]int64{}, nil
 	}
@@ -69,7 +75,7 @@ func (d *AllocationDrivers) PostsPublished(ctx context.Context, month time.Time)
 		publishedFilter = "po.published_at IS NOT NULL"
 	}
 	var rows []tenantQuantity
-	err := d.r.db.NewRaw(fmt.Sprintf(`
+	err = d.r.db.NewRaw(fmt.Sprintf(`
 		SELECT po.tenant_id, count(*) AS quantity
 		FROM posts AS po
 		WHERE %[2]s AND po.tenant_id IS NOT NULL
@@ -85,17 +91,38 @@ func (d *AllocationDrivers) EmailsSent(ctx context.Context, month time.Time) (ma
 	if d.r.db == nil {
 		return nil, ErrUnavailable
 	}
-	if !d.r.tableColumns(ctx, "email_logs")["tenant_id"] {
+	cols, err := d.columns(ctx, "email_logs")
+	if err != nil {
+		return nil, err
+	}
+	if !cols["tenant_id"] {
 		return map[string]int64{}, nil
 	}
 	var rows []tenantQuantity
-	err := d.r.db.NewRaw(`
+	err = d.r.db.NewRaw(`
 		SELECT tenant_id, count(*) AS quantity
 		FROM email_logs
 		WHERE status = 'sent' AND tenant_id IS NOT NULL
 		  AND created_at >= ? AND created_at < ?
 		GROUP BY tenant_id`, month, month.AddDate(0, 1, 0)).Scan(ctx, &rows)
 	return quantities(rows), err
+}
+
+// columns is tableColumns with its error: a driver must fail when the lookup
+// fails (an unreachable pool, a timeout), never read it as "no such column" and
+// store zeros. A table that doesn't exist yields an empty set.
+func (d *AllocationDrivers) columns(ctx context.Context, table string) (map[string]bool, error) {
+	var names []string
+	if err := d.r.db.NewRaw(
+		`SELECT column_name FROM information_schema.columns WHERE table_name = ?`,
+		table).Scan(ctx, &names); err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set, nil
 }
 
 type tenantQuantity struct {

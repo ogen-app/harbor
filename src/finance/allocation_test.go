@@ -1,10 +1,12 @@
 package finance
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -422,4 +424,54 @@ func TestAllocationDrawer(t *testing.T) {
 func isInvalid(err error) bool {
 	_, ok := errors.AsType[*ErrInvalid](err)
 	return ok
+}
+
+// While a source is down, the open months are re-read once an hour, not on
+// every tick: the newest capture decides staleness, and a failed driver keeps
+// its old timestamp.
+func TestAllocationRefreshIsHourlyWhileSourceDown(t *testing.T) {
+	h := newHarness(t)
+	ctx := t.Context()
+	oct := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	h.drivers.set("2026-10", fin.DriverActiveTenants, map[string]int64{"t1": 1})
+	if err := h.svc.AllocateShared(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := h.svc.repo.DriverSnapshots(ctx, oct)
+
+	// Ogen goes down; an hour later one refresh runs and only Harbor's own
+	// ai_cost is re-captured.
+	h.drivers.down = map[string]bool{fin.DriverActiveTenants: true, fin.DriverPosts: true, fin.DriverEmails: true, fin.DriverActiveUsers: true}
+	h.now = h.now.Add(61 * time.Minute)
+	if err := h.svc.AllocateShared(ctx); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, _ := h.svc.repo.DriverSnapshots(ctx, oct)
+	if !refreshed[fin.DriverAICost].After(first[fin.DriverAICost]) || !refreshed[fin.DriverActiveTenants].Equal(first[fin.DriverActiveTenants]) {
+		t.Fatalf("after an hour: %v (was %v)", refreshed, first)
+	}
+
+	// The next tick inside the hour re-reads nothing.
+	h.now = h.now.Add(time.Minute)
+	if err := h.svc.AllocateShared(ctx); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := h.svc.repo.DriverSnapshots(ctx, oct)
+	if !again[fin.DriverAICost].Equal(refreshed[fin.DriverAICost]) {
+		t.Errorf("re-read on the next tick: %v → %v", refreshed[fin.DriverAICost], again[fin.DriverAICost])
+	}
+}
+
+// A month with no tenant in any driver still serves an empty list, never null.
+func TestAllocationViewEmptyTenants(t *testing.T) {
+	h := newHarness(t)
+	h.drivers.down[fin.DriverActiveTenants] = true
+	v, err := h.svc.Allocation(t.Context(), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(v)
+	if !strings.Contains(string(b), `"tenants":[]`) {
+		t.Errorf("tenants not an empty array: %s", b)
+	}
 }

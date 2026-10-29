@@ -20,6 +20,31 @@ func TestAllocationDriversUnavailable(t *testing.T) {
 	}
 }
 
+// A failed column lookup (here a closed pool) is an error, never an empty
+// driver that would be stored as "no activity".
+func TestAllocationDriversLookupFailure(t *testing.T) {
+	dsn := os.Getenv("HARBOR_TEST_DSN")
+	if dsn == "" {
+		t.Skip("HARBOR_TEST_DSN not set")
+	}
+	db, err := database.New(dsn, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	d := NewAllocationDrivers(db)
+	oct := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := d.ActiveTenants(t.Context(), oct); err == nil {
+		t.Error("active tenants: want an error")
+	}
+	if _, err := d.PostsPublished(t.Context(), oct); err == nil {
+		t.Error("posts: want an error")
+	}
+	if _, err := d.EmailsSent(t.Context(), oct); err == nil {
+		t.Error("emails: want an error")
+	}
+}
+
 // TestAllocationDrivers runs the driver queries against a minimal stand-in of
 // Ogen's schema. Skips unless HARBOR_TEST_DSN is set.
 func TestAllocationDrivers(t *testing.T) {
