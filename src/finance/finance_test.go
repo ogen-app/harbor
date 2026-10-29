@@ -308,6 +308,11 @@ func TestRevenueSync(t *testing.T) {
 	if s2.NetRevenue.Value != nil || m2.RevenueAvailable || !m2.Rows[0].Cells[0].Unavailable {
 		t.Errorf("unavailable revenue: summary %v, monthly available=%v cell=%+v", s2.NetRevenue.Value, m2.RevenueAvailable, m2.Rows[0].Cells[0])
 	}
+	for _, key := range []string{"net_revenue", "profit", "margin"} {
+		if r := rowByKey(m2.Rows, key); r == nil || !r.Total.Unavailable {
+			t.Errorf("%s total not marked unavailable", key)
+		}
+	}
 }
 
 // The Ledger groups AI usage per vendor per day and a receipt's lines into one

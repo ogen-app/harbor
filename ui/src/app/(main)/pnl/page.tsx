@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { PnlHeader } from "@/components/pnl/PnlHeader";
 import { ProfitLossTab } from "@/components/pnl/ProfitLossTab";
-import { LedgerTab, drillToTokens, type LedgerToken } from "@/components/pnl/LedgerTab";
+import { LedgerTab, drillFromSearch, drillToTokens, type LedgerToken } from "@/components/pnl/LedgerTab";
 import { AttentionTab } from "@/components/pnl/AttentionTab";
 import { ReceiptDrawer } from "@/components/pnl/ReceiptDrawer";
 import { DateRangePicker, type DateRange } from "@/components/ui/date-range-picker";
@@ -16,7 +16,9 @@ import type { Drill, PnlStatus } from "@/components/pnl/types";
 // the receipts that failed a check and stay out of the books until approved.
 // The header on every tab says how complete the data is.
 //
-// Deep links: ?tab=ledger|attention opens that tab.
+// Deep links: ?tab=ledger|attention opens that tab; ?tab=ledger with from/to
+// (and vendor, type, source, tenant) opens the Ledger filtered to a drill, as
+// the tenant Profit & loss tab links it.
 const TABS = [
   { key: "pnl", label: "Profit & loss" },
   { key: "ledger", label: "Ledger" },
@@ -58,8 +60,14 @@ export default function PnlPage() {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const i = TABS.findIndex((t) => t.key === q.get("tab"));
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (i >= 0) setTab(i);
+    const d = TABS[i]?.key === "ledger" ? drillFromSearch(q) : null;
+    if (d) {
+      setLedgerRange({ from: d.from, to: d.to });
+      setLedgerTokens(drillToTokens(d));
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   // Keep the URL in step so the view can be shared or reloaded.

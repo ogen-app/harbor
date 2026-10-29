@@ -337,6 +337,7 @@ type Drill struct {
 	Vendor    string   `json:"vendor,omitempty"`
 	Direction []string `json:"direction,omitempty"`
 	Source    []string `json:"source,omitempty"`
+	Tenant    string   `json:"tenant,omitempty"`
 }
 
 type Cell struct {
@@ -369,17 +370,179 @@ type Monthly struct {
 // MaxMonths bounds the monthly table.
 const MaxMonths = 36
 
-// Monthly builds the P&L table for whole UTC months [from, to] ("YYYY-MM").
-func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Monthly, error) {
-	today := dateOnly(s.now())
+// grid builds rows of per-month cells from ledger buckets. Monthly and
+// TenantPnL share it, so a figure is folded the same way on both.
+type grid struct {
+	months  []time.Time
+	col     map[string]int
+	buckets []fin.Bucket
+	today   time.Time
+	// tenant scopes every drill to one tenant's entries ('' = all).
+	tenant string
+}
+
+// monthsIn lists the whole UTC months [from, to], at most MaxMonths.
+func monthsIn(fromMonth, toMonth time.Time) []time.Time {
 	var months []time.Time
 	for m := fromMonth; !m.After(toMonth) && len(months) < MaxMonths; m = m.AddDate(0, 1, 0) {
 		months = append(months, m)
 	}
-	out := Monthly{Months: make([]string, len(months)), Rows: []Row{}, Provisional: []Provisional{}}
+	return months
+}
+
+func monthKeys(months []time.Time) []string {
+	out := make([]string, len(months))
 	for i, m := range months {
-		out.Months[i] = m.Format("2006-01")
+		out[i] = m.Format("2006-01")
 	}
+	return out
+}
+
+func newGrid(months []time.Time, buckets []fin.Bucket, today time.Time, tenant string) *grid {
+	g := &grid{months: months, col: map[string]int{}, buckets: buckets, today: today, tenant: tenant}
+	for i, m := range monthKeys(months) {
+		g.col[m] = i
+	}
+	return g
+}
+
+func (g *grid) end() time.Time { return g.months[len(g.months)-1].AddDate(0, 1, -1) }
+
+func (g *grid) monthDrill(d Drill, i int) *Drill {
+	d.From = g.months[i].Format(time.DateOnly)
+	d.To = earliest(g.months[i].AddDate(0, 1, -1), g.today).Format(time.DateOnly)
+	d.Tenant = g.tenant
+	return &d
+}
+
+func (g *grid) rangeDrill(d Drill) *Drill {
+	d.From = g.months[0].Format(time.DateOnly)
+	d.To = earliest(g.end(), g.today).Format(time.DateOnly)
+	d.Tenant = g.tenant
+	return &d
+}
+
+// row sums the buckets that match into one row with per-month cells.
+func (g *grid) row(key, section, label, sourceLabel, vendorID string, drill Drill, match func(fin.Bucket) bool) Row {
+	n := len(g.months)
+	r := Row{Key: key, Section: section, Label: label, SourceLabel: sourceLabel, Kind: "line", VendorID: vendorID,
+		Cells: make([]Cell, n)}
+	var total int64
+	found := false
+	sums := make([]int64, n)
+	has := make([]bool, n)
+	for _, b := range g.buckets {
+		i, ok := g.col[b.Period]
+		if !ok || !match(b) {
+			continue
+		}
+		sums[i] += b.USDMicros
+		has[i] = true
+		r.Cells[i].Provenance.add(b)
+		r.Total.Provenance.add(b)
+		total += b.USDMicros
+		found = true
+	}
+	for i := range n {
+		if has[i] {
+			r.Cells[i].Value = new(float64(sums[i]))
+		}
+		r.Cells[i].Drill = g.monthDrill(drill, i)
+	}
+	if found {
+		r.Total.Value = new(float64(total))
+	}
+	r.Total.Drill = g.rangeDrill(drill)
+	return r
+}
+
+// sum adds rows cell by cell; a missing value counts as zero.
+func (g *grid) sum(key, section, label, kind string, rows ...Row) Row {
+	r := Row{Key: key, Section: section, Label: label, Kind: kind, Cells: make([]Cell, len(g.months))}
+	for i := range g.months {
+		var v int64
+		for _, x := range rows {
+			if x.Cells[i].Value != nil {
+				v += int64(*x.Cells[i].Value)
+			}
+		}
+		r.Cells[i].Value = new(float64(v))
+	}
+	var t int64
+	for _, x := range rows {
+		if x.Total.Value != nil {
+			t += int64(*x.Total.Value)
+		}
+	}
+	r.Total.Value = new(float64(t))
+	return r
+}
+
+func isDir(d string) func(fin.Bucket) bool {
+	return func(b fin.Bucket) bool { return b.Direction == d }
+}
+
+// revenue builds the revenue section: gross, fees, tax (only when there is
+// any), refunds and the net total. Net is returned on its own as well.
+func (g *grid) revenue() ([]Row, Row) {
+	revSrc := []string{fin.SourceBilling}
+	gross := g.row("revenue_gross", "revenue", "Lemon Squeezy, gross", "Payments", fin.VendorLemonSqueezy,
+		Drill{Direction: []string{fin.DirRevenue}, Source: revSrc}, isDir(fin.DirRevenue))
+	fees := g.row("fees", "revenue", "Fees (deducted)", "", "", Drill{Direction: []string{fin.DirFee}, Source: revSrc}, isDir(fin.DirFee))
+	tax := g.row("tax", "revenue", "Tax (deducted)", "", "", Drill{Direction: []string{fin.DirTax}, Source: revSrc}, isDir(fin.DirTax))
+	refunds := g.row("refunds", "revenue", "Refunds (deducted)", "", "", Drill{Direction: []string{fin.DirRefund}, Source: revSrc}, isDir(fin.DirRefund))
+	net := g.sum("net_revenue", "revenue", "Net revenue", "total", gross, fees, tax, refunds)
+	net.Total.Drill = g.rangeDrill(Drill{Source: revSrc})
+	rows := []Row{gross, fees}
+	if tax.Total.Value != nil {
+		rows = append(rows, tax)
+	}
+	return append(rows, refunds, net), net
+}
+
+// result fills the bottom line (net minus costs) and its margin, per month and
+// for the range. The margin is blank when net revenue is zero or less.
+func (g *grid) result(result, margin *Row, net, costs Row) {
+	cells := func(n, e *float64) (Cell, Cell) {
+		p := new(*n - *e)
+		var m Cell
+		if *n > 0 {
+			m.Value = new(*p / *n * 100)
+		}
+		return Cell{Value: p}, m
+	}
+	result.Cells, margin.Cells = make([]Cell, len(g.months)), make([]Cell, len(g.months))
+	for i := range g.months {
+		result.Cells[i], margin.Cells[i] = cells(net.Cells[i].Value, costs.Cells[i].Value)
+	}
+	result.Total, margin.Total = cells(net.Total.Value, costs.Total.Value)
+}
+
+// markUnavailable blanks rows that depend on revenue when it could not be
+// read: revenue never shows as zero. Rows are pointers so the Total, a value
+// field, is blanked on the row itself and not on a copy.
+func markUnavailable(rows ...*Row) {
+	for _, r := range rows {
+		for j := range r.Cells {
+			r.Cells[j] = Cell{Unavailable: true}
+		}
+		r.Total = Cell{Unavailable: true}
+	}
+}
+
+func rowPtrs(rows []Row) []*Row {
+	out := make([]*Row, len(rows))
+	for i := range rows {
+		out[i] = &rows[i]
+	}
+	return out
+}
+
+// Monthly builds the P&L table for whole UTC months [from, to] ("YYYY-MM").
+func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Monthly, error) {
+	today := dateOnly(s.now())
+	months := monthsIn(fromMonth, toMonth)
+	out := Monthly{Months: monthKeys(months), Rows: []Row{}, Provisional: []Provisional{}}
 	if len(months) == 0 {
 		return out, nil
 	}
@@ -410,91 +573,9 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 		return out, err
 	}
 
-	col := map[string]int{}
-	for i, m := range out.Months {
-		col[m] = i
-	}
-	monthDrill := func(i int) (string, string) {
-		end := earliest(months[i].AddDate(0, 1, -1), today)
-		return months[i].Format(time.DateOnly), end.Format(time.DateOnly)
-	}
-	rangeDrill := func() (string, string) {
-		return months[0].Format(time.DateOnly), earliest(rangeEnd, today).Format(time.DateOnly)
-	}
-
-	// newRow sums the buckets that match into one row with per-month cells.
-	newRow := func(key, section, label, sourceLabel, vendorID string, drill Drill, match func(fin.Bucket) bool) Row {
-		r := Row{Key: key, Section: section, Label: label, SourceLabel: sourceLabel, Kind: "line", VendorID: vendorID,
-			Cells: make([]Cell, len(months))}
-		var total int64
-		found := false
-		sums := make([]int64, len(months))
-		has := make([]bool, len(months))
-		for _, b := range buckets {
-			i, ok := col[b.Period]
-			if !ok || !match(b) {
-				continue
-			}
-			sums[i] += b.USDMicros
-			has[i] = true
-			r.Cells[i].Provenance.add(b)
-			r.Total.Provenance.add(b)
-			total += b.USDMicros
-			found = true
-		}
-		for i := range months {
-			if has[i] {
-				r.Cells[i].Value = new(float64(sums[i]))
-			}
-			d := drill
-			d.From, d.To = monthDrill(i)
-			r.Cells[i].Drill = &d
-		}
-		if found {
-			r.Total.Value = new(float64(total))
-		}
-		d := drill
-		d.From, d.To = rangeDrill()
-		r.Total.Drill = &d
-		return r
-	}
-	sumRows := func(key, section, label string, kind string, rows ...Row) Row {
-		r := Row{Key: key, Section: section, Label: label, Kind: kind, Cells: make([]Cell, len(months))}
-		for i := range months {
-			var v int64
-			for _, x := range rows {
-				if x.Cells[i].Value != nil {
-					v += int64(*x.Cells[i].Value)
-				}
-			}
-			r.Cells[i].Value = new(float64(v))
-		}
-		var t int64
-		for _, x := range rows {
-			if x.Total.Value != nil {
-				t += int64(*x.Total.Value)
-			}
-		}
-		r.Total.Value = new(float64(t))
-		return r
-	}
-	isDir := func(d string) func(fin.Bucket) bool { return func(b fin.Bucket) bool { return b.Direction == d } }
-
-	// Revenue.
-	revSrc := []string{fin.SourceBilling}
-	gross := newRow("revenue_gross", "revenue", "Lemon Squeezy, gross", "Payments", fin.VendorLemonSqueezy,
-		Drill{Direction: []string{fin.DirRevenue}, Source: revSrc}, isDir(fin.DirRevenue))
-	fees := newRow("fees", "revenue", "Fees (deducted)", "", "", Drill{Direction: []string{fin.DirFee}, Source: revSrc}, isDir(fin.DirFee))
-	tax := newRow("tax", "revenue", "Tax (deducted)", "", "", Drill{Direction: []string{fin.DirTax}, Source: revSrc}, isDir(fin.DirTax))
-	refunds := newRow("refunds", "revenue", "Refunds (deducted)", "", "", Drill{Direction: []string{fin.DirRefund}, Source: revSrc}, isDir(fin.DirRefund))
-	net := sumRows("net_revenue", "revenue", "Net revenue", "total", gross, fees, tax, refunds)
-	net.Total.Drill = &Drill{Source: revSrc}
-	net.Total.Drill.From, net.Total.Drill.To = rangeDrill()
-	revenueRows := []Row{gross, fees}
-	if tax.Total.Value != nil {
-		revenueRows = append(revenueRows, tax)
-	}
-	revenueRows = append(revenueRows, refunds, net)
+	g := newGrid(months, buckets, today, "")
+	col := g.col
+	revenueRows, net := g.revenue()
 
 	// Expenses per vendor: AI-pipeline vendors first, then by name.
 	expVendors := map[string]bool{}
@@ -525,7 +606,7 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 		if id == "unmatched" {
 			label = "Unmatched vendor"
 		}
-		r := newRow("expense:"+id, "expenses", label, expenseSourceLabel(v, expSources[id]), id,
+		r := g.row("expense:"+id, "expenses", label, expenseSourceLabel(v, expSources[id]), id,
 			Drill{Vendor: id, Direction: []string{fin.DirExpense}},
 			func(b fin.Bucket) bool { return b.Direction == fin.DirExpense && b.VendorID == id })
 		if id == "unmatched" {
@@ -548,36 +629,17 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 		}
 		expenseRows = append(expenseRows, r)
 	}
-	totalExp := sumRows("total_expenses", "expenses", "Total expenses", "total", expenseRows...)
-	totalExp.Total.Drill = &Drill{Direction: []string{fin.DirExpense}}
-	totalExp.Total.Drill.From, totalExp.Total.Drill.To = rangeDrill()
+	totalExp := g.sum("total_expenses", "expenses", "Total expenses", "total", expenseRows...)
+	totalExp.Total.Drill = g.rangeDrill(Drill{Direction: []string{fin.DirExpense}})
 
 	// Profit and margin.
-	profit := Row{Key: "profit", Section: "profit", Label: "Profit / loss", Kind: "total", Cells: make([]Cell, len(months))}
-	margin := Row{Key: "margin", Section: "profit", Label: "Margin", SourceLabel: "Total is blended", Kind: "margin", Cells: make([]Cell, len(months))}
-	profitCell := func(n, e *float64) (Cell, Cell) {
-		p := new(*n - *e)
-		var m Cell
-		if *n > 0 {
-			m.Value = new(*p / *n * 100)
-		}
-		return Cell{Value: p}, m
-	}
-	for i := range months {
-		profit.Cells[i], margin.Cells[i] = profitCell(net.Cells[i].Value, totalExp.Cells[i].Value)
-	}
-	profit.Total, margin.Total = profitCell(net.Total.Value, totalExp.Total.Value)
+	profit := Row{Key: "profit", Section: "profit", Label: "Profit / loss", Kind: "total"}
+	margin := Row{Key: "margin", Section: "profit", Label: "Margin", SourceLabel: "Total is blended", Kind: "margin"}
+	g.result(&profit, &margin, net, totalExp)
 
 	// Revenue never shows as zero when it is unavailable.
 	if !out.RevenueAvailable {
-		for _, rows := range [][]Row{revenueRows, {profit, margin}} {
-			for i := range rows {
-				for j := range rows[i].Cells {
-					rows[i].Cells[j] = Cell{Unavailable: true}
-				}
-				rows[i].Total = Cell{Unavailable: true}
-			}
-		}
+		markUnavailable(append(rowPtrs(revenueRows), &profit, &margin)...)
 	}
 
 	// Memo: prepaid credits bought (cash, not expense).
@@ -590,7 +652,7 @@ func (s *Service) Monthly(ctx context.Context, fromMonth, toMonth time.Time) (Mo
 	}
 	for _, id := range slices.Sorted(maps.Keys(prepaidVendors)) {
 		v := vendorByID[id]
-		memo = append(memo, newRow("prepaid:"+id, "memo", cmp.Or(v.Name, id)+" credits", "Not in P&L", id,
+		memo = append(memo, g.row("prepaid:"+id, "memo", cmp.Or(v.Name, id)+" credits", "Not in P&L", id,
 			Drill{Vendor: id, Direction: []string{fin.DirPrepayment}},
 			func(b fin.Bucket) bool { return b.Direction == fin.DirPrepayment && b.VendorID == id }))
 	}

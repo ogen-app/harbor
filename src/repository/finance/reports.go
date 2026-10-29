@@ -56,6 +56,17 @@ type Bucket struct {
 // Buckets sums counted entries booked in [from, to] (dates, inclusive) by
 // direction, source and vendor, split by grain.
 func (r *Repository) Buckets(ctx context.Context, from, to time.Time, testMode bool, grain Grain) ([]Bucket, error) {
+	return r.buckets(ctx, from, to, testMode, grain, nil)
+}
+
+// BucketsForTenant is Buckets for one tenant's entries only, split by vendor
+// (and grain) like the company P&L: its payments and its AI usage. Entries
+// with no tenant (shared receipts, receipt reading) never match.
+func (r *Repository) BucketsForTenant(ctx context.Context, tenantID string, from, to time.Time, testMode bool, grain Grain) ([]Bucket, error) {
+	return r.buckets(ctx, from, to, testMode, grain, &tenantID)
+}
+
+func (r *Repository) buckets(ctx context.Context, from, to time.Time, testMode bool, grain Grain, tenantID *string) ([]Bucket, error) {
 	var out []Bucket
 	q := r.idb.NewSelect().
 		TableExpr("finance_ledger_entries AS l").
@@ -67,9 +78,11 @@ func (r *Repository) Buckets(ctx context.Context, from, to time.Time, testMode b
 		ColumnExpr("count(DISTINCT l.tenant_id) AS tenants").
 		ColumnExpr("count(DISTINCT l.receipt_id) AS receipts").
 		ColumnExpr("count(DISTINCT l.source_ref) FILTER (WHERE l.source = ?) AS payments", SourceBilling)
-	err := countedEntries(q, from, to, testMode).
-		GroupExpr("1, l.direction, l.source, l.vendor_id").
-		Scan(ctx, &out)
+	q = countedEntries(q, from, to, testMode)
+	if tenantID != nil {
+		q = q.Where("l.tenant_id = ?", *tenantID)
+	}
+	err := q.GroupExpr("1, l.direction, l.source, l.vendor_id").Scan(ctx, &out)
 	return out, err
 }
 

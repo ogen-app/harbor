@@ -168,3 +168,63 @@ export function ErrorLine({ children }: { children: React.ReactNode }) {
     </p>
   );
 }
+
+// ── summary strip ────────────────────────────────────────────────────────────
+
+export type Change = { arrow: "↑" | "↓" | ""; text: string; favourable: boolean | null; vs: string };
+
+// change describes value against previous: the arrow, the relative change and
+// whether it is good news (`good` says which direction is favourable).
+export function change(value: number, previous: number, good: "up" | "down", vs: string): Change {
+  if (previous === 0) {
+    return { arrow: value > 0 ? "↑" : value < 0 ? "↓" : "", text: value === 0 ? "no change" : "new", favourable: null, vs };
+  }
+  const delta = (value - previous) / Math.abs(previous);
+  const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "";
+  const favourable = delta === 0 ? null : (delta > 0) === (good === "up");
+  return { arrow, text: `${Math.abs(delta * 100).toFixed(1)}%`, favourable, vs };
+}
+
+// SummaryCell is one cell of a summary strip: label, a semi-large figure and
+// either the change against the compare period or a note.
+export function SummaryCell({
+  label,
+  value,
+  tone,
+  change: c,
+  note,
+}: {
+  label: string;
+  value: string;
+  tone: string;
+  change?: Change | null;
+  note?: string;
+}) {
+  return (
+    <div className="min-w-0 px-6 py-5">
+      <div className="text-[13px] text-secondary-foreground">{label}</div>
+      <div className={cn("mt-1.5 truncate text-[28px] leading-9 font-normal tabular-nums", tone)}>{value}</div>
+      <div className="mt-1.5 truncate text-xs tabular-nums">
+        {c ? (
+          <>
+            <span
+              className={cn(
+                c.favourable === null
+                  ? TONE_TEXT.muted
+                  : c.favourable
+                    ? TONE_TEXT.positive
+                    : TONE_TEXT.negative,
+              )}
+            >
+              {c.arrow && `${c.arrow} `}
+              {c.text}
+            </span>
+            <span className="text-secondary-foreground"> vs {c.vs}</span>
+          </>
+        ) : (
+          <span className="text-secondary-foreground">{note ?? " "}</span>
+        )}
+      </div>
+    </div>
+  );
+}
