@@ -16,6 +16,7 @@ import {
   todayUTC,
   usd,
 } from "./format";
+import { AllocationDrawer } from "./AllocationDrawer";
 import { EmptyInbox } from "./EmptyInbox";
 import { PnlChartCard } from "./PnlChartCard";
 import {
@@ -65,6 +66,7 @@ export function ProfitLossTab({
   }, [version]);
 
   const monthly = useMonthly(range, version);
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   const stale =
     status && (status.aiUsage.state !== "ok" || status.revenue.state !== "ok") ? status : null;
@@ -90,7 +92,24 @@ export function ProfitLossTab({
         <PnlChartCard monthly={monthly.data} lastMonth={monthly.months[monthly.months.length - 1]} version={version} />
       )}
 
-      <MonthlyCard status={status} monthly={monthly} compare={compare} version={version} onDrill={onDrill} />
+      <MonthlyCard
+        status={status}
+        monthly={monthly}
+        compare={compare}
+        version={version}
+        onDrill={onDrill}
+        onSharedRules={() => setRulesOpen(true)}
+      />
+
+      {monthly.months.length > 0 && (
+        <AllocationDrawer
+          open={rulesOpen}
+          onClose={() => setRulesOpen(false)}
+          month={monthly.months[monthly.months.length - 1]}
+          from={monthly.months[0]}
+          to={monthly.months[monthly.months.length - 1]}
+        />
+      )}
     </div>
   );
 }
@@ -332,12 +351,14 @@ function MonthlyCard({
   compare,
   version,
   onDrill,
+  onSharedRules,
 }: {
   status: PnlStatus | null;
   monthly: MonthlyState;
   compare: boolean;
   version: number;
   onDrill: (d: Drill) => void;
+  onSharedRules: () => void;
 }) {
   const { months, data, loading } = monthly;
   const [prev, setPrev] = useState<PnlMonthly | null>(null);
@@ -379,6 +400,13 @@ function MonthlyCard({
             USD. Receipts count on their invoice date, AI usage on the day it happened. Click an amount to see its entries.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={onSharedRules}
+          className="text-[13px] font-medium text-[var(--editable)] underline-offset-2 outline-none hover:underline focus-visible:underline"
+        >
+          Shared cost rules
+        </button>
       </div>
 
       {error ? (

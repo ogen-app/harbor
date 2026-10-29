@@ -333,3 +333,64 @@ export interface AttentionResponse {
   open: AttentionItem[];
   rejected: AttentionItem[];
 }
+
+// ── shared cost allocation (CON-432) ─────────────────────────────────────────
+
+export type AllocationRule = "even" | "ai_cost" | "active_users" | "posts" | "emails" | "none";
+export type AllocationDriver = "active_tenants" | "ai_cost" | "active_users" | "posts" | "emails";
+
+export interface AllocationRuleOption {
+  key: AllocationRule;
+  label: string;
+  driver: AllocationDriver | "";
+}
+
+export interface AllocationPreview {
+  available: boolean;
+  driver: AllocationDriver | "";
+  fallback: boolean;
+  tenantQuantity: number;
+  driverTotal: number;
+  driverTenants: number;
+  shareMicros: number;
+}
+
+export interface AllocationVendor {
+  vendorId: string;
+  name: string;
+  category: VendorCategory;
+  rule: AllocationRule;
+  billMicros: number;
+  pending: boolean;
+  stored: {
+    rule: AllocationRule;
+    fallback: boolean;
+    shareMicros: number;
+    computedAt: string;
+    stale: boolean;
+  } | null;
+  previews: Record<AllocationRule, AllocationPreview>;
+}
+
+export interface RuleChange {
+  vendorId: string;
+  from: AllocationRule;
+  to: AllocationRule;
+}
+
+export interface AllocationView {
+  month: string;
+  tenantId: string;
+  tenants: { id: string; name: string; shareMicros: number }[];
+  rules: AllocationRuleOption[];
+  vendors: AllocationVendor[];
+  changes: { at: string; actor: string; changes: RuleChange[]; from: string; to: string }[];
+  shareMicros: number;
+}
+
+export interface RulesSaved {
+  months: string[];
+  changes: RuleChange[];
+  skipped: string[];
+  summary: string;
+}

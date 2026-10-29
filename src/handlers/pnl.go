@@ -58,6 +58,8 @@ func (h *PnLHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Post("/api/pnl/receipts/:id/reextract", requireAuth, uuidParams, h.receiptAction("reextract"))
 	app.Post("/api/pnl/emails/:id/retry", requireAuth, uuidParams, h.emailAction("retry"))
 	app.Post("/api/pnl/emails/:id/ignore", requireAuth, uuidParams, h.emailAction("ignore"))
+	app.Get("/api/pnl/allocation", requireAuth, h.Allocation)
+	app.Put("/api/pnl/allocation/rules", requireAuth, h.SaveAllocationRules)
 }
 
 // uuidParams answers 404 for a malformed :id or :attId. Receipt, email and
@@ -152,6 +154,72 @@ func (h *PnLHandler) Daily(c *fiber.Ctx) error {
 		return pnlError(c, "daily", err)
 	}
 	return c.JSON(d)
+}
+
+// Allocation godoc
+// @Summary  The shared cost allocation drawer: each shared vendor's bill, rule and a tenant's share
+// @Tags     pnl
+// @Produce  json
+// @Param    month   query  string  false  "Month, YYYY-MM (default: this month)"
+// @Param    tenant  query  string  false  "Tenant to preview (default: the one with the largest share)"
+// @Success  200     {object}  finance.AllocationView
+// @Router   /api/pnl/allocation [get]
+func (h *PnLHandler) Allocation(c *fiber.Ctx) error {
+	now := time.Now().UTC()
+	month, err := parseMonth(c.Query("month"), time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "month is YYYY-MM")
+	}
+	v, err := h.svc.Allocation(c.Context(), month, c.Query("tenant"))
+	if err != nil {
+		return pnlError(c, "allocation", err)
+	}
+	names := h.tenantNames(c.Context())
+	for i := range v.Tenants {
+		v.Tenants[i].Name = names[v.Tenants[i].ID]
+	}
+	return c.JSON(v)
+}
+
+// allocationRulesBody is the body of PUT /api/pnl/allocation/rules.
+type allocationRulesBody struct {
+	// Rules maps a shared vendor id to its rule; vendors left out keep theirs.
+	Rules map[string]string `json:"rules"`
+	// From and To (YYYY-MM) are the months to re-split, usually the page's range.
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// SaveAllocationRules godoc
+// @Summary  Save the shared cost rules and re-split the months in the range
+// @Tags     pnl
+// @Accept   json
+// @Produce  json
+// @Param    body  body  allocationRulesBody  true  "Rules and the months to re-split"
+// @Success  200   {object}  finance.RulesSaved
+// @Router   /api/pnl/allocation/rules [put]
+func (h *PnLHandler) SaveAllocationRules(c *fiber.Ctx) error {
+	actor, err := h.operator(c)
+	if err != nil {
+		return err
+	}
+	var in allocationRulesBody
+	if err := c.BodyParser(&in); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid body")
+	}
+	from, err := time.Parse("2006-01", in.From)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "from is YYYY-MM")
+	}
+	to, err := time.Parse("2006-01", in.To)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "to is YYYY-MM")
+	}
+	res, err := h.svc.SaveAllocationRules(c.Context(), actor, in.Rules, from, to)
+	if err != nil {
+		return pnlError(c, "allocation.rules", err)
+	}
+	return c.JSON(res)
 }
 
 func parseMonth(s string, def time.Time) (time.Time, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"maps"
 	"net/url"
 	"os"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/ogen-app/harbor/src/database"
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	fin "github.com/ogen-app/harbor/src/repository/finance"
+	"github.com/ogen-app/harbor/src/repository/ogen"
 	"github.com/ogen-app/harbor/src/repository/ogenbilling"
 	"github.com/ogen-app/harbor/src/repository/ogenreceipts"
 )
@@ -115,12 +117,50 @@ type operatorSet map[string]bool
 
 func (o operatorSet) IsOperator(_ context.Context, email string) (bool, error) { return o[email], nil }
 
+// fakeDrivers serves allocation drivers per month ("YYYY-MM") and driver
+// name. A driver listed in down reports unavailable.
+type fakeDrivers struct {
+	data map[string]map[string]map[string]int64
+	down map[string]bool
+}
+
+func (f *fakeDrivers) set(month, driver string, q map[string]int64) {
+	if f.data[month] == nil {
+		f.data[month] = map[string]map[string]int64{}
+	}
+	f.data[month][driver] = q
+}
+
+func (f *fakeDrivers) get(month time.Time, driver string) (map[string]int64, error) {
+	if f.down[driver] {
+		return nil, ogen.ErrUnavailable
+	}
+	return maps.Clone(f.data[month.Format("2006-01")][driver]), nil
+}
+
+func (f *fakeDrivers) ActiveTenants(_ context.Context, m time.Time) (map[string]int64, error) {
+	return f.get(m, fin.DriverActiveTenants)
+}
+
+func (f *fakeDrivers) PostsPublished(_ context.Context, m time.Time) (map[string]int64, error) {
+	return f.get(m, fin.DriverPosts)
+}
+
+func (f *fakeDrivers) EmailsSent(_ context.Context, m time.Time) (map[string]int64, error) {
+	return f.get(m, fin.DriverEmails)
+}
+
+func (f *fakeDrivers) ActiveUsers(_ context.Context, m time.Time) (map[string]int64, error) {
+	return f.get(m, fin.DriverActiveUsers)
+}
+
 type harness struct {
 	db       *bun.DB
 	svc      *Service
 	proc     *fakeProcessor
 	payments *fakePayments
 	spend    analytics.SpendRepository
+	drivers  *fakeDrivers
 	now      time.Time
 }
 
@@ -131,10 +171,11 @@ func newHarness(t *testing.T) *harness {
 		db:       db,
 		proc:     &fakeProcessor{byID: map[string]ogenreceipts.Result{}},
 		payments: &fakePayments{},
+		drivers:  &fakeDrivers{data: map[string]map[string]map[string]int64{}, down: map[string]bool{}},
 		spend:    analytics.NewSpendRepository(db),
 		now:      time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC),
 	}
-	h.svc = New(fin.New(db), h.proc, h.payments, h.spend, operatorSet{"ops@ogen.app": true}, "receipts@inbound.test")
+	h.svc = New(fin.New(db), h.proc, h.payments, h.spend, operatorSet{"ops@ogen.app": true}, h.drivers, "receipts@inbound.test")
 	h.svc.now = func() time.Time { return h.now }
 	return h
 }

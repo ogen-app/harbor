@@ -49,13 +49,16 @@ type Service struct {
 	payments  PaymentSource
 	usage     UsageSource
 	operators OperatorDirectory
+	// drivers feeds shared cost allocation; nil leaves the Ogen and analytics
+	// drivers unavailable.
+	drivers DriverSource
 	// inbox is the address operators forward receipts to ('' when unset).
 	inbox string
 	now   func() time.Time
 }
 
-func New(repo *fin.Repository, receipts ReceiptProcessor, payments PaymentSource, usage UsageSource, operators OperatorDirectory, inbox string) *Service {
-	return &Service{repo: repo, receipts: receipts, payments: payments, usage: usage, operators: operators, inbox: strings.TrimSpace(inbox), now: time.Now}
+func New(repo *fin.Repository, receipts ReceiptProcessor, payments PaymentSource, usage UsageSource, operators OperatorDirectory, drivers DriverSource, inbox string) *Service {
+	return &Service{repo: repo, receipts: receipts, payments: payments, usage: usage, operators: operators, drivers: drivers, inbox: strings.TrimSpace(inbox), now: time.Now}
 }
 
 // Repo exposes the repository to the HTTP layer for plain reads.
