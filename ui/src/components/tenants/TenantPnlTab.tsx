@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DateRangePicker, type DateRange } from "@/components/ui/date-range-picker";
 import { cn } from "@/lib/utils";
 import { api, isoDate, money, pct, todayUTC, usd } from "@/components/pnl/format";
+import { AllocationDrawer } from "@/components/pnl/AllocationDrawer";
 import { drillHref } from "@/components/pnl/LedgerTab";
 import { MonthlySkeleton, MonthlyTable, monthsBetween, type Sections } from "@/components/pnl/PnlTable";
 import { ErrorLine, SkeletonBar, SummaryCell, TONE_TEXT } from "@/components/pnl/shared";
@@ -12,11 +13,11 @@ import type { Drill, TenantPnl, TenantPlan } from "@/components/pnl/types";
 import type { Tenant } from "./shared";
 
 // TenantPnlTab is the tenant detail page's Profit & loss tab (CON-433): does
-// this tenant make money? Net revenue minus the AI cost it was measured to use,
-// from the same ledger as /pnl filtered to the tenant, so the figures add up to
-// the company P&L. Shared vendor bills join once they are split across tenants
-// (CON-432); until then the contribution covers AI cost only. Amounts open
-// their entries in the /pnl Ledger.
+// this tenant make money? Net revenue minus the AI cost it was measured to use
+// (the same ledger as /pnl, filtered to the tenant) minus its share of shared
+// vendor bills (CON-432 allocation, kept apart from the ledger). Measured
+// amounts open their entries in the /pnl Ledger; "How shared costs are split"
+// opens the allocation drawer previewing this tenant.
 
 const SECTIONS: Sections = {
   revenue: { title: "Revenue" },
@@ -39,6 +40,9 @@ export function TenantPnlTab({ tenant }: { tenant: Tenant }) {
   const [data, setData] = useState<TenantPnl | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  // Bumped after the allocation rules are saved, so the tab refetches.
+  const [version, setVersion] = useState(0);
   const months = useMemo(() => monthsBetween(range), [range]);
 
   useEffect(() => {
@@ -59,7 +63,7 @@ export function TenantPnlTab({ tenant }: { tenant: Tenant }) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [tenant.id, months]);
+  }, [tenant.id, months, version]);
 
   const drill = useCallback((d: Drill) => router.push(drillHref(d)), [router]);
 
@@ -97,12 +101,33 @@ export function TenantPnlTab({ tenant }: { tenant: Tenant }) {
             <span>
               {data.sharedConfigured
                 ? "Allocated amounts add up to each vendor’s real bill across all tenants. The company P&L doesn’t change."
-                : "Shared vendor bills (Railway, Resend, Cloudflare, Zernio) aren’t split across tenants yet, so the contribution covers AI cost only."}
+                : "Every shared vendor is set to Don’t split, so the contribution covers AI cost only."}
+              {!data.revenueAvailable && ` Revenue unavailable: ${data.revenueError}`}
             </span>
-            {!data.revenueAvailable && <span>Revenue unavailable: {data.revenueError}</span>}
+            {months.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setRulesOpen(true)}
+                className="text-[13px] font-medium text-[var(--editable)] underline-offset-2 outline-none hover:underline focus-visible:underline"
+              >
+                How shared costs are split →
+              </button>
+            )}
           </div>
         )}
       </section>
+
+      {months.length > 0 && (
+        <AllocationDrawer
+          open={rulesOpen}
+          onClose={() => setRulesOpen(false)}
+          month={months[months.length - 1]}
+          from={months[0]}
+          to={months[months.length - 1]}
+          tenantId={tenant.id}
+          onSaved={() => setVersion((v) => v + 1)}
+        />
+      )}
     </div>
   );
 }
@@ -143,7 +168,13 @@ function SummaryStrip({ data, tenant, trial }: { data: TenantPnl | null; tenant:
               label="Shared costs"
               value={data.sharedConfigured && s.sharedCosts.value != null ? usd(s.sharedCosts.value) : "—"}
               tone={data.sharedConfigured ? TONE_TEXT.negative : TONE_TEXT.muted}
-              note={data.sharedConfigured ? "Allocated" : "Not split to tenants yet"}
+              note={
+                !data.sharedConfigured
+                  ? "Not split to tenants"
+                  : s.sharedPending > 0
+                    ? `Allocated · ${s.sharedPending} receipt${s.sharedPending === 1 ? "" : "s"} pending`
+                    : "Allocated"
+              }
             />
             <ContributionCell data={data} />
             <SummaryCell

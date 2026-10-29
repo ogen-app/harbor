@@ -65,9 +65,12 @@ export function AllocationDrawer({
   from,
   to,
   tenantId,
+  onSaved,
 }: {
   open: boolean;
   onClose: () => void;
+  // Called after rules are saved and the range re-split, so the page refetches.
+  onSaved?: () => void;
   // The previewed month and the months a save re-splits, all "YYYY-MM".
   month: string;
   from: string;
@@ -131,6 +134,7 @@ export function AllocationDrawer({
       });
       setSaved(res);
       setReload((n) => n + 1);
+      onSaved?.();
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "The rules could not be saved");
     } finally {

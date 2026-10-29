@@ -290,6 +290,16 @@ func (r *Repository) SplitsForMonth(ctx context.Context, month time.Time) (map[s
 	return out, nil
 }
 
+// Splits returns the splits for months [from, to] (first days of months).
+func (r *Repository) Splits(ctx context.Context, from, to time.Time) ([]AllocationSplit, error) {
+	var rows []AllocationSplit
+	err := r.idb.NewSelect().Model(&rows).
+		Where("sp.month >= ? AND sp.month <= ?", from, to).
+		Order("sp.month", "sp.vendor_id").
+		Scan(ctx)
+	return rows, err
+}
+
 // ReplaceSplit replaces a (month, vendor) split and its shares.
 func (r *Repository) ReplaceSplit(ctx context.Context, split AllocationSplit, shares []Allocation) error {
 	if _, err := r.idb.NewDelete().Model((*AllocationSplit)(nil)).

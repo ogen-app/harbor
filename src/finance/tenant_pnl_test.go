@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	fin "github.com/ogen-app/harbor/src/repository/finance"
 	"github.com/ogen-app/harbor/src/repository/ogenbilling"
+	"github.com/ogen-app/harbor/src/repository/ogenreceipts"
 )
 
 // seedTenants books AI usage and payments for three tenants plus untenanted
@@ -128,8 +130,10 @@ func TestTenantPnLFigures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !p.RevenueAvailable || !p.RevenueSeen || p.SharedConfigured {
-		t.Fatalf("flags: %+v", p)
+	// The default rules split shared vendors, but no bill is posted yet: every
+	// shared month is pending and counts as 0.
+	if !p.RevenueAvailable || !p.RevenueSeen || !p.SharedConfigured || p.Summary.SharedPending != 4 {
+		t.Fatalf("flags: available %v, seen %v, shared %v, pending %d", p.RevenueAvailable, p.RevenueSeen, p.SharedConfigured, p.Summary.SharedPending)
 	}
 	// Contribution = 46.00 − 18.40 − 2.31 = 25.29; margin 54.98%.
 	c := rowByKey(p.Rows, "contribution")
@@ -207,5 +211,108 @@ func TestTenantPnLRevenueUnavailable(t *testing.T) {
 	}
 	if p.Summary.NetRevenue.Value != nil || p.Summary.Contribution.Value != nil || p.Summary.AllTenantsMarginPct != nil {
 		t.Error("summary shows revenue while it is unavailable")
+	}
+}
+
+// seedShared posts this month's Railway bill ($86.18, split evenly across t1–t3)
+// and a Zernio bill ($99) whose vendor is set to "Don't split", then runs the
+// allocation job. Resend and Cloudflare have no bill this month.
+func seedShared(t *testing.T, h *harness) {
+	t.Helper()
+	ctx := t.Context()
+	this := monthStart(h.now.Year(), h.now.Month())
+	issued := this.Format(time.DateOnly)
+	h.drivers.set(this.Format("2006-01"), fin.DriverActiveTenants, map[string]int64{"t1": 1, "t2": 1, "t3": 1})
+	if _, err := h.svc.SaveAllocationRules(ctx, "ops@ogen.app", map[string]string{"zernio": fin.RuleNone}, this, this); err != nil {
+		t.Fatal(err)
+	}
+	h.receive(t, "re_rw", railwayIssued("RW-1", issued))
+	zernio := railwayIssued("ZRN-1", issued)
+	zernio.Headers.ForwardedFrom = "billing@zernio.com"
+	zernio.Extraction.MerchantName = "Zernio"
+	zernio.Extraction.LineItems = []ogenreceipts.LineItem{{Description: "Growth plan", AmountMicros: micros(99)}}
+	zernio.Extraction.SubtotalMicros, zernio.Extraction.TotalMicros = micros(99), micros(99)
+	h.receive(t, "re_z", zernio)
+	if err := h.svc.AllocateShared(ctx); err != nil {
+		t.Fatalf("allocate: %v", err)
+	}
+}
+
+// Summed over every tenant, the allocated shares equal the posted shared bills
+// minus the "Don't split" vendors; a vendor with no posted bill is pending; the
+// contribution takes both costs off; the company P&L is unchanged.
+func TestTenantPnLSharedCosts(t *testing.T) {
+	h := newHarness(t)
+	seedTenants(t, h)
+	ctx := t.Context()
+	this := monthStart(h.now.Year(), h.now.Month())
+	before, err := h.svc.Monthly(ctx, this, this)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedShared(t, h)
+
+	var shared int64
+	for _, id := range []string{"t1", "t2", "t3"} {
+		p, err := h.svc.TenantPnL(ctx, id, this, this)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !p.SharedConfigured {
+			t.Fatalf("%s: shared costs not configured", id)
+		}
+		if rowByKey(p.Rows, "shared:zernio") != nil {
+			t.Errorf("%s: a Don't split vendor has a row", id)
+		}
+		rw := rowByKey(p.Rows, "shared:railway")
+		if rw == nil || rw.SourceLabel != "Even split" || rw.Cells[0].Awaiting {
+			t.Fatalf("%s railway row = %+v", id, rw)
+		}
+		shared += cellMicros(rw.Total)
+		for _, v := range []string{"resend", "cloudflare"} {
+			r := rowByKey(p.Rows, "shared:"+v)
+			if r == nil || !r.Cells[0].Awaiting || r.Cells[0].Value != nil {
+				t.Errorf("%s %s: want a pending month, got %+v", id, v, r)
+			}
+		}
+		if id == "t1" {
+			// 46.00 − 20.71 AI − 28.726667 Railway.
+			if got := cellMicros(rowByKey(p.Rows, "contribution").Total); got != 46_000_000-20_710_000-28_726_667 {
+				t.Errorf("t1 contribution = %d", got)
+			}
+			s := p.Summary
+			if s.SharedCosts.Value == nil || *s.SharedCosts.Value != 28_726_667 || s.SharedPending != 2 {
+				t.Errorf("t1 summary shared = %v, pending %d", s.SharedCosts.Value, s.SharedPending)
+			}
+			if *s.Contribution.Value != 46_000_000-20_710_000-28_726_667 {
+				t.Errorf("t1 summary contribution = %d", *s.Contribution.Value)
+			}
+		}
+	}
+	bills, err := h.svc.repo.SharedBills(ctx, this, this)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var posted int64
+	for _, b := range bills {
+		if b.VendorID != "zernio" {
+			posted += b.USDMicros
+		}
+	}
+	if posted != 86_180_000 || shared != posted {
+		t.Errorf("allocated %d, posted shared bills minus Don't split %d", shared, posted)
+	}
+
+	// The company P&L only gains the receipts themselves (and reading them),
+	// never the shares.
+	after, err := h.svc.Monthly(ctx, this, this)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, a := cellMicros(rowByKey(before.Rows, "net_revenue").Total), cellMicros(rowByKey(after.Rows, "net_revenue").Total); a != b {
+		t.Errorf("company net revenue changed: %d → %d", b, a)
+	}
+	if got := cellMicros(rowByKey(after.Rows, "total_expenses").Total) - cellMicros(rowByKey(before.Rows, "total_expenses").Total); got != 86_180_000+99_000_000+2*4_200 {
+		t.Errorf("company expenses grew by %d, want the two receipts", got)
 	}
 }

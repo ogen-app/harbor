@@ -16,12 +16,12 @@ import (
 // One tenant's contribution: its net revenue minus the AI cost it was measured
 // to use. Both come from the same counted ledger entries as the company P&L,
 // filtered to the tenant, so summed over every tenant they equal the company
-// figures for tenant-attributed entries. The summary goes through the same
-// fold as the /tenants Margin column (TenantFiguresFor, TenantMargins), so the
-// two never disagree. Shared vendor bills (Railway, Resend…) join once shared
-// cost allocation (CON-432) fills sharedByTenant; until then the shared section
-// is empty and SharedConfigured is false. Entries with no tenant, such as
-// receipt reading, stay at company level.
+// figures for tenant-attributed entries. Shared vendor bills (Railway,
+// Resend…) come in as the tenant's allocated share (CON-432), which is stored
+// apart from the ledger, so the company P&L never changes. The summary goes
+// through the same fold as the /tenants Margin column (TenantFiguresFor,
+// TenantMargins), so the two never disagree. Entries with no tenant, such as
+// receipt reading, and "Don't split" vendors stay at company level.
 
 // VendorAmount is one vendor's part of a figure.
 type VendorAmount struct {
@@ -39,6 +39,9 @@ type TenantSummary struct {
 	SharedCosts  Figure[int64]   `json:"sharedCosts"`
 	Contribution Figure[int64]   `json:"contribution"`
 	MarginPct    Figure[float64] `json:"marginPct"`
+	// SharedPending counts the shared vendors whose bill for this month isn't
+	// posted yet; their share counts as 0 until it is.
+	SharedPending int `json:"sharedPending"`
 	// AllTenantsMarginPct is the blended margin over every tenant with revenue
 	// this month to date. It is not the company margin: overhead that is not
 	// split to tenants is left out.
@@ -133,9 +136,13 @@ func (s *Service) TenantPnL(ctx context.Context, tenantID string, fromMonth, toM
 			Drill{Vendor: id, Direction: []string{fin.DirExpense}, Source: []string{fin.SourceTokenPipeline}},
 			func(b fin.Bucket) bool { return isDirectAI(b) && b.VendorID == id }))
 	}
-	costs := g.sum("total_costs", "direct", "Total costs", "total", directRows...)
+	sharedRows, err := s.sharedRows(ctx, g, tenantID)
+	if err != nil {
+		return out, fmt.Errorf("shared costs: %w", err)
+	}
+	costs := g.sum("total_costs", "direct", "Total costs", "total", slices.Concat(directRows, sharedRows)...)
 
-	contribution := Row{Key: "contribution", Section: "profit", Label: "Contribution", SourceLabel: "Revenue minus costs", Kind: "total"}
+	contribution := Row{Key: "contribution", Section: "profit", Label: "Contribution", SourceLabel: "Revenue minus both costs", Kind: "total"}
 	margin := Row{Key: "margin", Section: "profit", Label: "Margin", SourceLabel: "Total is blended", Kind: "margin"}
 	g.result(&contribution, &margin, net, costs)
 	if !out.RevenueSeen {
@@ -152,8 +159,81 @@ func (s *Service) TenantPnL(ctx context.Context, tenantID string, fromMonth, toM
 		markUnavailable(append(rowPtrs(revenueRows), &contribution, &margin)...)
 	}
 
-	out.Rows = slices.Concat(revenueRows, directRows, []Row{contribution, margin})
+	out.Rows = slices.Concat(revenueRows, directRows, sharedRows, []Row{contribution, margin})
 	return out, nil
+}
+
+// ruleLabel names a split rule on its tenant P&L row.
+var ruleLabel = map[string]string{
+	fin.RuleEven:        "Even split",
+	fin.RuleAICost:      "By AI cost share",
+	fin.RuleActiveUsers: "By active users",
+	fin.RulePosts:       "By posts published",
+	fin.RuleEmails:      "By emails sent",
+}
+
+// sharedRows is the tenant's share of each shared vendor's monthly bill. A
+// month keeps the rule it was split with; a month not split yet (its bill
+// isn't posted) is awaiting and counts as 0. A vendor shows when its current
+// rule splits it or any month in the range was split; "Don't split" months
+// read "—". Shares aren't ledger entries, so the cells don't drill.
+func (s *Service) sharedRows(ctx context.Context, g *grid, tenantID string) ([]Row, error) {
+	from, to := g.months[0], g.months[len(g.months)-1]
+	rules, vendors, err := s.currentRules(ctx, s.repo)
+	if err != nil {
+		return nil, err
+	}
+	splits, err := s.repo.Splits(ctx, from, to)
+	if err != nil {
+		return nil, err
+	}
+	allocs, err := s.repo.Allocations(ctx, from, to, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	type key struct{ month, vendor string }
+	splitRule := map[key]string{}
+	for _, sp := range splits {
+		splitRule[key{sp.Month.Format(monthLayout), sp.VendorID}] = sp.Rule
+	}
+	share := map[key]int64{}
+	for _, a := range allocs {
+		share[key{a.Month.Format(monthLayout), a.VendorID}] += a.AmountUSDMicros
+	}
+
+	rows := []Row{}
+	for _, v := range vendors {
+		r := Row{Key: "shared:" + v.ID, Section: "shared", Label: v.Name, Kind: "line", VendorID: v.ID,
+			Cells: make([]Cell, len(g.months))}
+		label := rules[v.ID]
+		split := rules[v.ID] != fin.RuleNone
+		var total int64
+		for i, m := range g.months {
+			k := key{m.Format(monthLayout), v.ID}
+			rule, done := splitRule[k]
+			switch {
+			case done && rule == fin.RuleNone:
+				// Kept at company level that month: "—".
+			case done:
+				split = true
+				label = rule
+				r.Cells[i].Value = new(float64(share[k]))
+				total += share[k]
+			case rules[v.ID] != fin.RuleNone:
+				r.Cells[i].Awaiting = true
+				r.Total.Awaiting = true
+			}
+		}
+		if !split {
+			continue
+		}
+		r.SourceLabel = cmp.Or(ruleLabel[label], "Allocated")
+		if slices.ContainsFunc(r.Cells, func(c Cell) bool { return c.Value != nil }) {
+			r.Total.Value = new(float64(total))
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
 }
 
 // tenantSummary compares this month to date with the same days of last month,
@@ -214,6 +294,20 @@ func (s *Service) tenantSummary(ctx context.Context, tenantID string, testMode, 
 	if err != nil {
 		return out, err
 	}
+	rules, _, err := s.currentRules(ctx, s.repo)
+	if err != nil {
+		return out, err
+	}
+	splits, err := s.repo.SplitsForMonth(ctx, start)
+	if err != nil {
+		return out, err
+	}
+	for id, rule := range rules {
+		if _, done := splits[id]; !done && rule != fin.RuleNone {
+			out.SharedPending++
+		}
+	}
+
 	out.HasRevenue = cur.NetRevenue != nil
 	out.NetRevenue = Figure[int64]{Value: new(deref(cur.NetRevenue)), Previous: new(deref(prev.NetRevenue))}
 	out.Contribution = Figure[int64]{Value: new(cur.Contribution), Previous: new(prev.Contribution)}

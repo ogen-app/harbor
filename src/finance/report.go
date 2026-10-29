@@ -344,8 +344,11 @@ type Cell struct {
 	Value       *float64       `json:"value"`
 	Unavailable bool           `json:"unavailable"`
 	Pending     *PendingAmount `json:"pending"`
-	Provenance  Provenance     `json:"provenance"`
-	Drill       *Drill         `json:"drill"`
+	// Awaiting marks a shared vendor's month whose bill isn't posted yet: its
+	// allocation counts as 0 until the receipt is approved (tenant P&L).
+	Awaiting   bool       `json:"awaiting,omitzero"`
+	Provenance Provenance `json:"provenance"`
+	Drill      *Drill     `json:"drill"`
 }
 
 type Row struct {

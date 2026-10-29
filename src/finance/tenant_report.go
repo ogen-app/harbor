@@ -81,12 +81,28 @@ func foldTenants(buckets []fin.TenantBucket, shared map[string]int64) map[string
 	return out
 }
 
-// sharedByTenant is each tenant's allocated share of shared vendor bills in
-// [from, to], and whether allocation exists at all. Until shared-cost
-// allocation (CON-432) lands nothing is split: every tenant's share is 0 and
-// included is false, so callers can say margins exclude shared costs.
-func (s *Service) sharedByTenant(context.Context, time.Time, time.Time) (shares map[string]int64, included bool, err error) {
-	return nil, false, nil
+// sharedByTenant is each tenant's allocated share of shared vendor bills
+// (CON-432) in the months [from, to] touches, and whether any shared vendor is
+// split at all. Bills are monthly, so a partial period (month to date) takes
+// its months' whole allocations. included is false only when every shared
+// vendor is set to "Don't split" and nothing was split in the range.
+func (s *Service) sharedByTenant(ctx context.Context, from, to time.Time) (shares map[string]int64, included bool, err error) {
+	rules, _, err := s.currentRules(ctx, s.repo)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, r := range rules {
+		included = included || r != fin.RuleNone
+	}
+	allocs, err := s.repo.Allocations(ctx, firstOfMonth(from), firstOfMonth(to), "")
+	if err != nil {
+		return nil, false, err
+	}
+	shares = map[string]int64{}
+	for _, a := range allocs {
+		shares[a.TenantID] += a.AmountUSDMicros
+	}
+	return shares, included || len(allocs) > 0, nil
 }
 
 // TenantMargins is every tenant's P&L over one period, for the /tenants list.
