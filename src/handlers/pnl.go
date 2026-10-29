@@ -63,6 +63,7 @@ func (h *PnLHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Post("/api/pnl/emails/:id/ignore", requireAuth, uuidParams, h.emailAction("ignore"))
 	app.Get("/api/pnl/allocation", requireAuth, h.Allocation)
 	app.Put("/api/pnl/allocation/rules", requireAuth, h.SaveAllocationRules)
+	h.registerCredits(app, requireAuth)
 }
 
 // uuidParams answers 404 for a malformed :id or :attId. Receipt, email and
