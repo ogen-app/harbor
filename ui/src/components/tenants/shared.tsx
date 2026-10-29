@@ -48,6 +48,14 @@ export interface Tenant {
   // Billing summary from Ogen (CON-327): "" when billing is off or unreachable;
   // not_required; awaiting_checkout; or the Lemon Squeezy subscription status.
   billingStatus?: string;
+  // Month to date from the Harbor ledger (CON-434), through the same formula
+  // as the Tenant P&L tab. revenueMicros is net revenue, null when the tenant
+  // has no payments in the period or revenue is unavailable;
+  // contributionMicros follows it. marginPct is null when net revenue is 0 or
+  // less.
+  revenueMicros?: number | null;
+  contributionMicros?: number | null;
+  marginPct?: number | null;
 }
 
 export interface ActivityEvent {

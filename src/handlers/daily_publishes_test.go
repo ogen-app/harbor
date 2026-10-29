@@ -72,7 +72,7 @@ func TestBuildDailyPublishes(t *testing.T) {
 func TestDailyPublishes_SoftUnavailable(t *testing.T) {
 	app := fiber.New()
 	// A nil pool yields a repo whose Available() is false.
-	NewTenantsHandler(ogen.NewTenantRepository(nil), nil, nil, nil).Register(app, passAuth)
+	NewTenantsHandler(ogen.NewTenantRepository(nil), nil, nil, nil, nil).Register(app, passAuth)
 
 	resp, err := app.Test(httptest.NewRequest("GET", "/api/tenants/daily-publishes", nil))
 	if err != nil {

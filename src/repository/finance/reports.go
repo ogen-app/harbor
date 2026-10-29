@@ -58,6 +58,36 @@ func (r *Repository) Buckets(ctx context.Context, from, to time.Time, testMode, 
 	return out, err
 }
 
+// TenantBucket is one tenant's aggregate of counted entries.
+type TenantBucket struct {
+	TenantID  string `bun:"tenant_id"`
+	Direction string `bun:"direction"`
+	Source    string `bun:"source"`
+	USDMicros int64  `bun:"usd_micros"`
+	Rows      int    `bun:"rows"`
+}
+
+// TenantBuckets sums counted entries that carry a tenant, booked in [from, to]
+// (dates, inclusive), by tenant, direction and source. A non-empty tenantID
+// limits it to that tenant, so the per-tenant and all-tenants reads share one
+// query.
+func (r *Repository) TenantBuckets(ctx context.Context, from, to time.Time, testMode bool, tenantID string) ([]TenantBucket, error) {
+	var out []TenantBucket
+	q := r.idb.NewSelect().
+		TableExpr("finance_ledger_entries AS l").
+		ColumnExpr("l.tenant_id, l.direction, l.source").
+		ColumnExpr("sum(l.amount_usd_micros) AS usd_micros").
+		ColumnExpr("count(*) AS rows").
+		Where("l.tenant_id IS NOT NULL")
+	if tenantID != "" {
+		q = q.Where("l.tenant_id = ?", tenantID)
+	}
+	err := countedEntries(q, from, to, testMode).
+		GroupExpr("l.tenant_id, l.direction, l.source").
+		Scan(ctx, &out)
+	return out, err
+}
+
 // LedgerFilter narrows the Ledger. Empty fields do not filter. Amount bounds
 // compare the absolute USD amount.
 type LedgerFilter struct {
