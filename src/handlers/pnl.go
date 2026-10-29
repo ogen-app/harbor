@@ -42,6 +42,7 @@ func (h *PnLHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/pnl/status", requireAuth, h.Status)
 	app.Get("/api/pnl/summary", requireAuth, h.Summary)
 	app.Get("/api/pnl/monthly", requireAuth, h.Monthly)
+	app.Get("/api/pnl/daily", requireAuth, h.Daily)
 	app.Get("/api/pnl/ledger", requireAuth, h.Ledger)
 	app.Get("/api/pnl/ledger/children", requireAuth, h.LedgerChildren)
 	app.Get("/api/pnl/attention", requireAuth, h.Attention)
@@ -131,6 +132,26 @@ func (h *PnLHandler) Monthly(c *fiber.Ctx) error {
 		return pnlError(c, "monthly", err)
 	}
 	return c.JSON(m)
+}
+
+// Daily godoc
+// @Summary  One UTC month day by day: net revenue, expenses by vendor and receipts
+// @Tags     pnl
+// @Produce  json
+// @Param    month  query  string  false  "Month, YYYY-MM (default: this month)"
+// @Success  200    {object}  finance.Daily
+// @Router   /api/pnl/daily [get]
+func (h *PnLHandler) Daily(c *fiber.Ctx) error {
+	now := time.Now().UTC()
+	month, err := parseMonth(c.Query("month"), time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "month is YYYY-MM")
+	}
+	d, err := h.svc.Daily(c.Context(), month)
+	if err != nil {
+		return pnlError(c, "daily", err)
+	}
+	return c.JSON(d)
 }
 
 func parseMonth(s string, def time.Time) (time.Time, error) {

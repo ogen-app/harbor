@@ -124,6 +124,35 @@ export interface PnlMonthly {
   provisional: { month: string; count: number; amountMicros: number }[];
 }
 
+// ── daily (CON-431) ──────────────────────────────────────────────────────────
+
+export interface DailyTotals {
+  netRevenue: number | null;
+  expenses: number;
+  profit: number | null;
+}
+
+export interface PnlDaily {
+  month: string;
+  period: Period;
+  compare: Period;
+  revenueAvailable: boolean;
+  revenueError: string;
+  testMode: boolean;
+  // Expense vendors with spend this month, in P&L order (AI first).
+  vendors: { id: string; name: string; isAiPipeline: boolean }[];
+  days: {
+    date: string;
+    netRevenue: number | null;
+    expenses: number;
+    expensesByVendor: Record<string, number>;
+    receipts: { vendorId: string; count: number; amountMicros: number }[];
+  }[];
+  totals: DailyTotals;
+  previous: DailyTotals;
+  provisional: { month: string; count: number; amountMicros: number } | null;
+}
+
 // ── ledger ───────────────────────────────────────────────────────────────────
 
 export interface LedgerRow {

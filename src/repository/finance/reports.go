@@ -19,10 +19,29 @@ func countedEntries(q *bun.SelectQuery, from, to time.Time, testMode bool) *bun.
 		Where("(l.source <> ? OR l.test_mode = ?)", SourceBilling, testMode)
 }
 
-// Bucket is one aggregate of counted entries. Month is "YYYY-MM" (” when the
-// query was not split by month).
+// Grain is how Buckets splits the period.
+type Grain int
+
+const (
+	GrainNone  Grain = iota // one bucket per direction, source and vendor
+	GrainMonth              // and per month, "YYYY-MM"
+	GrainDay                // and per booked day, "YYYY-MM-DD"
+)
+
+func (g Grain) expr() string {
+	switch g {
+	case GrainMonth:
+		return "to_char(l.booked_date, 'YYYY-MM')"
+	case GrainDay:
+		return "to_char(l.booked_date, 'YYYY-MM-DD')"
+	}
+	return "''"
+}
+
+// Bucket is one aggregate of counted entries. Period is "YYYY-MM" or
+// "YYYY-MM-DD" by grain ("" for GrainNone).
 type Bucket struct {
-	Month     string `bun:"month"`
+	Period    string `bun:"period"`
 	Direction string `bun:"direction"`
 	Source    string `bun:"source"`
 	VendorID  string `bun:"vendor_id"`
@@ -35,16 +54,12 @@ type Bucket struct {
 }
 
 // Buckets sums counted entries booked in [from, to] (dates, inclusive) by
-// direction, source and vendor, and by month when byMonth.
-func (r *Repository) Buckets(ctx context.Context, from, to time.Time, testMode, byMonth bool) ([]Bucket, error) {
-	monthExpr := "''"
-	if byMonth {
-		monthExpr = "to_char(l.booked_date, 'YYYY-MM')"
-	}
+// direction, source and vendor, split by grain.
+func (r *Repository) Buckets(ctx context.Context, from, to time.Time, testMode bool, grain Grain) ([]Bucket, error) {
 	var out []Bucket
 	q := r.idb.NewSelect().
 		TableExpr("finance_ledger_entries AS l").
-		ColumnExpr(monthExpr+" AS month").
+		ColumnExpr(grain.expr()+" AS period").
 		ColumnExpr("l.direction, l.source, l.vendor_id").
 		ColumnExpr("sum(l.amount_usd_micros) AS usd_micros").
 		ColumnExpr("count(*) AS rows").

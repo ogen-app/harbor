@@ -7,7 +7,7 @@ import { ProfitLossTab } from "@/components/pnl/ProfitLossTab";
 import { LedgerTab, drillToTokens, type LedgerToken } from "@/components/pnl/LedgerTab";
 import { AttentionTab } from "@/components/pnl/AttentionTab";
 import { ReceiptDrawer } from "@/components/pnl/ReceiptDrawer";
-import type { DateRange } from "@/components/ui/date-range-picker";
+import { DateRangePicker, type DateRange } from "@/components/ui/date-range-picker";
 import { api, isoDate, todayUTC } from "@/components/pnl/format";
 import type { Drill, PnlStatus } from "@/components/pnl/types";
 
@@ -134,38 +134,52 @@ export default function PnlPage() {
       <PnlHeader status={status} error={statusError} />
 
       <div className="space-y-5 p-6">
-        <div role="tablist" className="flex gap-6 overflow-x-auto border-b border-border">
-          {TABS.map(({ key, label }, i) => (
-            <button
-              key={key}
-              id={tabId(i)}
-              type="button"
-              role="tab"
-              aria-selected={i === tab}
-              aria-controls={tabPanelId(i)}
-              aria-keyshortcuts={String(i + 1)}
-              onClick={() => setTab(i)}
-              className={cn(
-                "relative -mb-px flex shrink-0 cursor-pointer items-center gap-2 border-b-2 py-3 text-sm whitespace-nowrap outline-none transition-colors",
-                i === tab
-                  ? "border-foreground font-semibold text-foreground"
-                  : "border-transparent font-medium text-secondary-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-              <span
-                aria-hidden
-                className="inline-flex size-4 items-center justify-center rounded-[3px] border border-border text-[10px] font-normal text-secondary-foreground"
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-border">
+          <div role="tablist" className="flex gap-6 overflow-x-auto">
+            {TABS.map(({ key, label }, i) => (
+              <button
+                key={key}
+                id={tabId(i)}
+                type="button"
+                role="tab"
+                aria-selected={i === tab}
+                aria-controls={tabPanelId(i)}
+                aria-keyshortcuts={String(i + 1)}
+                onClick={() => setTab(i)}
+                className={cn(
+                  "relative -mb-px flex shrink-0 cursor-pointer items-center gap-2 border-b-2 py-3 text-sm whitespace-nowrap outline-none transition-colors",
+                  i === tab
+                    ? "border-foreground font-semibold text-foreground"
+                    : "border-transparent font-medium text-secondary-foreground hover:text-foreground",
+                )}
               >
-                {i + 1}
-              </span>
-              {key === "attention" && pending > 0 && (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-                  {pending} pending
+                {label}
+                <span
+                  aria-hidden
+                  className="inline-flex size-4 items-center justify-center rounded-[3px] border border-border text-[10px] font-normal text-secondary-foreground"
+                >
+                  {i + 1}
                 </span>
-              )}
-            </button>
-          ))}
+                {key === "attention" && pending > 0 && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                    {pending} pending
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {tab === 0 && (
+            <DateRangePicker
+              value={pnlRange}
+              compare={compare}
+              mode="month"
+              onChange={(r, c) => {
+                setPnlRange(r);
+                setCompare(c);
+              }}
+              className="mb-2"
+            />
+          )}
         </div>
 
         <div
@@ -180,10 +194,6 @@ export default function PnlPage() {
               status={status}
               range={pnlRange}
               compare={compare}
-              onRangeChange={(r, c) => {
-                setPnlRange(r);
-                setCompare(c);
-              }}
               version={version}
               onDrill={drill}
               onReviewAttention={openAttention}
