@@ -39,6 +39,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogenreceipts"
 	"github.com/ogen-app/harbor/src/repository/ogensecrets"
 	"github.com/ogen-app/harbor/src/repository/ogentenants"
+	"github.com/ogen-app/harbor/src/repository/ogenvendorcost"
 	"github.com/ogen-app/harbor/src/server"
 	"github.com/ogen-app/harbor/src/ui"
 )
@@ -242,6 +243,20 @@ func main() {
 		finance.DriverSources{Ogen: ogen.NewAllocationDrivers(ogenDB), Analytics: analyticsDB},
 		cfg.PnLInboxAddress,
 	)
+
+	// VendorCostService (CON-435, the AI credits tab): what Anthropic charged,
+	// read with the Admin key that stays in Ogen. Unconfigured, charges are
+	// entered by hand.
+	vendorCostClient, err := ogenvendorcost.New(cfg.OgenGRPCAddr, cfg.OgenGRPCToken)
+	if err != nil {
+		fatal("init ogen vendor cost client", err)
+	}
+	if vendorCostClient != nil {
+		defer vendorCostClient.Close()
+		financeSvc.SetVendorCosts(vendorCostClient)
+		slog.Info("ogen vendor cost client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
+	}
+
 	if cfg.PnLJobs {
 		// Harbor's first background work. Each job runs under a Postgres advisory
 		// lock, so several replicas never run the same job at once.
@@ -251,6 +266,7 @@ func main() {
 			jobs.Job{Name: "pnl.revenue", Interval: 15 * time.Minute, Run: financeSvc.SyncRevenue},
 			jobs.Job{Name: "pnl.purge_rejected", Interval: time.Hour, Run: financeSvc.PurgeRejected},
 			jobs.Job{Name: "pnl.allocations", Interval: time.Minute, Run: financeSvc.AllocateShared},
+			jobs.Job{Name: "pnl.vendor_costs", Interval: 24 * time.Hour, Run: financeSvc.FetchVendorCharges},
 		)
 		runner.Start(context.Background())
 		slog.Info("finance jobs started", logging.AttrComponent, "boot")

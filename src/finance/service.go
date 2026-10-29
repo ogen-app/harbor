@@ -52,6 +52,9 @@ type Service struct {
 	// drivers feeds shared cost allocation; nil leaves the Ogen and analytics
 	// drivers unavailable.
 	drivers DriverSource
+	// vendorCosts reads what AI vendors charged; nil leaves reconciliation
+	// to manually entered charges.
+	vendorCosts VendorCostSource
 	// inbox is the address operators forward receipts to ('' when unset).
 	inbox string
 	now   func() time.Time
@@ -60,6 +63,9 @@ type Service struct {
 func New(repo *fin.Repository, receipts ReceiptProcessor, payments PaymentSource, usage UsageSource, operators OperatorDirectory, drivers DriverSource, inbox string) *Service {
 	return &Service{repo: repo, receipts: receipts, payments: payments, usage: usage, operators: operators, drivers: drivers, inbox: strings.TrimSpace(inbox), now: time.Now}
 }
+
+// SetVendorCosts wires the vendor cost reader behind reconciliation.
+func (s *Service) SetVendorCosts(v VendorCostSource) { s.vendorCosts = v }
 
 // Repo exposes the repository to the HTTP layer for plain reads.
 func (s *Service) Repo() *fin.Repository { return s.repo }
