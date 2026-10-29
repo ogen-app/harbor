@@ -1,24 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  CheckmarkSquare02Icon,
-  MinusSignSquareIcon,
   Alert01Icon,
-  AiGenerativeIcon,
-  AiChipIcon,
-  AiEditingIcon,
-  Structure05Icon,
+  ArrowRight01Icon,
+  CpuSettingsIcon,
+  SquareLock02Icon,
 } from "@hugeicons/core-free-icons";
 import { Loader } from "@/components/ui/loader";
+import { useRowKeyboardNav } from "@/lib/useRowKeyboardNav";
 import { cn } from "@/lib/utils";
 import {
   CapabilityBadge,
   friendlyModel,
-  HeadlinePrice,
   humanize,
-  relativeTime,
+  isSystemFlow,
+  PriceHead,
+  priceIn,
+  priceOut,
+  relativeShort,
 } from "./format";
 import { SlotModelDrawer } from "./SlotModelDrawer";
 import type {
@@ -27,42 +28,82 @@ import type {
   Model,
   ModelConfigResponse,
   SlotAssignment,
+  Tier,
 } from "./types";
 
-// Column template shared by the header and every slot row so they stay aligned:
-// Slot (name + description) · Model (+ capability) · Pricing · Global-only ·
-// Last updated. Vertical alignment is set per-consumer (header centers, rows
-// top-align).
+// Column template shared by the header and every row so they stay aligned:
+// Flow / slot · Default model · Tier overrides · In · Out · Changed · open
+// affordance.
 const GRID =
-  "grid grid-cols-[minmax(8rem,1.984fr)_minmax(9rem,2fr)_minmax(5rem,1fr)_5rem_minmax(110px,0.9fr)] gap-3";
+  "grid grid-cols-[minmax(11rem,1.25fr)_minmax(10rem,1.1fr)_minmax(13rem,1.7fr)_5.5rem_5.5rem_4.5rem_1rem] items-center gap-x-4 px-6";
 
-// slotIcon maps a slot's role to its glyph.
-function slotIcon(slotKey: string): IconSvgElement {
-  switch (slotKey) {
-    case "planner":
-    case "orchestrator":
-      return AiChipIcon;
-    case "writer":
-      return AiEditingIcon;
-    default:
-      return AiGenerativeIcon;
-  }
+export interface ModelConfigSummary {
+  flows: number;
+  system: number;
+  slots: number;
+  overrides: number;
 }
 
-interface DrawerTarget {
+interface SlotTarget {
   flow: Flow;
   slot: FlowSlot;
+  system: boolean;
 }
 
-// ModelAssignmentTab is the operator table: flow band rows with slot sub-rows,
-// each showing the global-default model, its capability, whether tiers diverge,
-// the global-only flag, and headline pricing. All editing (per-tier overrides,
-// model pick, verify) happens in the drawer opened per slot.
-export function ModelAssignmentTab() {
+// One rendered line of the ledger. Only "slot" lines are rows an operator can
+// open (and reach with j/k); "group" heads a multi-slot flow and "section"
+// opens the System part of the table.
+type Line =
+  | { kind: "slot"; target: SlotTarget; nested: boolean; last: boolean; nav: number }
+  | { kind: "group"; flow: Flow; system: boolean }
+  | { kind: "section" };
+
+function buildLines(flows: Flow[]): { lines: Line[]; targets: SlotTarget[] } {
+  const lines: Line[] = [];
+  const targets: SlotTarget[] = [];
+  const push = (list: Flow[], system: boolean) => {
+    for (const flow of list) {
+      const nested = flow.slots.length > 1;
+      if (nested) lines.push({ kind: "group", flow, system });
+      flow.slots.forEach((slot, i) => {
+        const target = { flow, slot, system };
+        lines.push({
+          kind: "slot",
+          target,
+          nested,
+          last: i === flow.slots.length - 1,
+          nav: targets.length,
+        });
+        targets.push(target);
+      });
+    }
+  };
+  const system = flows.filter(isSystemFlow);
+  push(
+    flows.filter((f) => !isSystemFlow(f)),
+    false,
+  );
+  if (system.length > 0) {
+    lines.push({ kind: "section" });
+    push(system, true);
+  }
+  return { lines, targets };
+}
+
+// ModelAssignmentTab is the operator ledger: one row per slot (multi-slot
+// flows get a group header), showing the global-default model, which tiers
+// override it, In / Out pricing and the last change. System flows (run for
+// Harbor itself) close the table as their own section. All editing happens in
+// the drawer opened per slot.
+export function ModelAssignmentTab({
+  onSummary,
+}: {
+  onSummary?: (s: ModelConfigSummary) => void;
+}) {
   const [data, setData] = useState<ModelConfigResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [target, setTarget] = useState<DrawerTarget | null>(null);
+  const [target, setTarget] = useState<SlotTarget | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const reload = useCallback((signal?: AbortSignal) => {
@@ -94,28 +135,60 @@ export function ModelAssignmentTab() {
     () => new Map<string, Model>((data?.models ?? []).map((m) => [m.id, m])),
     [data?.models],
   );
+  const tiersById = useMemo(
+    () => new Map<string, Tier>((data?.tiers ?? []).map((t) => [t.id, t])),
+    [data?.tiers],
+  );
+  const { lines, targets } = useMemo(
+    () => buildLines(data?.flows ?? []),
+    [data?.flows],
+  );
+  const assignments = useMemo(() => data?.assignments ?? [], [data?.assignments]);
+
+  useEffect(() => {
+    if (!data || !onSummary) return;
+    const flowKeys = new Set(data.flows.map((f) => f.key));
+    const system = data.flows.filter(isSystemFlow).length;
+    onSummary({
+      flows: data.flows.length - system,
+      system,
+      slots: targets.length,
+      overrides: data.assignments.filter(
+        (a) => a.tierId !== "" && flowKeys.has(a.flowKey),
+      ).length,
+    });
+  }, [data, targets.length, onSummary]);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const { activeIndex, setActiveIndex, containerRef } = useRowKeyboardNav({
+    count: targets.length,
+    onOpen: (i) => {
+      const t = targets[i];
+      if (t) setTarget(t);
+    },
+  });
+
   // Sticky-header edge fades, mirroring the /activity and tier-entitlements
   // tables: the top/bottom gradient strips hide once the scroll region is at
   // that edge. Recomputed whenever the rendered data changes.
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [atTop, setAtTop] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
-  const onScroll = (el: HTMLDivElement) => {
+  const measure = useCallback((el: HTMLDivElement) => {
     setAtTop(el.scrollTop <= 0);
     setAtBottom(Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0);
-  };
+  }, []);
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = containerRef.current;
     if (!el) return;
-    setAtTop(el.scrollTop <= 0);
-    setAtBottom(Math.ceil(el.scrollHeight - (el.scrollTop + el.clientHeight)) <= 0);
-  }, [data]);
+    measure(el);
+    const ro = new ResizeObserver(() => measure(el));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [data, measure, containerRef]);
 
   if (loading) {
     return (
@@ -139,7 +212,7 @@ export function ModelAssignmentTab() {
     return (
       <div className="rounded-xl border border-border bg-primary p-6">
         <h2 className="text-sm font-medium">Model configuration unavailable</h2>
-        <p className="mt-1 text-sm text-tertiary-foreground">
+        <p className="mt-1 text-sm text-secondary-foreground">
           The model-config service isn’t reachable. Model assignments and pricing
           can’t be shown right now.
         </p>
@@ -147,53 +220,89 @@ export function ModelAssignmentTab() {
     );
   }
 
-  const flows = data?.flows ?? [];
-  const assignments = data?.assignments ?? [];
-
   return (
     <>
       <div className="relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-primary">
-        {/* Scroll region — sticky column header + top/bottom edge fades. */}
         <div className="relative min-h-0 flex-1">
           <div
-            ref={scrollRef}
-            onScroll={(e) => onScroll(e.currentTarget)}
+            ref={containerRef}
+            onScroll={(e) => measure(e.currentTarget)}
             className="h-full overflow-auto"
           >
             {/* Column header (sticky) */}
             <div
               className={cn(
                 GRID,
-                "sticky top-0 z-20 h-10 items-center border-b border-border bg-primary pr-6 pl-[55px] text-[11px] font-medium uppercase tracking-wide text-tertiary-foreground",
+                "sticky top-0 z-20 h-10 border-b border-border bg-primary text-[11px] font-medium tracking-wide text-secondary-foreground uppercase",
               )}
             >
-              <div>Slot</div>
-              <div>Model</div>
-              <div>Pricing / 1M</div>
-              <div className="text-center">Global-only</div>
-              <div>Last updated</div>
+              <div>Flow</div>
+              <div>Default model</div>
+              <div>Tier overrides</div>
+              <PriceHead kind="input" />
+              <PriceHead kind="output" />
+              <div>Changed</div>
+              <div />
             </div>
 
-            {/* Flow groups */}
-            <div>
-              {flows.map((flow, i) => (
-                <div
-                  key={flow.key}
-                  className={cn(i > 0 && "border-t border-border py-4")}
-                >
-                  <FlowBand flow={flow} />
-                  {flow.slots.map((slot) => (
-                    <SlotRow
-                      key={`${flow.key}/${slot.key}`}
-                      flow={flow}
-                      slot={slot}
-                      assignments={assignments}
-                      modelsById={modelsById}
-                      onEdit={() => setTarget({ flow, slot })}
-                    />
-                  ))}
-                </div>
-              ))}
+            <div onMouseLeave={() => setActiveIndex(-1)}>
+              {lines.map((line, i) => {
+                if (line.kind === "section") {
+                  return (
+                    <div
+                      key="section"
+                      className="-mt-px flex h-10 items-center gap-2.5 border-y border-t-senary border-b-border px-6 text-[13px]"
+                    >
+                      <HugeiconsIcon
+                        icon={CpuSettingsIcon}
+                        className="size-4 shrink-0 text-foreground"
+                      />
+                      <span className="font-semibold">System</span>
+                      <span className="text-xs text-secondary-foreground">
+                        runs for Harbor itself · not tenant usage · no tier
+                        overrides
+                      </span>
+                    </div>
+                  );
+                }
+                if (line.kind === "group") {
+                  return (
+                    <div
+                      key={`group/${line.flow.key}`}
+                      className="flex h-[34px] items-center gap-2 px-6 pt-1 text-[13px]"
+                      title={line.flow.description}
+                    >
+                      {line.system && (
+                        <HugeiconsIcon
+                          icon={CpuSettingsIcon}
+                          className="size-4 shrink-0 text-secondary-foreground"
+                        />
+                      )}
+                      <span className="font-medium">
+                        {humanize(line.flow.key)}
+                      </span>
+                      <span className="text-xs text-secondary-foreground">
+                        {line.flow.slots.length} slots
+                      </span>
+                    </div>
+                  );
+                }
+                return (
+                  <SlotRow
+                    key={`${line.target.flow.key}/${line.target.slot.key}/${i}`}
+                    line={line}
+                    assignments={assignments}
+                    modelsById={modelsById}
+                    tiersById={tiersById}
+                    active={activeIndex === line.nav}
+                    onHover={() => setActiveIndex(line.nav)}
+                    onOpen={() => {
+                      setActiveIndex(line.nav);
+                      setTarget(line.target);
+                    }}
+                  />
+                );
+              })}
             </div>
           </div>
 
@@ -217,7 +326,7 @@ export function ModelAssignmentTab() {
       </div>
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-[300] rounded-md border border-border bg-foreground px-4 py-2 text-sm text-primary shadow-lg">
+        <div className="fixed right-6 bottom-6 z-[300] rounded-md border border-border bg-foreground px-4 py-2 text-sm text-primary shadow-lg">
           {toast}
         </div>
       )}
@@ -228,6 +337,7 @@ export function ModelAssignmentTab() {
           onOpenChange={(o) => !o && setTarget(null)}
           flow={target.flow}
           slot={target.slot}
+          system={target.system}
           models={data.models}
           tiers={data.tiers}
           assignments={assignments}
@@ -241,49 +351,34 @@ export function ModelAssignmentTab() {
   );
 }
 
-function FlowBand({ flow }: { flow: Flow }) {
-  return (
-    <div className="flex items-center gap-2.5 px-6 py-2">
-      <HugeiconsIcon
-        icon={Structure05Icon}
-        className="size-6 shrink-0 text-secondary-foreground"
-      />
-      <div className="min-w-0">
-        <div className="font-display text-sm font-medium">
-          {humanize(flow.key)}
-        </div>
-        <div className="truncate text-xs text-tertiary-foreground">
-          {flow.description}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function SlotRow({
-  flow,
-  slot,
+  line,
   assignments,
   modelsById,
-  onEdit,
+  tiersById,
+  active,
+  onHover,
+  onOpen,
 }: {
-  flow: Flow;
-  slot: FlowSlot;
+  line: Extract<Line, { kind: "slot" }>;
   assignments: SlotAssignment[];
   modelsById: Map<string, Model>;
-  onEdit: () => void;
+  tiersById: Map<string, Tier>;
+  active: boolean;
+  onHover: () => void;
+  onOpen: () => void;
 }) {
+  const { flow, slot, system } = line.target;
   const all = assignments.filter(
     (a) => a.flowKey === flow.key && a.slotKey === slot.key,
   );
   const def = all.find((a) => a.tierId === "");
   const overrides = all.filter((a) => a.tierId !== "");
   const defModel = def ? modelsById.get(def.modelId) : undefined;
-  const defDrift = !!def && !modelsById.has(def.modelId);
-  const overrideDrift = overrides.some((a) => !modelsById.has(a.modelId));
+  const defRetired = !!def && !defModel;
 
-  // The slot's "last updated" is the most recent change across its global
-  // default and any tier overrides.
+  // The slot's last change is the most recent across its global default and
+  // any tier overrides.
   const lastUpdated = all.reduce<string>((latest, a) => {
     if (!a.updatedAt) return latest;
     return !latest || new Date(a.updatedAt) > new Date(latest)
@@ -291,107 +386,205 @@ function SlotRow({
       : latest;
   }, "");
 
+  const name = line.nested ? humanize(slot.key) : humanize(flow.key);
+
   return (
     <button
       type="button"
-      onClick={onEdit}
+      data-row-index={line.nav}
+      onClick={onOpen}
+      onMouseEnter={onHover}
+      title={line.nested ? slot.description : flow.description}
       className={cn(
         GRID,
-        "group w-full cursor-pointer items-start py-2 pr-6 pl-[55px] text-left transition-colors",
+        "relative w-full cursor-pointer text-left text-[13px] transition-colors duration-100 outline-none",
+        line.nested ? "h-[38px]" : "h-11",
+        (!line.nested || line.last) && "border-b border-border",
+        active && "bg-table-row-hover",
       )}
     >
-      {/* Slot — glyph + name over description */}
-      <div className="flex min-w-0 items-center gap-2 pr-6">
-        <HugeiconsIcon
-          icon={slotIcon(slot.key)}
-          className="size-5 shrink-0 text-tertiary-foreground group-hover:text-blue-600"
-        />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-foreground group-hover:text-blue-600">
-            {humanize(slot.key)}
-          </div>
-          <div className="text-xs text-tertiary-foreground group-hover:text-blue-600">
-            {slot.description}
-          </div>
-        </div>
-      </div>
-
-      {/* Model + capability + variance / drift */}
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          {def ? (
-            <span
-              className={cn(
-                "truncate text-sm",
-                defDrift
-                  ? "text-amber-700"
-                  : "text-foreground group-hover:text-[#1c7ef6]",
-              )}
-              title={def.modelId}
-            >
-              {defDrift && (
-                <HugeiconsIcon
-                  icon={Alert01Icon}
-                  className="mr-1 inline size-3.5 align-[-2px]"
-                />
-              )}
-              {friendlyModel(def.modelId)}
-            </span>
-          ) : (
-            <span className="truncate text-sm text-tertiary-foreground">
-              — not set
-            </span>
+      {/* Tree line joining a sub-row to its group header (out of grid flow). */}
+      {line.nested && (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute top-0 left-[30px] w-2.5 border-l border-quinary",
+            line.last ? "h-1/2" : "h-full",
+            "after:absolute after:top-full after:left-0 after:h-px after:w-2.5 after:bg-quinary",
+            !line.last && "after:top-1/2",
           )}
-          <span className="shrink-0">
-            <CapabilityBadge capability={slot.capability} />
-          </span>
-        </div>
+        />
+      )}
 
-        {(overrides.length > 0 || defDrift) && (
-          <div className="mt-0.5 flex items-center gap-1.5">
-            {overrides.length > 0 && (
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                  overrideDrift
-                    ? "bg-amber-500/10 text-amber-700"
-                    : "bg-secondary text-secondary-foreground",
-                )}
-              >
-                {overrides.length} tier override
-                {overrides.length === 1 ? "" : "s"}
-              </span>
-            )}
-            {defDrift && (
-              <span className="text-[10px] font-medium text-amber-700">
-                retired — re-pick
-              </span>
-            )}
-          </div>
+      {/* Flow / slot */}
+      <div className={cn("flex min-w-0 items-center gap-2", line.nested && "pl-5")}>
+        {system && !line.nested && (
+          <HugeiconsIcon
+            icon={CpuSettingsIcon}
+            className="size-4 shrink-0 text-secondary-foreground"
+          />
+        )}
+        <span className={cn("truncate", !line.nested && "font-medium")}>
+          {name}
+        </span>
+        {slot.globalOnly && !system && (
+          <HugeiconsIcon
+            icon={SquareLock02Icon}
+            className="size-4 shrink-0 text-secondary-foreground"
+            aria-label="Global only"
+          />
         )}
       </div>
 
-      {/* Pricing */}
-      <div className="truncate text-sm">
-        {defModel ? <HeadlinePrice model={defModel} /> : "—"}
+      {/* Default model (+ capability when it isn't chat) */}
+      <div className="flex min-w-0 items-center gap-2">
+        {!def ? (
+          <span className="text-secondary-foreground">Not set</span>
+        ) : defRetired ? (
+          <span
+            className="flex min-w-0 items-center gap-1.5 text-amber-700"
+            title={`${def.modelId} is no longer in the catalog`}
+          >
+            <HugeiconsIcon icon={Alert01Icon} className="size-3.5 shrink-0" />
+            <span className="truncate">{friendlyModel(def.modelId)}</span>
+            <span className="shrink-0 text-xs font-medium">retired</span>
+          </span>
+        ) : (
+          <span className="truncate" title={def.modelId}>
+            {friendlyModel(def.modelId)}
+          </span>
+        )}
+        {slot.capability !== "chat" && (
+          <span className="shrink-0">
+            <CapabilityBadge capability={slot.capability} />
+          </span>
+        )}
       </div>
 
-      {/* Global-only */}
-      <div className="flex justify-center">
-        <HugeiconsIcon
-          icon={slot.globalOnly ? CheckmarkSquare02Icon : MinusSignSquareIcon}
-          className={cn(
-            "size-5",
-            slot.globalOnly ? "text-emerald-600" : "text-gray-300",
-          )}
-          aria-label={slot.globalOnly ? "Global-only" : "Not global-only"}
+      {/* Tier overrides */}
+      <div className="min-w-0">
+        <OverridesCell
+          overrides={overrides}
+          globalOnly={slot.globalOnly}
+          system={system}
+          modelsById={modelsById}
+          tiersById={tiersById}
         />
       </div>
 
-      {/* Last updated */}
-      <div className="truncate text-xs text-tertiary-foreground group-hover:text-blue-600">
-        {lastUpdated ? relativeTime(lastUpdated) : "—"}
+      {/* Pricing (USD per 1M tokens) */}
+      <div className="text-right tabular-nums">{priceIn(defModel)}</div>
+      <div
+        className={cn(
+          "text-right tabular-nums",
+          priceOut(defModel) === "—" && "text-secondary-foreground",
+        )}
+      >
+        {priceOut(defModel)}
       </div>
+
+      {/* Changed */}
+      <div
+        className="text-xs text-secondary-foreground tabular-nums"
+        title={lastUpdated ? new Date(lastUpdated).toLocaleString() : undefined}
+      >
+        {lastUpdated ? relativeShort(lastUpdated) : "—"}
+      </div>
+
+      {/* Open affordance */}
+      <HugeiconsIcon
+        icon={ArrowRight01Icon}
+        className={cn(
+          "size-4 text-secondary-foreground transition-opacity duration-100",
+          active ? "opacity-100" : "opacity-0",
+        )}
+      />
     </button>
+  );
+}
+
+function OverridesCell({
+  overrides,
+  globalOnly,
+  system,
+  modelsById,
+  tiersById,
+}: {
+  overrides: SlotAssignment[];
+  globalOnly: boolean;
+  system: boolean;
+  modelsById: Map<string, Model>;
+  tiersById: Map<string, Tier>;
+}) {
+  if (system) {
+    return <span className="text-secondary-foreground">Not tier-based</span>;
+  }
+  if (globalOnly) {
+    return <span className="text-secondary-foreground">Global only</span>;
+  }
+  if (overrides.length === 0) {
+    return <span className="text-tertiary-foreground">—</span>;
+  }
+  const tierName = (id: string) => tiersById.get(id)?.name ?? id;
+  const tierColor = (id: string) => tiersById.get(id)?.color ?? "currentColor";
+
+  if (overrides.length === 1) {
+    const o = overrides[0];
+    const retired = !modelsById.has(o.modelId);
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span
+          className="size-2 shrink-0 rounded-full"
+          style={{ backgroundColor: tierColor(o.tierId) }}
+        />
+        <span className="shrink-0 text-secondary-foreground">
+          {tierName(o.tierId)}
+        </span>
+        <span className="shrink-0 text-tertiary-foreground">→</span>
+        <span
+          className={cn(
+            "truncate font-medium",
+            retired ? "text-amber-700" : "text-editable",
+          )}
+          title={o.modelId}
+        >
+          {friendlyModel(o.modelId)}
+        </span>
+      </span>
+    );
+  }
+
+  const anyRetired = overrides.some((o) => !modelsById.has(o.modelId));
+  return (
+    <span
+      className="flex min-w-0 items-center gap-2"
+      title={overrides
+        .map((o) => `${tierName(o.tierId)} → ${friendlyModel(o.modelId)}`)
+        .join("\n")}
+    >
+      <span className="flex shrink-0 items-center">
+        {overrides.map((o, i) => (
+          <span
+            key={o.tierId}
+            className={cn(
+              "size-2.5 rounded-full ring-[1.5px] ring-primary",
+              i > 0 && "-ml-1",
+            )}
+            style={{ backgroundColor: tierColor(o.tierId) }}
+          />
+        ))}
+      </span>
+      <span
+        className={cn(
+          "shrink-0 font-medium",
+          anyRetired ? "text-amber-700" : "text-editable",
+        )}
+      >
+        {overrides.length} tiers
+      </span>
+      <span className="truncate text-secondary-foreground">
+        {overrides.map((o) => tierName(o.tierId)).join(", ")}
+      </span>
+    </span>
   );
 }

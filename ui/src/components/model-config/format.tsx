@@ -4,117 +4,209 @@ import {
   SquareArrowUp02Icon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
-import type { Capability, Model, ModelRate } from "./types";
+import type { Capability, Flow, Model } from "./types";
 
-// relativeTime renders an ISO timestamp as a coarse "… ago" string, matching
-// the /secrets table.
-export function relativeTime(iso: string): string {
+// SYSTEM_FLOW_KEYS are flows that run for Harbor itself rather than on behalf
+// of tenants, so their cost is not tenant AI usage and they have no tier
+// overrides. Stopgap until modelconfig/v1 Flow carries a system flag (CON-320).
+const SYSTEM_FLOW_KEYS = new Set(["receipt_extraction"]);
+
+export function isSystemFlow(flow: Flow): boolean {
+  return SYSTEM_FLOW_KEYS.has(flow.key);
+}
+
+// relativeShort renders an ISO timestamp as a compact age for dense table
+// cells: "now", "12m", "3h", "5d", "2mo", "1y".
+export function relativeShort(iso: string): string {
   const ms = new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return "unknown"; // empty or malformed timestamp
+  if (!Number.isFinite(ms)) return "—"; // empty or malformed timestamp
   const secs = Math.max(0, (Date.now() - ms) / 1000);
-  if (secs < 60) return "just now";
+  if (secs < 60) return "now";
   const m = Math.floor(secs / 60);
-  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  if (h < 24) return `${h}h`;
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d} day${d === 1 ? "" : "s"} ago`;
+  if (d < 30) return `${d}d`;
   const mo = Math.floor(d / 30);
-  if (mo < 12) return `${mo} month${mo === 1 ? "" : "s"} ago`;
-  const y = Math.floor(mo / 12);
-  return `${y} year${y === 1 ? "" : "s"} ago`;
+  if (mo < 12) return `${mo}mo`;
+  return `${Math.floor(mo / 12)}y`;
 }
 
 // humanize turns a snake_case flow/slot key into a title ("content_plan" →
-// "Content plan"). Used for flow band headers.
+// "Content plan").
 export function humanize(key: string): string {
   const s = key.replace(/_/g, " ");
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// friendlyModel maps a known model id to a short display name, falling back to
-// the raw id (so retired / unknown ids still render, flagged as drift elsewhere).
+const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// claude-{family}-{major}[-{minor}][-yyyymmdd], e.g. claude-haiku-4-5-20251001.
+const CLAUDE_ID = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/;
+// Pre-4 naming put the version first: claude-3-7-sonnet-20250219.
+const CLAUDE_LEGACY_ID = /^claude-(\d+)(?:-(\d{1,2}))?-([a-z]+)(?:-\d{8})?$/;
+// gemini-{version}-{family}, e.g. gemini-2.5-flash, gemini-2.5-flash-lite.
+const GEMINI_ID = /^gemini-(\d+(?:\.\d+)?)-([a-z]+(?:-[a-z]+)*)$/;
+// gemini-embedding-{version}.
+const GEMINI_EMBED_ID = /^gemini-embedding-(\d+(?:\.\d+)?)$/;
+
+interface ParsedModel {
+  name: string;
+  family: string;
+  version: number[];
+}
+
+function parseModelId(id: string): ParsedModel | null {
+  let m = CLAUDE_ID.exec(id);
+  if (m) {
+    const version = m[3] ? [Number(m[2]), Number(m[3])] : [Number(m[2])];
+    const family = titleCase(m[1]);
+    return { name: `Claude ${family} ${version.join(".")}`, family, version };
+  }
+  m = CLAUDE_LEGACY_ID.exec(id);
+  if (m) {
+    const version = m[2] ? [Number(m[1]), Number(m[2])] : [Number(m[1])];
+    const family = titleCase(m[3]);
+    return { name: `Claude ${family} ${version.join(".")}`, family, version };
+  }
+  m = GEMINI_EMBED_ID.exec(id);
+  if (m) {
+    return {
+      name: `Gemini Embedding ${m[1]}`,
+      family: "Embedding",
+      version: m[1].split(".").map(Number),
+    };
+  }
+  m = GEMINI_ID.exec(id);
+  if (m) {
+    const family = m[2].split("-").map(titleCase).join("-");
+    return {
+      name: `Gemini ${m[1]} ${family}`,
+      family,
+      version: m[1].split(".").map(Number),
+    };
+  }
+  return null;
+}
+
+// friendlyModel maps a model id to its human name ("claude-haiku-4-5-20251001"
+// → "Claude Haiku 4.5", "gemini-2.5-flash" → "Gemini 2.5 Flash"). Unknown id
+// shapes fall back to the raw id, so retired / unexpected ids still render.
 export function friendlyModel(id: string): string {
-  if (id.startsWith("claude-sonnet-4-5")) return "Claude Sonnet 4.5";
-  if (id.startsWith("claude-haiku-4-5")) return "Claude Haiku 4.5";
-  if (id === "gemini-2.5-flash") return "Gemini 2.5 Flash";
-  if (id === "gemini-2.5-pro") return "Gemini 2.5 Pro";
-  if (id === "gemini-embedding-2") return "Gemini Embedding 2";
-  return id;
+  return parseModelId(id)?.name ?? id;
 }
 
-function rate(model: Model, kind: string): number | undefined {
-  return model.rates.find((r: ModelRate) => r.kind === kind)?.microsPerMillion;
+// modelFamily is the picker group within a vendor: Haiku, Sonnet, Opus, Flash,
+// Pro, Embedding… Unknown shapes land in "Other".
+export function modelFamily(id: string): string {
+  return parseModelId(id)?.family ?? "Other";
 }
 
-// usd formats micros-per-million as a dollar-per-million string. 3_000_000
-// micros ⇒ "$3", 300_000 ⇒ "$0.30".
+// compareModelVersionDesc orders newer versions first (4.5 before 4, 4 before
+// 3.7), then by id for a stable order.
+export function compareModelVersionDesc(a: string, b: string): number {
+  const va = parseModelId(a)?.version ?? [];
+  const vb = parseModelId(b)?.version ?? [];
+  for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+    const d = (vb[i] ?? 0) - (va[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return a.localeCompare(b);
+}
+
+export function rate(model: Model, kind: string): number | undefined {
+  return model.rates.find((r) => r.kind === kind)?.microsPerMillion;
+}
+
+// usd formats micros-per-million as a fixed two-decimal dollar figure so a
+// column of prices lines up ($3.00, $0.30); sub-cent rates keep a third digit
+// ($0.075) rather than rounding to a misleading value.
 export function usd(micros: number): string {
-  const dollars = micros / 1_000_000;
-  // Preserve sub-cent rates (e.g. $0.075, $0.3125) rather than rounding to two
-  // decimals; whole-dollar amounts drop the fraction ($3, not $3.00).
-  return dollars.toLocaleString("en-US", {
+  return (micros / 1_000_000).toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: Number.isInteger(dollars) ? 0 : 2,
-    maximumFractionDigits: 4,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
 }
 
-// HeadlinePrice is the compact per-1M cost shown next to a model: a down-arrow +
-// input rate and an up-arrow + output rate for chat, a single "/ 1M" rate for
-// embed. Icons inherit the surrounding text colour (so they follow row hover).
-// The full per-kind breakdown lives in the drawer's PriceBreakdown.
-export function HeadlinePrice({
-  model,
+// priceIn / priceOut are the per-1M input and output cells. Embed models have
+// no output rate.
+export function priceIn(model: Model | undefined): string {
+  const v = model ? rate(model, "input") : undefined;
+  return v === undefined ? "—" : usd(v);
+}
+
+export function priceOut(model: Model | undefined): string {
+  if (!model || model.capability === "embed") return "—";
+  const v = rate(model, "output");
+  return v === undefined ? "—" : usd(v);
+}
+
+// priceDelta is the relative change of a candidate's rate against the current
+// model's ("−67%", "+25%"); empty when either is missing or they're equal.
+export function priceDelta(
+  candidate: Model,
+  current: Model | undefined,
+  kind: "input" | "output",
+): { label: string; cheaper: boolean } | null {
+  if (!current || candidate.id === current.id) return null;
+  const a = rate(candidate, kind);
+  const b = rate(current, kind);
+  if (a === undefined || b === undefined || b === 0 || a === b) return null;
+  const pct = Math.round(((a - b) / b) * 100);
+  if (pct === 0) return null;
+  return {
+    label: `${pct < 0 ? "−" : "+"}${Math.abs(pct)}%`,
+    cheaper: pct < 0,
+  };
+}
+
+// PriceHead is a right-aligned In / Out column header carrying the arrow glyph
+// that used to repeat in every price cell.
+export function PriceHead({
+  kind,
   className,
 }: {
-  model: Model;
+  kind: "input" | "output";
   className?: string;
 }) {
-  const inp = rate(model, "input");
-  if (model.capability === "embed") {
-    return (
-      <span className={cn("tabular-nums text-dollar", className)}>
-        {inp === undefined ? "—" : `${usd(inp)} / 1M`}
-      </span>
-    );
-  }
-  const out = rate(model, "output");
-  if (inp === undefined && out === undefined) {
-    return <span className={className}>—</span>;
-  }
   return (
     <span
-      className={cn(
-        "inline-flex items-center gap-1 tabular-nums text-dollar",
-        className,
-      )}
+      className={cn("inline-flex items-center justify-end gap-1.5", className)}
     >
       <HugeiconsIcon
-        icon={SquareArrowDown02Icon}
+        icon={kind === "input" ? SquareArrowDown02Icon : SquareArrowUp02Icon}
         className="size-3.5 shrink-0"
-        aria-label="input"
+        aria-hidden
       />
-      {inp === undefined ? "—" : usd(inp)}
-      <HugeiconsIcon
-        icon={SquareArrowUp02Icon}
-        className="ml-1.5 size-3.5 shrink-0"
-        aria-label="output"
-      />
-      {out === undefined ? "—" : usd(out)}
+      {kind === "input" ? "In" : "Out"}
     </span>
   );
 }
 
-// PRICE_KINDS is the ordered, human-labelled set of per-kind rates for the
-// drawer's price breakdown.
-export const PRICE_KINDS: { kind: string; label: string }[] = [
-  { kind: "input", label: "Input" },
-  { kind: "output", label: "Output" },
-  { kind: "cache_read", label: "Cache read" },
-  { kind: "cache_write", label: "Cache write" },
-];
+// modelDetail is the picker's second line: context, max output (or embedding
+// dims) and the price-list version.
+export function modelDetail(model: Model): string {
+  const c = model.capabilities;
+  const parts: string[] = [];
+  if (model.capability === "embed") {
+    if (c.embedDims) parts.push(`${c.embedDims} dims`);
+  } else {
+    if (c.contextWindow) parts.push(`${tokens(c.contextWindow)} context`);
+    if (c.maxOutputTokens) parts.push(`${tokens(c.maxOutputTokens)} output`);
+  }
+  if (model.priceVersion) parts.push(`prices v${model.priceVersion}`);
+  if (!c.live) parts.push("not live");
+  return parts.join(" · ");
+}
+
+function tokens(n: number): string {
+  return n >= 1_000_000
+    ? `${Math.round(n / 100_000) / 10}M`
+    : `${Math.round(n / 1000)}k`;
+}
 
 const CAPABILITY_BADGE: Record<Capability, { label: string; tint: string }> = {
   chat: { label: "Chat", tint: "bg-indigo-500/10 text-indigo-700" },
@@ -123,6 +215,8 @@ const CAPABILITY_BADGE: Record<Capability, { label: string; tint: string }> = {
   transcribe: { label: "Transcribe", tint: "bg-rose-500/10 text-rose-700" },
 };
 
+// CapabilityBadge marks a slot's capability. Chat is the norm, so callers show
+// it only for the exceptions (Embed, Vision, Transcribe).
 export function CapabilityBadge({ capability }: { capability: Capability }) {
   const badge = CAPABILITY_BADGE[capability] ?? {
     label: humanize(capability),
@@ -152,72 +246,4 @@ export function servesCapability(model: Model, capability: Capability) {
     default:
       return model.capability === capability;
   }
-}
-
-// VendorGlyph is the small icon-square shown at the head of each model row
-// (screenshot-inspired resource list). A tinted rounded square with the
-// vendor's initial — no brand SVGs needed.
-export function VendorGlyph({
-  vendor,
-  className,
-}: {
-  vendor: string;
-  className?: string;
-}) {
-  const tint =
-    vendor === "anthropic"
-      ? "bg-orange-500/10 text-orange-700"
-      : vendor === "gemini"
-        ? "bg-blue-500/10 text-blue-700"
-        : "bg-secondary text-secondary-foreground";
-  return (
-    <span
-      className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-md text-sm font-semibold uppercase",
-        tint,
-        className,
-      )}
-      aria-hidden
-    >
-      {vendor.charAt(0) || "?"}
-    </span>
-  );
-}
-
-// ModelCapabilityBadges renders the model's supported features as small pills so
-// an operator can see compatibility at a glance before assigning (CON-308 §8a).
-export function ModelCapabilityBadges({ model }: { model: Model }) {
-  const caps = model.capabilities;
-  const pills: string[] = [];
-  if (model.capability === "chat") {
-    if (caps.tools) pills.push("Tools");
-    if (caps.structuredOutput) pills.push("Structured");
-    if (caps.streaming) pills.push("Streaming");
-    if (caps.visionInput) pills.push("Vision");
-    if (caps.audioInput) pills.push("Audio");
-    if (caps.contextWindow)
-      pills.push(`${Math.round(caps.contextWindow / 1000)}k ctx`);
-    if (caps.maxOutputTokens)
-      pills.push(`${Math.round(caps.maxOutputTokens / 1000)}k out`);
-  } else {
-    if (caps.embedDims) pills.push(`${caps.embedDims} dims`);
-  }
-  if (!caps.live) pills.push("Not live");
-  return (
-    <div className="flex flex-wrap gap-1">
-      {pills.map((p) => (
-        <span
-          key={p}
-          className={cn(
-            "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium",
-            p === "Not live"
-              ? "bg-destructive/10 text-destructive"
-              : "bg-secondary text-secondary-foreground",
-          )}
-        >
-          {p}
-        </span>
-      ))}
-    </div>
-  );
 }
