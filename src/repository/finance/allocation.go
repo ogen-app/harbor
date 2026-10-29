@@ -209,10 +209,12 @@ func (r *Repository) DriverSnapshots(ctx context.Context, month time.Time) (map[
 	return out, nil
 }
 
-// ReplaceDrivers stores a fresh snapshot of one driver for the month,
-// replacing the previous one. Zero and negative quantities are dropped.
-func (r *Repository) ReplaceDrivers(ctx context.Context, month time.Time, driver string, quantities map[string]int64) error {
-	now := time.Now().UTC()
+// ReplaceDrivers stores a fresh snapshot of one driver for the month, captured
+// at at, replacing the previous one. Zero and negative quantities are dropped.
+// Run it inside InTx: the snapshot marker and its rows must change together,
+// or a reader could see a captured driver with no quantities.
+func (r *Repository) ReplaceDrivers(ctx context.Context, month time.Time, driver string, quantities map[string]int64, at time.Time) error {
+	now := at.UTC()
 	if _, err := r.idb.NewRaw(`
 		INSERT INTO finance_allocation_snapshots (month, driver, captured_at) VALUES (?, ?, ?)
 		ON CONFLICT (month, driver) DO UPDATE SET captured_at = EXCLUDED.captured_at`,
