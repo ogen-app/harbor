@@ -48,6 +48,13 @@ export function useHelpPanel() {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  // Latest open state for the window listener, so it subscribes once instead
+  // of re-binding on every toggle (writing a ref during render is unsafe).
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  });
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "?" || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -61,7 +68,14 @@ export function useHelpPanel() {
         return;
       }
       e.preventDefault();
-      setOpen((o) => !o);
+      if (!openRef.current) {
+        setOpen(true);
+        return;
+      }
+      // Closing: focus sits on the panel's close button, which is about to go
+      // inert, so hand it back to the trigger like the Esc and × paths do.
+      setOpen(false);
+      triggerRef.current?.focus({ preventScroll: true });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
