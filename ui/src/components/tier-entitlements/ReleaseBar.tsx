@@ -80,6 +80,7 @@ export function ReleaseBar({
   changes,
   saving,
   onShowUnset,
+  onReviewingChange,
   onDone,
 }: {
   tier: MatrixTier;
@@ -90,6 +91,9 @@ export function ReleaseBar({
   changes: Change[];
   saving: boolean;
   onShowUnset: () => void;
+  // Told when the review opens and closes, so the matrix can lock this
+  // draft's cells: the diff being approved must be the one that is published.
+  onReviewingChange?: (draftId: string, reviewing: boolean) => void;
   onDone: (published?: TierVersion) => void;
 }) {
   const [reviewing, setReviewing] = useState(false);
@@ -120,6 +124,11 @@ export function ReleaseBar({
       live = false;
     };
   }, [reviewing, draft.id]);
+
+  useEffect(() => {
+    onReviewingChange?.(draft.id, reviewing);
+  }, [reviewing, draft.id, onReviewingChange]);
+  useEffect(() => () => onReviewingChange?.(draft.id, false), [draft.id, onReviewingChange]);
 
   // Esc steps back from the review to the draft.
   useEffect(() => {
@@ -152,6 +161,12 @@ export function ReleaseBar({
   }
 
   async function publish() {
+    // A pending or in-flight autosave would let Ogen publish a copy that
+    // differs from the diff on screen.
+    if (saving) {
+      setErr("The draft is still saving. Publish once it finishes.");
+      return;
+    }
     if (!reason.trim()) {
       setErr("Add a reason for this change.");
       reasonRef.current?.focus();
@@ -456,9 +471,9 @@ export function ReleaseBar({
         <Button variant="ghost" size="sm" onClick={() => setReviewing(false)} disabled={busy}>
           Back to draft
         </Button>
-        <Button variant="defaultInverted" size="sm" className="font-semibold" onClick={publish} disabled={busy}>
-          {busy && <Loader className="size-3.5 border-[1.5px]" />}
-          Publish {label}
+        <Button variant="defaultInverted" size="sm" className="font-semibold" onClick={publish} disabled={busy || saving}>
+          {(busy || saving) && <Loader className="size-3.5 border-[1.5px]" />}
+          {saving ? "Saving draft…" : `Publish ${label}`}
         </Button>
       </footer>
     </section>

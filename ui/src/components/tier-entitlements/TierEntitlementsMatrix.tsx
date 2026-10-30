@@ -174,6 +174,19 @@ export function TierEntitlementsMatrix({
   // locked cell. Keyed by feature + version (or tier for the offer).
   const [editing, setEditing] = useState<{ feature: string; version: string } | null>(null);
   const [offer, setOffer] = useState<{ feature: string; tier: string } | null>(null);
+  // Drafts whose publish review is open: their cells are read-only, so the
+  // diff the operator approves is exactly what gets published.
+  const [underReview, setUnderReview] = useState<Set<string>>(new Set());
+  const setReviewingDraft = useCallback((draftId: string, on: boolean) => {
+    setUnderReview((s) => {
+      if (s.has(draftId) === on) return s;
+      const n = new Set(s);
+      if (on) n.add(draftId);
+      else n.delete(draftId);
+      return n;
+    });
+    if (on) setEditing((e) => (e?.version === draftId ? null : e));
+  }, []);
 
   // Drawers: prices/sale status of a draft, guarded retire, version history.
   const [pricesFor, setPricesFor] = useState<{ tier: MatrixTier; version: TierVersion } | null>(null);
@@ -241,10 +254,22 @@ export function TierEntitlementsMatrix({
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [saveErr, setSaveErr] = useState<string | null>(null);
 
-  const saveDraft = useCallback(async (versionId: string) => {
+  // Saves of one draft are serialised: each PUT carries the whole entitlements
+  // map, so two in flight could land out of order and leave Ogen holding the
+  // older one. While a save runs, a newer edit only marks the draft dirty; the
+  // running save then sends one more PUT with the latest state.
+  const inFlight = useRef(new Set<string>());
+  const dirty = useRef(new Set<string>());
+
+  const saveDraft = useCallback(async function save(versionId: string): Promise<void> {
+    if (inFlight.current.has(versionId)) {
+      dirty.current.add(versionId);
+      return;
+    }
     const v = dataRef.current?.tiers.flatMap((t) => t.versions).find((x) => x.id === versionId);
     if (!v) return;
-    setSaving((s) => new Set(s).add(versionId));
+    inFlight.current.add(versionId);
+    let failed = false;
     try {
       const r = await fetch(`/api/tier-entitlements/versions/${encodeURIComponent(versionId)}`, {
         method: "PUT",
@@ -254,18 +279,21 @@ export function TierEntitlementsMatrix({
       if (!r.ok) throw new Error(await errorText(r));
       setSaveErr(null);
     } catch (e) {
+      failed = true;
       setSaveErr(e instanceof Error ? `Couldn’t save the draft: ${e.message}` : "Couldn’t save the draft.");
-      reload();
     } finally {
-      // Another edit may have been queued while this save ran; it keeps the
-      // version marked as saving until its own save finishes.
-      if (!timers.current.has(versionId)) {
-        setSaving((s) => {
-          const n = new Set(s);
-          n.delete(versionId);
-          return n;
-        });
-      }
+      inFlight.current.delete(versionId);
+    }
+    // A failed save reloads Ogen's copy, which replaces any queued edit.
+    if (dirty.current.delete(versionId) && !failed) return save(versionId);
+    if (failed) reload();
+    // Still saving while another edit waits for its debounce.
+    if (!timers.current.has(versionId)) {
+      setSaving((s) => {
+        const n = new Set(s);
+        n.delete(versionId);
+        return n;
+      });
     }
   }, [reload]);
 
@@ -380,16 +408,18 @@ export function TierEntitlementsMatrix({
   // ── keyboard ────────────────────────────────────────────────────────────────
   // j/k rows, h/l columns, ↵ edits a draft cell (or offers a draft on a locked
   // one), / filters, d toggles drafts. "?" belongs to the page's help panel.
-  const latest = useRef({ rows, columns, active, editing, offer });
+  const latest = useRef({ rows, columns, active, editing, offer, underReview });
   useEffect(() => {
-    latest.current = { rows, columns, active, editing, offer };
+    latest.current = { rows, columns, active, editing, offer, underReview };
   });
   const openCell = useCallback((row: number, col: number) => {
     const { rows, columns } = latest.current;
     const f = rows[row];
     const c = columns[col];
     if (!f || !c) return;
-    if (c.kind === "draft" && c.version) setEditing({ feature: f.key, version: c.version.id });
+    if (c.kind === "draft" && c.version) {
+      if (!latest.current.underReview.has(c.version.id)) setEditing({ feature: f.key, version: c.version.id });
+    }
     else if (!draftVersion(c.tier)) setOffer({ feature: f.key, tier: c.tier.tierId });
   }, []);
 
@@ -618,6 +648,7 @@ export function TierEntitlementsMatrix({
                       className={cn(ruleFor(ci), washFor(c))}
                       focused={rowActive && active?.col === ci}
                       editing={!!c.version && editing?.feature === f.key && editing.version === c.version.id}
+                      frozen={!!c.version && underReview.has(c.version.id)}
                       offering={offer?.feature === f.key && offer.tier === c.tier.tierId && c.kind !== "draft"}
                       onOpen={() => {
                         setActive({ row: rowIndex, col: ci });
@@ -813,6 +844,7 @@ export function TierEntitlementsMatrix({
             changes={changesByVersion.get(c.version!.id) ?? []}
             saving={saving.has(c.version!.id)}
             onShowUnset={() => setMode("unset")}
+            onReviewingChange={setReviewingDraft}
             onDone={(published) => {
               reload();
               if (published) checkMapping(published.id);
@@ -1017,6 +1049,7 @@ function MatrixCell({
   className,
   focused,
   editing,
+  frozen,
   offering,
   onOpen,
   onClose,
@@ -1029,6 +1062,8 @@ function MatrixCell({
   className: string;
   focused: boolean;
   editing: boolean;
+  // A draft under publish review: shown as a draft but not editable.
+  frozen: boolean;
   offering: boolean;
   onOpen: () => void;
   onClose: () => void;
@@ -1060,6 +1095,17 @@ function MatrixCell({
       </span>
     </span>
   );
+
+  if (draft && frozen) {
+    return (
+      <div
+        title="Read-only while the publish review is open"
+        className={cn("flex cursor-default items-center px-4 py-2.5", className)}
+      >
+        {content}
+      </div>
+    );
+  }
 
   if (draft) {
     const base = column.base;

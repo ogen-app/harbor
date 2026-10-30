@@ -109,8 +109,11 @@ export function CellEditor({
   const setLimit = (raw: string) => {
     setText(raw);
     const n = Number(raw);
-    if (raw.trim() === "" || !Number.isFinite(n) || n <= 0) return;
+    if (raw.trim() === "" || !Number.isFinite(n)) return;
     const next = bytes ? Math.round(n * MB) : Math.round(n);
+    // Check after rounding: 0.4 rounds to 0, which means "Not included", and a
+    // limit the operator typed must never silently become an exclusion.
+    if (next <= 0) return;
     lastValue.current = next;
     onChange(next);
   };
