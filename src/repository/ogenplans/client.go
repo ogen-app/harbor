@@ -263,16 +263,44 @@ func (c *Client) UpdateTierVersionDraft(ctx context.Context, id string, body Dra
 	return versionFromProto(resp.GetVersion()), nil
 }
 
+// Supersede names the active version a publish retires in the same
+// transaction, so the tier is never left without a version on sale. Its live
+// tenants either stay on it (Force: grandfathered onto the retired version) or
+// move to the newly published one (ReassignToPublished). The two are mutually
+// exclusive.
+type Supersede struct {
+	VersionID           string `json:"versionId"`
+	Force               bool   `json:"force,omitzero"`
+	ReassignToPublished bool   `json:"reassignToPublished,omitzero"`
+}
+
+// publishRequest builds the PublishTierVersion request; a nil supersede is a
+// plain publish.
+func publishRequest(id, changeReason string, supersede *Supersede) *plansv1.PublishTierVersionRequest {
+	req := &plansv1.PublishTierVersionRequest{Id: id, ChangeReason: changeReason}
+	if supersede != nil {
+		req.Supersede = &plansv1.SupersedeTierVersion{
+			VersionId:           supersede.VersionID,
+			Force:               supersede.Force,
+			ReassignToPublished: supersede.ReassignToPublished,
+		}
+	}
+	return req
+}
+
 // PublishTierVersion transitions a draft to active. Ogen returns InvalidArgument
-// if changeReason is empty.
-func (c *Client) PublishTierVersion(ctx context.Context, id, changeReason string) (TierVersion, error) {
+// if changeReason is empty. With supersede, the named active version is retired
+// atomically with the publish (see Supersede); without it, publishing a
+// purchasable draft while another purchasable version is active fails with
+// FailedPrecondition.
+func (c *Client) PublishTierVersion(ctx context.Context, id, changeReason string, supersede *Supersede) (TierVersion, error) {
 	if c == nil {
 		return TierVersion{}, ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	resp, err := c.rpc.PublishTierVersion(ctx, &plansv1.PublishTierVersionRequest{Id: id, ChangeReason: changeReason})
+	resp, err := c.rpc.PublishTierVersion(ctx, publishRequest(id, changeReason, supersede))
 	if err != nil {
 		return TierVersion{}, err
 	}

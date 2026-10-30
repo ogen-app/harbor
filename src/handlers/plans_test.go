@@ -42,6 +42,29 @@ func TestTierEntitlements_MatrixSoftUnavailable(t *testing.T) {
 	}
 }
 
+// A malformed supersede is refused with 400 before Ogen is called, so even an
+// unconfigured client answers 400 rather than 503.
+func TestTierEntitlements_PublishRejectsBadSupersede(t *testing.T) {
+	cases := []string{
+		`{"changeReason":"launch","supersede":{"force":true}}`,
+		`{"changeReason":"launch","supersede":{"versionId":"v1","force":true,"reassignToPublished":true}}`,
+	}
+	for _, body := range cases {
+		app := fiber.New()
+		NewTierEntitlementsHandler(nil, nil).Register(app, passAuth)
+
+		req := httptest.NewRequest("POST", "/api/tier-entitlements/versions/v2/publish", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("%s: %v", body, err)
+		}
+		if resp.StatusCode != fiber.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400", body, resp.StatusCode)
+		}
+	}
+}
+
 // Every mutating route (and the per-tenant read) is a hard dependency on the
 // upstream: a nil client must surface as 503, not a soft state — matching the
 // Tiers/Platforms write contract.

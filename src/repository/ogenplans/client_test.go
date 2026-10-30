@@ -24,6 +24,23 @@ func TestVersionFromProto_NilEntitlementsIsEmptyMap(t *testing.T) {
 	}
 }
 
+// A nil supersede is a plain publish; a set one carries the version to retire
+// and the operator's choice for its tenants through to the proto.
+func TestPublishRequest_Supersede(t *testing.T) {
+	plain := publishRequest("v2", "launch", nil)
+	if plain.GetSupersede() != nil {
+		t.Errorf("supersede = %v, want nil for a plain publish", plain.GetSupersede())
+	}
+	if plain.GetId() != "v2" || plain.GetChangeReason() != "launch" {
+		t.Errorf("id/reason = %q/%q, want v2/launch", plain.GetId(), plain.GetChangeReason())
+	}
+
+	got := publishRequest("v2", "launch", &Supersede{VersionID: "v1", ReassignToPublished: true}).GetSupersede()
+	if got.GetVersionId() != "v1" || !got.GetReassignToPublished() || got.GetForce() {
+		t.Errorf("supersede = %v, want v1 + reassign, no force", got)
+	}
+}
+
 // A populated entitlements Struct round-trips: numbers decode to float64 and a
 // null value (an unlimited numeric) is preserved as a present nil entry.
 func TestVersionFromProto_EntitlementsRoundTrip(t *testing.T) {
