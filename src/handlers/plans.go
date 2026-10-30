@@ -179,8 +179,12 @@ func (h *TierEntitlementsHandler) UpdateDraft(c *fiber.Ctx) error {
 	return c.JSON(out)
 }
 
+// publishRequest optionally supersedes the tier's active version: it is retired
+// in the same transaction, and its tenants either stay on it (force) or move to
+// the published version (reassignToPublished).
 type publishRequest struct {
-	ChangeReason string `json:"changeReason"`
+	ChangeReason string               `json:"changeReason"`
+	Supersede    *ogenplans.Supersede `json:"supersede"`
 }
 
 // Publish godoc
@@ -198,12 +202,30 @@ func (h *TierEntitlementsHandler) Publish(c *fiber.Ctx) error {
 		logPlans(c, start, err)
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
-	out, err := h.plans.PublishTierVersion(c.Context(), c.Params("id"), req.ChangeReason)
+	if err := validateSupersede(req.Supersede); err != nil {
+		logPlans(c, start, err)
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	out, err := h.plans.PublishTierVersion(c.Context(), c.Params("id"), req.ChangeReason, req.Supersede)
 	logPlans(c, start, err)
 	if err != nil {
 		return mapPlanError(err)
 	}
 	return c.JSON(out)
+}
+
+// validateSupersede rejects a supersede Ogen would refuse anyway, so the
+// operator gets a 400 with a readable reason instead of a mapped gRPC error.
+func validateSupersede(s *ogenplans.Supersede) error {
+	switch {
+	case s == nil:
+		return nil
+	case s.VersionID == "":
+		return errors.New("supersede.versionId is required")
+	case s.Force && s.ReassignToPublished:
+		return errors.New("supersede: choose force or reassignToPublished, not both")
+	}
+	return nil
 }
 
 // retireRequest carries the operator's choice when live assignments remain:

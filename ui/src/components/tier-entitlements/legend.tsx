@@ -2,47 +2,29 @@
 
 import { cn } from "@/lib/utils";
 
-// Delivery status of a FEATURE (the reference's LIVE / FLAG OFF / IN PROGRESS /
-// PLANNED legend) — orthogonal to a tier version's draft/active/retired status.
-// Shared by the matrix's Status column chips and the page-header legend.
-export const FEATURE_STATUS: Record<
-  string,
-  { label: string; className: string }
-> = {
-  live: { label: "LIVE", className: "bg-emerald-100 text-emerald-800" },
-  in_progress: { label: "IN PROGRESS", className: "bg-sky-100 text-sky-800" },
-  flag_off: { label: "FLAG OFF", className: "bg-amber-100 text-amber-800" },
-  planned: { label: "PLANNED", className: "bg-gray-100 text-gray-600" },
+// Delivery status of a FEATURE — orthogonal to a tier version's
+// draft/live/retired status. Live is the norm and gets no chip; only the
+// exceptions are marked next to the feature name (CON-321).
+const FEATURE_STATUS: Record<string, { label: string; className: string }> = {
+  in_progress: { label: "In progress", className: "bg-sky-50 text-sky-800 border-sky-200" },
+  flag_off: { label: "Flag off", className: "bg-amber-50 text-amber-800 border-amber-200" },
+  planned: { label: "Planned", className: "bg-secondary text-secondary-foreground border-border" },
 };
 
-const LEGEND: { key: string; hint: string }[] = [
-  { key: "live", hint: "shipped" },
-  { key: "flag_off", hint: "waiting on the API" },
-  { key: "in_progress", hint: "active branch" },
-  { key: "planned", hint: "backlog" },
-];
-
-// StatusLegend renders the four delivery-status chips with their meaning —
-// shown in the page header, and the key to the Status column dots/chips.
-export function StatusLegend({ className }: { className?: string }) {
+export function FeatureStatusChip({ status }: { status: string }) {
+  if (!status || status === "live") return null;
+  const s = FEATURE_STATUS[status] ?? {
+    label: status.replace(/_/g, " "),
+    className: "bg-secondary text-secondary-foreground border-border",
+  };
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
-      {LEGEND.map(({ key, hint }) => {
-        const s = FEATURE_STATUS[key];
-        return (
-          <span key={key} className="flex items-center gap-1.5 text-xs">
-            <span
-              className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
-                s.className,
-              )}
-            >
-              {s.label}
-            </span>
-            <span className="text-tertiary-foreground">{hint}</span>
-          </span>
-        );
-      })}
-    </div>
+    <span
+      className={cn(
+        "rounded-xs border px-1.5 py-px text-[11px] font-medium leading-4 whitespace-nowrap",
+        s.className,
+      )}
+    >
+      {s.label}
+    </span>
   );
 }
