@@ -430,7 +430,11 @@ export function TenantsSection() {
         try {
             const r = await fetch("/api/tenants/overview");
             if (!r.ok) throw new Error(`request failed (${r.status})`);
-            setData((await r.json()) as OverviewResponse);
+            const j = (await r.json()) as OverviewResponse;
+            // A failed refresh keeps the last good overview and shows "Refresh
+            // failed"; with nothing loaded yet, the error reads as unavailable.
+            if (!j.overview) throw new Error(j.error || "Ogen database not reachable");
+            setData(j);
             setError(null);
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : "Failed to load");
@@ -478,11 +482,7 @@ export function TenantsSection() {
             </div>
 
             {!o ? (
-                data && !data.available ? (
-                    <p className="p-6 text-sm text-tertiary-foreground">
-                        Tenants unavailable: {data.error || "Ogen database not reachable"}
-                    </p>
-                ) : error ? (
+                error ? (
                     <p className="p-6 text-sm text-tertiary-foreground">Tenants unavailable: {error}</p>
                 ) : (
                     <div className="flex items-center justify-center py-12 text-secondary-foreground">
@@ -514,7 +514,13 @@ export function TenantsSection() {
                                 <h3 className="text-[13px] font-semibold text-foreground">Active tenants per day</h3>
                                 <ActiveTenantsLegend />
                             </div>
-                            <ActiveTenantsDailyChart days={o.dailyActive ?? []} />
+                            {o.dailyActive?.length ? (
+                                <ActiveTenantsDailyChart days={o.dailyActive} />
+                            ) : (
+                                <p className="py-10 text-center text-[13px] text-secondary-foreground">
+                                    Daily activity unavailable right now.
+                                </p>
+                            )}
                         </div>
                     </div>
 

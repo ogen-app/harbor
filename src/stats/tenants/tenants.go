@@ -224,9 +224,12 @@ func collectAt(ctx context.Context, now time.Time, tenants ogen.TenantRepository
 	slices.SortStableFunc(o.Quiet, func(a, b QuietTenant) int { return a.QuietSince.Compare(b.QuietSince) })
 
 	o.Signups = weeklySignups(now, pulse)
+	// A failed series stays nil: densified zeros would read as a quiet period.
 	daily, err := tenants.DailyActiveTenants(ctx, dailyWindowDays)
 	logFail("daily", err)
-	o.DailyActive = dailyActive(now, pulse, daily)
+	if err == nil {
+		o.DailyActive = dailyActive(now, pulse, daily)
+	}
 
 	stuck, err := tenants.StuckRiverJobs(ctx)
 	logFail("river", err)
