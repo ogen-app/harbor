@@ -1031,6 +1031,9 @@ func (h *TenantsHandler) Overview(c *fiber.Ctx) error {
 	if !h.tenants.Available() {
 		return c.JSON(fiber.Map{"available": false, "error": "ogen database not configured"})
 	}
-	overview := tenants.Collect(c.Context(), h.tenants, h.spend)
+	overview, err := tenants.Collect(c.Context(), h.tenants, h.spend)
+	if err != nil {
+		return c.JSON(fiber.Map{"available": false, "error": err.Error()})
+	}
 	return c.JSON(fiber.Map{"available": true, "overview": overview})
 }

@@ -15,13 +15,19 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogen"
 )
 
+// Overview is the dashboard's Tenants panel (CON-436): who needs the operator,
+// who just arrived, who went quiet, and two small trend series.
 type Overview struct {
-	Headline   Headline   `json:"headline"`
-	Movement   Movement   `json:"movement"`
-	Activity   Activity   `json:"activity"`
-	Spend      Spend      `json:"spend"`
-	Quota      Quota      `json:"quota"`
-	Exceptions Exceptions `json:"exceptions"`
+	CheckedAt   time.Time     `json:"checkedAt"`
+	Headline    Headline      `json:"headline"`
+	Engaged     Engaged       `json:"engaged"`
+	Attention   []Attention   `json:"attention"`
+	Newcomers   []Newcomer    `json:"newcomers"`
+	Quiet       []QuietTenant `json:"quiet"`
+	Signups     []WeekCount   `json:"signups"`
+	DailyActive []DayActive   `json:"dailyActive"`
+	Spend       Spend         `json:"spend"`
+	Platform    Platform      `json:"platform"`
 }
 
 // Headline is the tenant total split by lifecycle status (CON-190): active,
@@ -34,20 +40,66 @@ type Headline struct {
 	Deleted   int `json:"deleted"`
 }
 
-// Movement is absolute signups/churns over recent windows (honest on a small
-// base). Churn isn't modelled yet, so it stays zero.
-type Movement struct {
-	New7d      int `json:"new7d"`
-	New30d     int `json:"new30d"`
-	Churned7d  int `json:"churned7d"`
-	Churned30d int `json:"churned30d"`
+// Engaged counts active tenants that did something real (created or published
+// a post, or created an asset) in the last 7 days, out of all active tenants.
+type Engaged struct {
+	Active7d int `json:"active7d"`
+	Of       int `json:"of"`
 }
 
-// Activity counts tenants that did something real (published a post or created
-// content) in the last 7 days — not merely logged in.
-type Activity struct {
-	Active7d int `json:"active7d"`
-	Total    int `json:"total"`
+// Attention kinds.
+const (
+	KindFailedPublish = "failed_publish"
+	KindBrokenSocial  = "broken_social"
+)
+
+// Attention is one problem on one active tenant that an operator should look
+// at. Since is nil when the source doesn't record when it started.
+type Attention struct {
+	TenantID string     `json:"tenantId"`
+	Name     string     `json:"name"`
+	Tier     string     `json:"tier"`
+	Kind     string     `json:"kind"`
+	Count    int        `json:"count"`
+	Detail   string     `json:"detail"`
+	Platform string     `json:"platform"`
+	Since    *time.Time `json:"since"`
+}
+
+// Newcomer is a tenant created in the last 30 days with its onboarding steps.
+type Newcomer struct {
+	TenantID    string     `json:"tenantId"`
+	Name        string     `json:"name"`
+	Tier        string     `json:"tier"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	HasSocial   bool       `json:"hasSocial"`
+	FirstPostAt *time.Time `json:"firstPostAt"`
+}
+
+// QuietTenant is an active tenant older than a week with no activity in the
+// last 7 days. QuietSince is its last activity, or its creation if it never
+// did anything.
+type QuietTenant struct {
+	TenantID       string     `json:"tenantId"`
+	Name           string     `json:"name"`
+	Tier           string     `json:"tier"`
+	LastActivityAt *time.Time `json:"lastActivityAt"`
+	QuietSince     time.Time  `json:"quietSince"`
+}
+
+// WeekCount is signups in the ISO week (Monday, UTC) starting on WeekStart.
+type WeekCount struct {
+	WeekStart string `json:"weekStart"`
+	Count     int    `json:"count"`
+}
+
+// DayActive is one UTC day: tenants with activity, and tenants that existed
+// that day. Live is approximate — it counts tenants created by then and not
+// deleted now, so a deleted tenant drops out of the whole history.
+type DayActive struct {
+	Date   string `json:"date"`
+	Active int    `json:"active"`
+	Live   int    `json:"live"`
 }
 
 type SpendTenant struct {
@@ -68,17 +120,10 @@ type Spend struct {
 	Top         []SpendTenant `json:"top"`
 }
 
-// Quota is a placeholder until prepaid-allowance tracking lands.
-type Quota struct {
-	Placeholder bool `json:"placeholder"`
-}
-
-// Exceptions are counts that link (from the UI) to a filtered Tenants page.
-// StuckRiverJobs is a job count (river_job has no tenant_id).
-type Exceptions struct {
-	FailedPublishes24h int `json:"failedPublishes24h"`
-	BrokenSocial       int `json:"brokenSocial"`
-	StuckRiverJobs     int `json:"stuckRiverJobs"`
+// Platform is system health shown beside the tenant panel. River jobs have no
+// tenant_id, so they aren't tenant exceptions.
+type Platform struct {
+	StuckJobs int `json:"stuckJobs"`
 }
 
 func logFail(section string, err error) {
@@ -87,47 +132,161 @@ func logFail(section string, err error) {
 	}
 }
 
-// topSpendTenants caps the ranked spend list at five entries.
-const topSpendTenants = 5
+const (
+	// topSpendTenants caps the ranked spend list at five entries.
+	topSpendTenants = 5
+	newcomerWindow  = 30 * 24 * time.Hour
+	quietAfter      = 7 * 24 * time.Hour
+	signupWeeks     = 13
+	dailyWindowDays = 90
+
+	statusActive  = "active"
+	statusDeleted = "deleted"
+)
 
 // Collect gathers the overview from the two repositories. The tenant repository
-// must be available (the caller guards on it); the spend repository may be
+// must be available (the caller guards on it) and its per-tenant pulse is
+// required: without it every section would read as zero, so its error is
+// returned. The other sections are best-effort; the spend repository may be
 // unavailable, in which case spend is marked unavailable.
-func Collect(ctx context.Context, tenants ogen.TenantRepository, spend analytics.SpendRepository) Overview {
-	var o Overview
-	o.Quota.Placeholder = true
+func Collect(ctx context.Context, tenants ogen.TenantRepository, spend analytics.SpendRepository) (Overview, error) {
+	return collectAt(ctx, time.Now().UTC(), tenants, spend)
+}
 
-	// Headline total + movement (new signups) in one pass over tenants.
-	headline, err := tenants.Headline(ctx)
-	logFail("headline", err)
-	o.Headline.Total = headline.Total
-	o.Movement.New7d = headline.New7d
-	o.Movement.New30d = headline.New30d
-	// Lifecycle split from the tenant status column (CON-190).
-	o.Headline.Active = headline.Active
-	o.Headline.Suspended = headline.Suspended
-	o.Headline.Deleted = headline.Deleted
-	o.Activity.Total = headline.Total
+func collectAt(ctx context.Context, now time.Time, tenants ogen.TenantRepository, spend analytics.SpendRepository) (Overview, error) {
+	o := Overview{CheckedAt: now}
+	pulse, err := tenants.Pulse(ctx)
+	if err != nil {
+		return o, err
+	}
+	tiers, err := tenants.TenantTiers(ctx)
+	logFail("tiers", err)
+	tierOf := func(id string) string { return tiers[id].Name }
 
-	// Activity pulse: tenants that published/created a post or created an asset
-	// in the last 7 days.
-	active7d, err := tenants.ActivePulse7d(ctx)
-	logFail("activity", err)
-	o.Activity.Active7d = active7d
+	for _, p := range pulse {
+		o.Headline.Total++
+		switch p.Status {
+		case statusActive:
+			o.Headline.Active++
+		case statusDeleted:
+			o.Headline.Deleted++
+		default:
+			o.Headline.Suspended++
+		}
+		if p.Status != statusDeleted && now.Sub(p.CreatedAt) <= newcomerWindow {
+			o.Newcomers = append(o.Newcomers, Newcomer{
+				TenantID: p.ID, Name: p.Name, Tier: tierOf(p.ID),
+				CreatedAt: p.CreatedAt, HasSocial: p.HasSocial, FirstPostAt: p.FirstPostAt,
+			})
+		}
+		if p.Status != statusActive {
+			continue
+		}
+		// Engagement, quiet tenants and problems only concern active tenants: a
+		// suspended tenant can't publish, so its failures are expected.
+		o.Engaged.Of++
+		recent := p.LastActivityAt != nil && now.Sub(*p.LastActivityAt) <= quietAfter
+		if recent {
+			o.Engaged.Active7d++
+		} else if now.Sub(p.CreatedAt) > quietAfter {
+			since := p.CreatedAt
+			if p.LastActivityAt != nil {
+				since = *p.LastActivityAt
+			}
+			o.Quiet = append(o.Quiet, QuietTenant{
+				TenantID: p.ID, Name: p.Name, Tier: tierOf(p.ID),
+				LastActivityAt: p.LastActivityAt, QuietSince: since,
+			})
+		}
+		if p.FailedPosts24h > 0 {
+			o.Attention = append(o.Attention, Attention{
+				TenantID: p.ID, Name: p.Name, Tier: tierOf(p.ID), Kind: KindFailedPublish,
+				Count: p.FailedPosts24h, Detail: p.LastFailure, Platform: p.LastFailurePlatform, Since: p.FailedSince,
+			})
+		}
+		if p.BrokenSocial > 0 {
+			o.Attention = append(o.Attention, Attention{
+				TenantID: p.ID, Name: p.Name, Tier: tierOf(p.ID), Kind: KindBrokenSocial,
+				Count: p.BrokenSocial, Platform: p.BrokenPlatforms, Since: p.BrokenSince,
+			})
+		}
+	}
 
-	// Exceptions.
-	failed, err := tenants.FailedPublishes24h(ctx)
-	logFail("exc.publishes", err)
-	o.Exceptions.FailedPublishes24h = failed
-	broken, err := tenants.BrokenSocial(ctx)
-	logFail("exc.social", err)
-	o.Exceptions.BrokenSocial = broken
+	// Failing publishes before broken connections, then the biggest problem.
+	slices.SortStableFunc(o.Attention, func(a, b Attention) int {
+		return cmp.Or(
+			cmp.Compare(kindRank(a.Kind), kindRank(b.Kind)),
+			cmp.Compare(b.Count, a.Count),
+			cmp.Compare(a.Name, b.Name),
+		)
+	})
+	slices.SortStableFunc(o.Newcomers, func(a, b Newcomer) int { return b.CreatedAt.Compare(a.CreatedAt) })
+	slices.SortStableFunc(o.Quiet, func(a, b QuietTenant) int { return a.QuietSince.Compare(b.QuietSince) })
+
+	o.Signups = weeklySignups(now, pulse)
+	daily, err := tenants.DailyActiveTenants(ctx, dailyWindowDays)
+	logFail("daily", err)
+	o.DailyActive = dailyActive(now, pulse, daily)
+
 	stuck, err := tenants.StuckRiverJobs(ctx)
-	logFail("exc.river", err)
-	o.Exceptions.StuckRiverJobs = stuck
+	logFail("river", err)
+	o.Platform.StuckJobs = stuck
 
 	collectSpend(ctx, tenants, spend, &o.Spend)
-	return o
+	return o, nil
+}
+
+func kindRank(kind string) int {
+	if kind == KindFailedPublish {
+		return 0
+	}
+	return 1
+}
+
+// weeklySignups buckets every tenant's creation (deleted ones included — they
+// did sign up) into the last signupWeeks ISO weeks, oldest first, ending with
+// the current, partial week.
+func weeklySignups(now time.Time, pulse []ogen.TenantPulse) []WeekCount {
+	today := truncDay(now)
+	thisWeek := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7))
+	first := thisWeek.AddDate(0, 0, -7*(signupWeeks-1))
+	out := make([]WeekCount, signupWeeks)
+	for i := range out {
+		out[i].WeekStart = first.AddDate(0, 0, 7*i).Format(time.DateOnly)
+	}
+	for _, p := range pulse {
+		if d := truncDay(p.CreatedAt.UTC()); !d.Before(first) && !d.After(today) {
+			out[int(d.Sub(first).Hours()/24)/7].Count++
+		}
+	}
+	return out
+}
+
+// dailyActive densifies the active-tenant series over dailyWindowDays days,
+// oldest first, and adds the live-tenant reference line.
+func dailyActive(now time.Time, pulse []ogen.TenantPulse, days []ogen.DayCount) []DayActive {
+	active := make(map[string]int, len(days))
+	for _, d := range days {
+		active[d.Date] = d.Count
+	}
+	first := truncDay(now).AddDate(0, 0, -(dailyWindowDays - 1))
+	out := make([]DayActive, dailyWindowDays)
+	for i := range out {
+		day := first.AddDate(0, 0, i)
+		date := day.Format(time.DateOnly)
+		live := 0
+		for _, p := range pulse {
+			if p.Status != statusDeleted && truncDay(p.CreatedAt.UTC()).Compare(day) <= 0 {
+				live++
+			}
+		}
+		out[i] = DayActive{Date: date, Active: active[date], Live: live}
+	}
+	return out
+}
+
+func truncDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func collectSpend(ctx context.Context, tenants ogen.TenantRepository, spend analytics.SpendRepository, out *Spend) {

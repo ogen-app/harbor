@@ -26,36 +26,6 @@ export function InfoIcon({ text }: { text: string }) {
     );
 }
 
-export function SectionTitle({ title, info }: { title: string; info?: string }) {
-    return (
-        <div className="flex items-center gap-1.5">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-tertiary-foreground">
-                {title}
-            </h4>
-            {info && <InfoIcon text={info} />}
-        </div>
-    );
-}
-
-export function Tile({
-    title,
-    info,
-    className,
-    children,
-}: {
-    title: string;
-    info?: string;
-    className?: string;
-    children: React.ReactNode;
-}) {
-    return (
-        <div className={cn("rounded-md border-t-2 border-border p-4", className)}>
-            <SectionTitle title={title} info={info} />
-            <div className="mt-3">{children}</div>
-        </div>
-    );
-}
-
 export type Seg = { pct: number; className: string };
 
 export function Bar({
