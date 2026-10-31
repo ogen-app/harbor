@@ -19,6 +19,7 @@ type fakeTenantRepo struct {
 	pulse    []ogen.TenantPulse
 	pulseErr error
 	daily    []ogen.DayCount
+	dailyErr error
 	tiers    map[string]ogen.Tier
 	stuck    int
 	names    map[string]string
@@ -47,7 +48,7 @@ func (f *fakeTenantRepo) Pulse(context.Context) ([]ogen.TenantPulse, error) {
 	return f.pulse, f.pulseErr
 }
 func (f *fakeTenantRepo) DailyActiveTenants(context.Context, int) ([]ogen.DayCount, error) {
-	return f.daily, nil
+	return f.daily, f.dailyErr
 }
 func (f *fakeTenantRepo) StuckRiverJobs(context.Context) (int, error) { return f.stuck, nil }
 func (f *fakeTenantRepo) TenantNames(context.Context) (map[string]string, error) {
@@ -234,6 +235,20 @@ func TestCollectSeries(t *testing.T) {
 	}
 	if o.DailyActive[0].Live != 1 {
 		t.Errorf("first day live = %d, want 1", o.DailyActive[0].Live)
+	}
+}
+
+func TestCollectDailyFailureLeavesSeriesEmpty(t *testing.T) {
+	tenants := &fakeTenantRepo{
+		pulse:    []ogen.TenantPulse{{ID: "a", Status: "active", CreatedAt: ago(days(30))}},
+		dailyErr: errors.New("timeout"),
+	}
+	o, err := collectAt(t.Context(), now, tenants, &fakeSpendRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.DailyActive != nil {
+		t.Errorf("daily = %d days, want nil so the chart isn't drawn as zeros", len(o.DailyActive))
 	}
 }
 
