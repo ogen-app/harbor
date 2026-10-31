@@ -3,6 +3,7 @@ package tenants
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,10 +16,12 @@ import (
 // fakeTenantRepo returns canned overview aggregates; the list/get/registrations/
 // activity methods are unused by Collect.
 type fakeTenantRepo struct {
-	headline              ogen.OverviewHeadline
-	active7d              int
-	failed, broken, stuck int
-	names                 map[string]string
+	pulse    []ogen.TenantPulse
+	pulseErr error
+	daily    []ogen.DayCount
+	tiers    map[string]ogen.Tier
+	stuck    int
+	names    map[string]string
 }
 
 func (f *fakeTenantRepo) Available() bool { return true }
@@ -40,20 +43,20 @@ func (f *fakeTenantRepo) Users(context.Context, string, int) ([]ogen.User, error
 func (f *fakeTenantRepo) ZernioAccounts(context.Context, string) ([]ogen.ZernioAccount, error) {
 	return nil, nil
 }
-func (f *fakeTenantRepo) Headline(context.Context) (ogen.OverviewHeadline, error) {
-	return f.headline, nil
+func (f *fakeTenantRepo) Pulse(context.Context) ([]ogen.TenantPulse, error) {
+	return f.pulse, f.pulseErr
 }
-func (f *fakeTenantRepo) ActivePulse7d(context.Context) (int, error)      { return f.active7d, nil }
-func (f *fakeTenantRepo) FailedPublishes24h(context.Context) (int, error) { return f.failed, nil }
-func (f *fakeTenantRepo) BrokenSocial(context.Context) (int, error)       { return f.broken, nil }
-func (f *fakeTenantRepo) StuckRiverJobs(context.Context) (int, error)     { return f.stuck, nil }
+func (f *fakeTenantRepo) DailyActiveTenants(context.Context, int) ([]ogen.DayCount, error) {
+	return f.daily, nil
+}
+func (f *fakeTenantRepo) StuckRiverJobs(context.Context) (int, error) { return f.stuck, nil }
 func (f *fakeTenantRepo) TenantNames(context.Context) (map[string]string, error) {
 	return f.names, nil
 }
 func (f *fakeTenantRepo) ListTiers(context.Context) ([]ogen.Tier, error)   { return nil, nil }
 func (f *fakeTenantRepo) ListGroups(context.Context) ([]ogen.Group, error) { return nil, nil }
 func (f *fakeTenantRepo) TenantTiers(context.Context) (map[string]ogen.Tier, error) {
-	return nil, nil
+	return f.tiers, nil
 }
 func (f *fakeTenantRepo) TenantTierVersions(context.Context) (map[string]ogen.TenantVersion, error) {
 	return nil, nil
@@ -109,45 +112,141 @@ func (f *fakeSpendRepo) DailyCostByModelTenant(context.Context, time.Time) ([]an
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-func TestCollectHeadlineAndExceptions(t *testing.T) {
+// now is a Thursday, so the current ISO week started on Monday 26 Oct.
+var now = time.Date(2026, 10, 29, 19, 17, 0, 0, time.UTC)
+
+func ago(d time.Duration) time.Time     { return now.Add(-d) }
+func agoPtr(d time.Duration) *time.Time { return new(now.Add(-d)) }
+func days(n int) time.Duration          { return time.Duration(n) * 24 * time.Hour }
+
+func TestCollectPulseSections(t *testing.T) {
 	tenants := &fakeTenantRepo{
-		headline: ogen.OverviewHeadline{
-			Total: 12, New7d: 3, New30d: 7,
-			Active: 9, Suspended: 2, Deleted: 1,
+		pulse: []ogen.TenantPulse{
+			// Old, active, publishing, but failing right now.
+			{ID: "acme", Name: "Acme", Status: "active", CreatedAt: ago(days(200)), HasSocial: true,
+				FirstPostAt: agoPtr(days(190)), LastActivityAt: agoPtr(time.Hour),
+				FailedPosts24h: 4, FailedSince: agoPtr(2 * time.Hour), LastFailure: "token expired", LastFailurePlatform: "Instagram"},
+			// Old, active, quiet for 9 days, with a broken connection.
+			{ID: "north", Name: "Northwind", Status: "active", CreatedAt: ago(days(120)), HasSocial: true,
+				LastActivityAt: agoPtr(days(9)), BrokenSocial: 1, BrokenPlatforms: "instagram"},
+			// Old, active, never did anything: quiet since creation.
+			{ID: "kettle", Name: "Kettle", Status: "active", CreatedAt: ago(days(60))},
+			// New this week, no social yet: a newcomer, not quiet.
+			{ID: "lumen", Name: "Lumen", Status: "active", CreatedAt: ago(days(2))},
+			// Suspended with failures: counted, but never needs attention.
+			{ID: "susp", Name: "Susp", Status: "suspended", CreatedAt: ago(days(20)), FailedPosts24h: 3},
+			// Deleted: counted, but no newcomer and no quiet entry.
+			{ID: "gone", Name: "Gone", Status: "deleted", CreatedAt: ago(days(3))},
 		},
-		active7d: 5,
-		failed:   2, broken: 1, stuck: 4,
+		tiers: map[string]ogen.Tier{"acme": {Name: "Pro"}},
+		daily: []ogen.DayCount{{Date: "2026-10-29", Count: 2}},
+		stuck: 4,
 	}
-	spend := &fakeSpendRepo{available: false}
 
-	o := Collect(t.Context(), tenants, spend)
+	o, err := collectAt(t.Context(), now, tenants, &fakeSpendRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	if o.Headline.Total != 12 || o.Headline.Active != 9 ||
-		o.Headline.Suspended != 2 || o.Headline.Deleted != 1 {
-		t.Errorf("headline = %+v, want total 12 / active 9 / suspended 2 / deleted 1", o.Headline)
+	if o.Headline != (Headline{Total: 6, Active: 4, Suspended: 1, Deleted: 1}) {
+		t.Errorf("headline = %+v", o.Headline)
 	}
-	if o.Movement.New7d != 3 || o.Movement.New30d != 7 {
-		t.Errorf("movement = %+v, want new7d 3 / new30d 7", o.Movement)
+	// Only Acme is active within 7 days, out of the 4 active tenants.
+	if o.Engaged != (Engaged{Active7d: 1, Of: 4}) {
+		t.Errorf("engaged = %+v, want 1 of 4", o.Engaged)
 	}
-	if o.Activity.Active7d != 5 || o.Activity.Total != 12 {
-		t.Errorf("activity = %+v, want active7d 5 / total 12", o.Activity)
+
+	if len(o.Attention) != 2 {
+		t.Fatalf("attention = %+v, want 2 items", o.Attention)
 	}
-	if o.Exceptions != (Exceptions{FailedPublishes24h: 2, BrokenSocial: 1, StuckRiverJobs: 4}) {
-		t.Errorf("exceptions = %+v", o.Exceptions)
+	if a := o.Attention[0]; a.TenantID != "acme" || a.Kind != KindFailedPublish || a.Count != 4 ||
+		a.Detail != "token expired" || a.Platform != "Instagram" || a.Tier != "Pro" || a.Since == nil {
+		t.Errorf("attention[0] = %+v, want Acme failing publishes first", a)
 	}
-	if !o.Quota.Placeholder {
-		t.Error("quota placeholder should be true")
+	if a := o.Attention[1]; a.TenantID != "north" || a.Kind != KindBrokenSocial || a.Platform != "instagram" {
+		t.Errorf("attention[1] = %+v, want Northwind broken social", a)
 	}
-	// Spend unavailable: not marked available, no period, no ranking.
+
+	// Newest first; the deleted tenant is excluded, the suspended one isn't.
+	var newIDs []string
+	for _, n := range o.Newcomers {
+		newIDs = append(newIDs, n.TenantID)
+	}
+	if !slices.Equal(newIDs, []string{"lumen", "susp"}) {
+		t.Errorf("newcomers = %v, want [lumen susp]", newIDs)
+	}
+
+	// Longest quiet first: Kettle (since creation, 60d) before Northwind (9d).
+	if len(o.Quiet) != 2 || o.Quiet[0].TenantID != "kettle" || o.Quiet[1].TenantID != "north" {
+		t.Fatalf("quiet = %+v, want [kettle north]", o.Quiet)
+	}
+	if o.Quiet[0].LastActivityAt != nil || !o.Quiet[0].QuietSince.Equal(ago(days(60))) {
+		t.Errorf("kettle quiet = %+v, want quiet since creation", o.Quiet[0])
+	}
+
+	if o.Platform.StuckJobs != 4 {
+		t.Errorf("stuck jobs = %d, want 4", o.Platform.StuckJobs)
+	}
+	if !o.CheckedAt.Equal(now) {
+		t.Errorf("checkedAt = %v", o.CheckedAt)
+	}
 	if o.Spend.Available || o.Spend.PeriodStart != nil || o.Spend.Top != nil {
 		t.Errorf("spend should be unavailable, got %+v", o.Spend)
 	}
 }
 
+func TestCollectSeries(t *testing.T) {
+	tenants := &fakeTenantRepo{
+		pulse: []ogen.TenantPulse{
+			{ID: "a", Status: "active", CreatedAt: ago(days(200))},
+			{ID: "b", Status: "active", CreatedAt: time.Date(2026, 10, 26, 8, 0, 0, 0, time.UTC)},  // Monday this week
+			{ID: "c", Status: "deleted", CreatedAt: time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC)}, // Sunday last week
+		},
+		daily: []ogen.DayCount{{Date: "2026-10-28", Count: 2}},
+	}
+
+	o, err := collectAt(t.Context(), now, tenants, &fakeSpendRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(o.Signups) != signupWeeks {
+		t.Fatalf("signups len = %d, want %d", len(o.Signups), signupWeeks)
+	}
+	last, prev := o.Signups[signupWeeks-1], o.Signups[signupWeeks-2]
+	if last != (WeekCount{WeekStart: "2026-10-26", Count: 1}) || prev != (WeekCount{WeekStart: "2026-10-19", Count: 1}) {
+		t.Errorf("last two weeks = %+v %+v", prev, last)
+	}
+	if o.Signups[0].WeekStart != "2026-08-03" {
+		t.Errorf("first week = %s, want 2026-08-03", o.Signups[0].WeekStart)
+	}
+
+	if len(o.DailyActive) != dailyWindowDays {
+		t.Fatalf("daily len = %d, want %d", len(o.DailyActive), dailyWindowDays)
+	}
+	today, yesterday := o.DailyActive[dailyWindowDays-1], o.DailyActive[dailyWindowDays-2]
+	// The deleted tenant never counts as live; b is live from its creation day.
+	if today != (DayActive{Date: "2026-10-29", Active: 0, Live: 2}) {
+		t.Errorf("today = %+v", today)
+	}
+	if yesterday != (DayActive{Date: "2026-10-28", Active: 2, Live: 2}) {
+		t.Errorf("yesterday = %+v", yesterday)
+	}
+	if o.DailyActive[0].Live != 1 {
+		t.Errorf("first day live = %d, want 1", o.DailyActive[0].Live)
+	}
+}
+
+func TestCollectPulseFailure(t *testing.T) {
+	tenants := &fakeTenantRepo{pulseErr: errors.New("timeout")}
+	if _, err := Collect(t.Context(), tenants, &fakeSpendRepo{}); err == nil {
+		t.Error("want the pulse error, got nil")
+	}
+}
+
 func TestCollectSpendRankingAndVendorSplit(t *testing.T) {
 	tenants := &fakeTenantRepo{
-		headline: ogen.OverviewHeadline{Total: 3},
-		names:    map[string]string{"a": "Alpha", "b": "Beta"}, // "c" intentionally unnamed
+		names: map[string]string{"a": "Alpha", "b": "Beta"}, // "c" intentionally unnamed
 	}
 	spend := &fakeSpendRepo{
 		available: true,
@@ -160,7 +259,10 @@ func TestCollectSpendRankingAndVendorSplit(t *testing.T) {
 		},
 	}
 
-	o := Collect(t.Context(), tenants, spend)
+	o, err := Collect(t.Context(), tenants, spend)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if !o.Spend.Available {
 		t.Fatal("spend should be available")
@@ -192,7 +294,7 @@ func TestCollectSpendRankingAndVendorSplit(t *testing.T) {
 }
 
 func TestCollectSpendTotalFailureIsUnavailable(t *testing.T) {
-	tenants := &fakeTenantRepo{headline: ogen.OverviewHeadline{Total: 1}}
+	tenants := &fakeTenantRepo{}
 	// Period total fails even though the rollup would succeed — the spend
 	// section must stay unavailable rather than combine a zero total with data.
 	spend := &fakeSpendRepo{
@@ -203,7 +305,10 @@ func TestCollectSpendTotalFailureIsUnavailable(t *testing.T) {
 		},
 	}
 
-	o := Collect(t.Context(), tenants, spend)
+	o, err := Collect(t.Context(), tenants, spend)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if o.Spend.Available {
 		t.Error("spend should be unavailable when the period total fails")

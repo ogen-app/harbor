@@ -98,18 +98,38 @@ type ZernioAccount struct {
 	LastPostAt     *time.Time `bun:"last_post_at"    json:"lastPostAt"`
 }
 
-// OverviewHeadline is the tenant total plus new-signup counts over recent
-// windows and the lifecycle-status split (CON-190), gathered in a single pass
-// over the tenants table. On an un-migrated Ogen (no status column) every tenant
-// counts as active.
-type OverviewHeadline struct {
-	Total  int
-	New7d  int
-	New30d int
-	// Lifecycle-status counts (active + suspended + deleted == Total).
-	Active    int
-	Suspended int
-	Deleted   int
+// TenantPulse is one tenant's activity and health snapshot for the dashboard
+// overview (CON-436), gathered in a single pass over the tenants table. Status
+// falls back to 'active' on an un-migrated Ogen (no status column).
+type TenantPulse struct {
+	ID        string    `bun:"id"`
+	Name      string    `bun:"name"`
+	Status    string    `bun:"status"`
+	CreatedAt time.Time `bun:"created_at"`
+	// HasSocial is true once the tenant has any (non-deleted) social account.
+	HasSocial bool `bun:"has_social"`
+	// FirstPostAt is the tenant's first published post; nil before one exists.
+	FirstPostAt *time.Time `bun:"first_post_at"`
+	// LastActivityAt is the latest post created/published or asset created —
+	// real usage, not logins. Nil for a tenant that never did either.
+	LastActivityAt *time.Time `bun:"last_activity_at"`
+	// Broken social connections: inactive, non-deleted accounts. BrokenSince is
+	// their earliest update, nil when social_accounts has no updated_at.
+	BrokenSocial    int        `bun:"broken_social"`
+	BrokenPlatforms string     `bun:"broken_platforms"`
+	BrokenSince     *time.Time `bun:"broken_since"`
+	// Posts that failed in the last 24h, when the first of them failed, and the
+	// newest failure's reason and platform.
+	FailedPosts24h      int        `bun:"failed_posts_24h"`
+	FailedSince         *time.Time `bun:"failed_since"`
+	LastFailure         string     `bun:"last_failure"`
+	LastFailurePlatform string     `bun:"last_failure_platform"`
+}
+
+// DayCount is a count bucketed by UTC day (YYYY-MM-DD).
+type DayCount struct {
+	Date  string `bun:"date"`
+	Count int    `bun:"count"`
 }
 
 type TenantRepository interface {
@@ -149,10 +169,12 @@ type TenantRepository interface {
 	TenantTierVersions(ctx context.Context) (map[string]TenantVersion, error)
 
 	// ── overview aggregates ──────────────────────────────────────────────
-	Headline(ctx context.Context) (OverviewHeadline, error)
-	ActivePulse7d(ctx context.Context) (int, error)
-	FailedPublishes24h(ctx context.Context) (int, error)
-	BrokenSocial(ctx context.Context) (int, error)
+	// Pulse returns every tenant's activity and health snapshot, oldest first.
+	Pulse(ctx context.Context) ([]TenantPulse, error)
+	// DailyActiveTenants counts, per UTC day over the last windowDays days, the
+	// tenants that created or published a post or created an asset. Days with
+	// no activity are omitted.
+	DailyActiveTenants(ctx context.Context, windowDays int) ([]DayCount, error)
 	StuckRiverJobs(ctx context.Context) (int, error)
 	// TenantNames maps every tenant id to its display name.
 	TenantNames(ctx context.Context) (map[string]string, error)
@@ -604,69 +626,97 @@ func (r *tenantRepository) TenantGroups(ctx context.Context) (map[string][]Group
 	return out, nil
 }
 
-func (r *tenantRepository) Headline(ctx context.Context) (OverviewHeadline, error) {
-	var h OverviewHeadline
+func (r *tenantRepository) Pulse(ctx context.Context) ([]TenantPulse, error) {
 	if r.db == nil {
-		return h, ErrUnavailable
+		return nil, ErrUnavailable
 	}
-	// Lifecycle split off the status column (CON-190). When it's absent (an
-	// un-migrated Ogen) every tenant reads as active, so Active == Total.
+	// Adapt to the live Ogen schema: the status column (CON-190), when social
+	// accounts last changed, and the post → platform link. Every %s is an
+	// allowlisted expression, never user input.
 	statusExpr := "'active'"
 	if r.tableColumns(ctx, "tenants")["status"] {
-		statusExpr = "COALESCE(status, 'active')"
+		statusExpr = "COALESCE(t.status, 'active')"
 	}
+	brokenSinceExpr := "NULL::timestamptz"
+	if r.tableColumns(ctx, "social_accounts")["updated_at"] {
+		brokenSinceExpr = `(SELECT min(sa.updated_at) FROM social_accounts sa
+			WHERE sa.tenant_id = t.id AND sa.is_active = false AND sa.deleted_at IS NULL)`
+	}
+	platformExpr, platformJoin := "''", ""
+	if r.tableColumns(ctx, "posts")["platform_id"] {
+		platformExpr, platformJoin = "COALESCE(pl.name, '')", "LEFT JOIN platforms pl ON pl.id = po.platform_id"
+	}
+	const failed24h = `po.tenant_id = t.id
+		AND po.failure_reason IS NOT NULL AND po.failure_reason <> ''
+		AND po.updated_at >= now() - interval '24 hours'`
+
 	query := fmt.Sprintf(`
 		SELECT
-			count(*),
-			count(*) FILTER (WHERE created_at >= now() - interval '7 days'),
-			count(*) FILTER (WHERE created_at >= now() - interval '30 days'),
-			count(*) FILTER (WHERE %[1]s = 'active'),
-			count(*) FILTER (WHERE %[1]s = 'suspended'),
-			count(*) FILTER (WHERE %[1]s = 'deleted')
-		FROM tenants`, statusExpr)
-	err := r.db.NewRaw(query).Scan(ctx,
-		&h.Total, &h.New7d, &h.New30d, &h.Active, &h.Suspended, &h.Deleted)
-	return h, err
+			t.id, t.name, %[1]s AS status, t.created_at,
+			EXISTS (SELECT 1 FROM social_accounts sa
+				WHERE sa.tenant_id = t.id AND sa.deleted_at IS NULL) AS has_social,
+			(SELECT min(po.published_at) FROM posts po
+				WHERE po.tenant_id = t.id AND po.published_at IS NOT NULL) AS first_post_at,
+			-- GREATEST skips NULLs, so either source alone is enough.
+			GREATEST(
+				(SELECT max(GREATEST(po.created_at, po.published_at)) FROM posts po
+					WHERE po.tenant_id = t.id),
+				(SELECT max(a.created_at) FROM assets a WHERE a.tenant_id = t.id)
+			) AS last_activity_at,
+			(SELECT count(*) FROM social_accounts sa
+				WHERE sa.tenant_id = t.id AND sa.is_active = false AND sa.deleted_at IS NULL) AS broken_social,
+			(SELECT COALESCE(string_agg(DISTINCT sa.platform, ', '), '') FROM social_accounts sa
+				WHERE sa.tenant_id = t.id AND sa.is_active = false AND sa.deleted_at IS NULL) AS broken_platforms,
+			%[2]s AS broken_since,
+			(SELECT count(*) FROM posts po WHERE %[5]s) AS failed_posts_24h,
+			(SELECT min(po.updated_at) FROM posts po WHERE %[5]s) AS failed_since,
+			COALESCE(f.reason, '') AS last_failure,
+			COALESCE(f.platform, '') AS last_failure_platform
+		FROM tenants t
+		LEFT JOIN LATERAL (
+			SELECT po.failure_reason AS reason, %[3]s AS platform
+			FROM posts po %[4]s
+			WHERE %[5]s
+			ORDER BY po.updated_at DESC
+			LIMIT 1
+		) f ON true
+		ORDER BY t.created_at`, statusExpr, brokenSinceExpr, platformExpr, platformJoin, failed24h)
+
+	var rows []TenantPulse
+	if err := r.db.NewRaw(query).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
-func (r *tenantRepository) ActivePulse7d(ctx context.Context) (int, error) {
+func (r *tenantRepository) DailyActiveTenants(ctx context.Context, windowDays int) ([]DayCount, error) {
 	if r.db == nil {
-		return 0, ErrUnavailable
+		return nil, ErrUnavailable
 	}
-	var n int
+	// Same activity definition as Pulse.LastActivityAt, bucketed by UTC day with
+	// the UTC-midnight lower bound the other daily series use.
+	var rows []DayCount
 	err := r.db.NewRaw(`
-		SELECT count(*) FROM (
-			SELECT tenant_id FROM posts
-			  WHERE published_at >= now() - interval '7 days'
-			     OR created_at   >= now() - interval '7 days'
-			UNION
-			SELECT tenant_id FROM assets
-			  WHERE created_at >= now() - interval '7 days'
-		) active`).Scan(ctx, &n)
-	return n, err
-}
-
-func (r *tenantRepository) FailedPublishes24h(ctx context.Context) (int, error) {
-	if r.db == nil {
-		return 0, ErrUnavailable
+		SELECT to_char(day, 'YYYY-MM-DD') AS date, count(DISTINCT tenant_id) AS count
+		FROM (
+			SELECT tenant_id, (ts AT TIME ZONE 'UTC')::date AS day
+			FROM (
+				SELECT tenant_id, created_at AS ts FROM posts
+				UNION ALL
+				SELECT tenant_id, published_at FROM posts WHERE published_at IS NOT NULL
+				UNION ALL
+				SELECT tenant_id, created_at FROM assets
+			) events
+			WHERE ts >= (date_trunc('day', now() AT TIME ZONE 'UTC')
+			             - (?::int - 1) * interval '1 day') AT TIME ZONE 'UTC'
+			  AND ts <= now()
+		) active
+		GROUP BY day
+		ORDER BY day`, windowDays).Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
 	}
-	var n int
-	err := r.db.NewRaw(`
-		SELECT count(DISTINCT tenant_id) FROM posts
-		WHERE failure_reason IS NOT NULL AND failure_reason <> ''
-		  AND updated_at >= now() - interval '24 hours'`).Scan(ctx, &n)
-	return n, err
-}
-
-func (r *tenantRepository) BrokenSocial(ctx context.Context) (int, error) {
-	if r.db == nil {
-		return 0, ErrUnavailable
-	}
-	var n int
-	err := r.db.NewRaw(`
-		SELECT count(DISTINCT tenant_id) FROM social_accounts
-		WHERE is_active = false AND deleted_at IS NULL`).Scan(ctx, &n)
-	return n, err
+	return rows, nil
 }
 
 func (r *tenantRepository) StuckRiverJobs(ctx context.Context) (int, error) {
