@@ -17,6 +17,7 @@ export interface ImageConstraints {
   allowedFormats: string[] | null;
   animatedGifSupported: boolean;
   maxAttachmentsPerPost: number;
+  maxAltTextChars: number;
 }
 
 export interface VideoConstraints {

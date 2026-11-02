@@ -57,6 +57,7 @@ const emptyImage = (): ImageConstraints => ({
   allowedFormats: [],
   animatedGifSupported: false,
   maxAttachmentsPerPost: 0,
+  maxAltTextChars: 0,
 });
 const emptyVideo = (): VideoConstraints => ({
   maxFileSizeBytes: 0,
@@ -90,7 +91,8 @@ const imageEmpty = (c: ImageConstraints): boolean =>
   c.maxFileSizeBytes === 0 &&
   listLen(c.allowedFormats) === 0 &&
   !c.animatedGifSupported &&
-  c.maxAttachmentsPerPost === 0;
+  c.maxAttachmentsPerPost === 0 &&
+  c.maxAltTextChars === 0;
 const videoEmpty = (c: VideoConstraints): boolean =>
   c.maxFileSizeBytes === 0 &&
   listLen(c.allowedFormats) === 0 &&
@@ -198,7 +200,10 @@ function PlatformForm({
   // Media/text constraints (materialized so every tab has fields; a platform
   // with no such block starts from zeros).
   const [image, setImage] = useState<ImageConstraints>(
-    () => platform?.imageConstraints ?? emptyImage(),
+    () =>
+      platform?.imageConstraints
+        ? { ...emptyImage(), ...platform.imageConstraints }
+        : emptyImage(),
   );
   const [video, setVideo] = useState<VideoConstraints>(
     () => platform?.videoConstraints ?? emptyVideo(),
@@ -591,6 +596,14 @@ function PlatformForm({
                     onChange={(n) =>
                       setImage((c) => ({ ...c, maxAttachmentsPerPost: n }))
                     }
+                  />
+                  <NumberField
+                    label="Max alt text (characters)"
+                    value={image.maxAltTextChars}
+                    onChange={(n) =>
+                      setImage((c) => ({ ...c, maxAltTextChars: n }))
+                    }
+                    hint="0 = the platform takes no alt text, so none is sent. Can't exceed the global alt-text ceiling."
                   />
                   <TagsField
                     label="Allowed formats"
