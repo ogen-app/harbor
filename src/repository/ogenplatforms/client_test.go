@@ -52,7 +52,7 @@ func (s *fakeServer) ListPlatforms(ctx context.Context, req *platformsv1.ListPla
 			SortOrder:          1,
 			PostTypes:          map[string]string{"post": "Post", "thread": "Thread"},
 			SupportedPostTypes: []string{"post"},
-			ImageConstraints:   &platformsv1.ImageConstraints{MaxFileSizeBytes: 5 << 20, AllowedFormats: []string{"jpeg", "png"}, MaxAttachmentsPerPost: 4},
+			ImageConstraints:   &platformsv1.ImageConstraints{MaxFileSizeBytes: 5 << 20, AllowedFormats: []string{"jpeg", "png"}, MaxAttachmentsPerPost: 4, MaxAltTextChars: 1000},
 			TextConstraints:    &platformsv1.TextConstraints{MaxContentChars: 280, PerPostType: map[string]int32{"thread": 280}},
 			Usage:              &platformsv1.PlatformUsage{ConnectedAccounts: 3, ScheduledPosts: 7},
 			UpdatedAt:          timestamppb.New(time.Unix(1000, 0)),
@@ -153,7 +153,7 @@ func TestClientListRoundTrip(t *testing.T) {
 	if x.Usage.ConnectedAccounts != 3 || x.Usage.ScheduledPosts != 7 {
 		t.Errorf("mapped usage wrong: %+v", x.Usage)
 	}
-	if x.ImageConstraints == nil || x.ImageConstraints.MaxFileSizeBytes != 5<<20 || len(x.ImageConstraints.AllowedFormats) != 2 {
+	if x.ImageConstraints == nil || x.ImageConstraints.MaxFileSizeBytes != 5<<20 || len(x.ImageConstraints.AllowedFormats) != 2 || x.ImageConstraints.MaxAltTextChars != 1000 {
 		t.Errorf("mapped image constraints wrong: %+v", x.ImageConstraints)
 	}
 	if x.TextConstraints == nil || x.TextConstraints.MaxContentChars != 280 || x.TextConstraints.PerPostType["thread"] != 280 {
@@ -181,7 +181,7 @@ func TestClientWrites(t *testing.T) {
 		Enabled:          false,
 		SortOrder:        9,
 		PostTypes:        map[string]string{"post": "Post"},
-		ImageConstraints: &ImageConstraints{MaxFileSizeBytes: 2 << 20, AllowedFormats: []string{"png"}, MaxAttachmentsPerPost: 4},
+		ImageConstraints: &ImageConstraints{MaxFileSizeBytes: 2 << 20, AllowedFormats: []string{"png"}, MaxAttachmentsPerPost: 4, MaxAltTextChars: 2000},
 		TextConstraints:  &TextConstraints{MaxContentChars: 300},
 	}
 	created, err := client.Create(ctx, in)
@@ -191,7 +191,8 @@ func TestClientWrites(t *testing.T) {
 	if created.ID != "new-id" {
 		t.Errorf("created id = %q, want server-minted new-id", created.ID)
 	}
-	if fake.lastCreate.GetZernioId() != "bluesky" || fake.lastCreate.GetImageConstraints().GetMaxFileSizeBytes() != 2<<20 {
+	if fake.lastCreate.GetZernioId() != "bluesky" || fake.lastCreate.GetImageConstraints().GetMaxFileSizeBytes() != 2<<20 ||
+		fake.lastCreate.GetImageConstraints().GetMaxAltTextChars() != 2000 {
 		t.Errorf("create didn't carry the whole resource: %+v", fake.lastCreate)
 	}
 

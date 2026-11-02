@@ -70,6 +70,7 @@ type ImageConstraints struct {
 	AllowedFormats        []string `json:"allowedFormats"`
 	AnimatedGifSupported  bool     `json:"animatedGifSupported"`
 	MaxAttachmentsPerPost int32    `json:"maxAttachmentsPerPost"`
+	MaxAltTextChars       int32    `json:"maxAltTextChars"`
 }
 
 type VideoConstraints struct {
@@ -295,6 +296,7 @@ func imageFromProto(c *platformsv1.ImageConstraints) *ImageConstraints {
 		AllowedFormats:        c.GetAllowedFormats(),
 		AnimatedGifSupported:  c.GetAnimatedGifSupported(),
 		MaxAttachmentsPerPost: c.GetMaxAttachmentsPerPost(),
+		MaxAltTextChars:       c.GetMaxAltTextChars(),
 	}
 }
 
@@ -383,6 +385,7 @@ func imageToProto(c *ImageConstraints) *platformsv1.ImageConstraints {
 		AllowedFormats:        c.AllowedFormats,
 		AnimatedGifSupported:  c.AnimatedGifSupported,
 		MaxAttachmentsPerPost: c.MaxAttachmentsPerPost,
+		MaxAltTextChars:       c.MaxAltTextChars,
 	}
 }
 
