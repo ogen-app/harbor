@@ -6,12 +6,14 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR branch).
+# Cancel superseded runs on the same PR. Pushes to main are never cancelled,
+# so every green merge publishes its image.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Least privilege: this workflow only reads the repo to build, test, and lint.
+# Least privilege: jobs only read the repo, except publish, which also pushes
+# the image.
 permissions:
   contents: read
 
@@ -97,3 +99,70 @@ jobs:
             git diff -- gen/
             exit 1
           fi
+
+  # Every green main push publishes ghcr.io/ogen-app/harbor:<build>, where build
+  # is the commit count on main, then asks ogen-release to bump harbor to it.
+  publish:
+    name: Build and push Docker image
+    needs: [go, ui, proto]
+    if: github.event_name == 'push'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Back-to-back merges publish one at a time, so build numbers reach the
+    # registry and ogen-release in order. queue: max keeps every waiting run;
+    # by default a newer one would cancel the run already waiting.
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # Full history: the build number is the commit count, which a shallow
+      # clone reports as 1.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build number
+        id: build
+        run: echo "number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Blacksmith keeps the layer cache on a sticky disk keyed by cache-key.
+      - name: Set up Docker builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: Dockerfile
+
+      # The source label links the package to this repo, which is what lets
+      # GITHUB_TOKEN push to it.
+      - name: Build and push
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/ogen-app/harbor:${{ steps.build.outputs.number }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/ogen-app/harbor
+
+      # Best effort: a missing ogen-release repo or token must not fail main.
+      - name: Dispatch bump to ogen-release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
+          BUILD: ${{ steps.build.outputs.number }}
+        run: |
+          gh api repos/ogen-app/ogen-release/dispatches \
+            -f event_type=bump \
+            -f 'client_payload[service]=harbor' \
+            -F "client_payload[build]=$BUILD" \
+            -f "client_payload[revision]=$GITHUB_SHA"
