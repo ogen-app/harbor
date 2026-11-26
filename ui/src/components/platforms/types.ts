@@ -46,6 +46,12 @@ export interface TextConstraints {
   perPostType: Record<string, number> | null;
 }
 
+// A pixel size; Ogen takes 1..8192 for each side.
+export interface Canvas {
+  width: number;
+  height: number;
+}
+
 export interface Platform {
   id: string;
   name: string;
@@ -64,6 +70,10 @@ export interface Platform {
   videoConstraints: VideoConstraints | null;
   pdfConstraints: PdfConstraints | null;
   textConstraints: TextConstraints | null;
+  // slug -> recommended artwork size, for media-bearing post types only. A slug
+  // with no entry has no recommendation. Sending null keeps the stored
+  // canvases; an empty object clears them.
+  postTypeCanvases: Record<string, Canvas> | null;
   usage: PlatformUsage;
   createdAt: string;
   updatedAt: string;

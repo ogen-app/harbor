@@ -54,6 +54,7 @@ func (s *fakeServer) ListPlatforms(ctx context.Context, req *platformsv1.ListPla
 			SupportedPostTypes: []string{"post"},
 			ImageConstraints:   &platformsv1.ImageConstraints{MaxFileSizeBytes: 5 << 20, AllowedFormats: []string{"jpeg", "png"}, MaxAttachmentsPerPost: 4, MaxAltTextChars: 1000},
 			TextConstraints:    &platformsv1.TextConstraints{MaxContentChars: 280, PerPostType: map[string]int32{"thread": 280}},
+			PostTypeCanvases:   &platformsv1.PostTypeCanvases{BySlug: map[string]*platformsv1.Canvas{"image-post": {Width: 1600, Height: 900}}},
 			Usage:              &platformsv1.PlatformUsage{ConnectedAccounts: 3, ScheduledPosts: 7},
 			UpdatedAt:          timestamppb.New(time.Unix(1000, 0)),
 		},
@@ -159,6 +160,9 @@ func TestClientListRoundTrip(t *testing.T) {
 	if x.TextConstraints == nil || x.TextConstraints.MaxContentChars != 280 || x.TextConstraints.PerPostType["thread"] != 280 {
 		t.Errorf("mapped text constraints wrong: %+v", x.TextConstraints)
 	}
+	if c := x.PostTypeCanvases["image-post"]; c != (Canvas{Width: 1600, Height: 900}) {
+		t.Errorf("mapped image-post canvas = %+v, want 1600×900", c)
+	}
 	if platforms[1].Name != "TikTok" || platforms[1].Enabled {
 		t.Errorf("disabled row mapped wrong: %+v", platforms[1])
 	}
@@ -201,6 +205,25 @@ func TestClientWrites(t *testing.T) {
 	}
 	if fake.lastUpdate.GetId() != "px" || fake.lastUpdate.GetSortOrder() != 3 {
 		t.Errorf("update req wrong: %+v", fake.lastUpdate)
+	}
+	// nil canvases go out unset, so Ogen keeps the stored ones.
+	if fake.lastUpdate.GetPostTypeCanvases() != nil {
+		t.Errorf("update with nil canvases sent %+v, want the field unset", fake.lastUpdate.GetPostTypeCanvases())
+	}
+
+	if _, err := client.Update(ctx, Platform{ID: "px", Name: "X", PostTypeCanvases: map[string]Canvas{}}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	// An empty map goes out set and empty, so Ogen clears them.
+	if c := fake.lastUpdate.GetPostTypeCanvases(); c == nil || len(c.GetBySlug()) != 0 {
+		t.Errorf("update with empty canvases sent %+v, want a set, empty field", c)
+	}
+
+	if _, err := client.Update(ctx, Platform{ID: "px", Name: "X", PostTypeCanvases: map[string]Canvas{"story": {Width: 1080, Height: 1920}}}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if c := fake.lastUpdate.GetPostTypeCanvases().GetBySlug()["story"]; c.GetWidth() != 1080 || c.GetHeight() != 1920 {
+		t.Errorf("update story canvas = %+v, want 1080×1920", c)
 	}
 
 	if _, err := client.SetEnabled(ctx, "px", true); err != nil {
