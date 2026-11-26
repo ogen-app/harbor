@@ -139,7 +139,7 @@ export interface FreeTrialTierResponse {
   offer: FreeTrialTier;
 }
 
-// ── Product mapping (CON-404/407, Polar since CON-523) ─────────────────────────
+// ── Product mapping ────────────────────────────────────────────────────────────
 // Each sellable tier price is sold through one Polar product, mapped separately
 // for sandbox (test) and production (live). A product bills one interval and
 // may carry a fixed price in several currencies, so it can sell one price row

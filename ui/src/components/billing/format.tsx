@@ -23,7 +23,7 @@ const TONE: Record<Tone, { dot: string; chip: string }> = {
 
 // Every value a billing status can take: the tenant-list summary values
 // (complimentary, not_required, awaiting_checkout) plus Ogen's subscription
-// statuses. complimentary is a tester's workspace (CON-333).
+// statuses. complimentary is a tester's workspace.
 const BILLING_STATUS: Record<string, { tone: Tone; label: string }> = {
   complimentary: { tone: "good", label: "Complimentary" },
   not_required: { tone: "neutral", label: "Not required" },
@@ -217,11 +217,11 @@ export function tierName(tierId: string, tiers: CatalogEntry[]): string {
   return tiers.find((t) => t.id === tierId)?.name ?? tierId;
 }
 
-// Polar is the merchant of record (CON-523): refunds, cancellations and products
+// Polar is the merchant of record: refunds, cancellations and products
 // live in its dashboard, on sandbox.polar.sh in test mode and polar.sh in
 // production. PolarOrg is what a link needs from the billing settings.
 //
-// The dashboard paths below are unverified until the Polar spike (CON-531 A0)
+// The dashboard paths below are unverified until the Polar sandbox spike
 // confirms them; they are built here only, so a fix is one place.
 export type PolarOrg = Pick<BillingSettings, "organizationId" | "testMode">;
 
@@ -245,13 +245,20 @@ export function polarProductsUrl(org: PolarOrg | null): string {
 const LEGACY_LEMON_SQUEEZY_SUBSCRIPTIONS = "https://app.lemonsqueezy.com/subscriptions";
 
 // subscriptionUrl deep-links a subscription in its provider's dashboard, or
-// lands on the subscription list without one.
+// lands on the subscription list without one. A Polar subscription opens on the
+// host of its own mode: sandbox rows stay listed after the switch to
+// production. The organization is known only for the running mode, so a row of
+// the other mode lands on that host's dashboard.
 export function subscriptionUrl(
-  s: { provider: string; providerSubscriptionId: string } | null,
+  s: { provider: string; providerSubscriptionId: string; testMode: boolean } | null,
   org: PolarOrg | null,
 ): string {
   const id = s?.providerSubscriptionId ? `/${encodeURIComponent(s.providerSubscriptionId)}` : "";
   if (s?.provider === "lemonsqueezy") return LEGACY_LEMON_SQUEEZY_SUBSCRIPTIONS + id;
+  if (!s) return polarSubscriptionsUrl(org);
+  if (!org?.organizationId || org.testMode !== s.testMode) {
+    return polarDashboardUrl({ organizationId: "", testMode: s.testMode });
+  }
   return polarSubscriptionsUrl(org) + id;
 }
 
@@ -277,7 +284,7 @@ export function useBillingSettings(): BillingSettings | null {
   return settings;
 }
 
-// Product-mapping checks (CON-404, Polar since CON-523). The label is Harbor's;
+// Product-mapping checks. The label is Harbor's;
 // the explanation under it is always Ogen's message. "suggested" is
 // Harbor-side: an unmapped price with a suggestion from SuggestProductMappings.
 const MAPPING_STATUS: Record<string, { tone: Tone; label: string }> = {

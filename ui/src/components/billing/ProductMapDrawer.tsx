@@ -84,7 +84,7 @@ export function productFit(
 }
 
 // ProductMapDrawer maps one tier price to the Polar product that sells it
-// (CON-407 §B, Polar since CON-523). Step 1 is the checklist of what to create
+// Step 1 is the checklist of what to create
 // in the Polar dashboard, built from the price row; step 2 picks the product
 // from the organization (ListProviderProducts) with the suggestion preselected.
 // A reason is required; a refusal (FailedPrecondition) is Ogen's message, shown
@@ -305,10 +305,36 @@ export function ProductMapDrawer({
                 The billing-admin service is unavailable.
               </p>
             ) : products && !products.readable ? (
-              // Ogen's FailedPrecondition, as is (e.g. the production token is not set).
-              <p className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
-                {products.message}
-              </p>
+              // Ogen's FailedPrecondition, as is (e.g. the production token is not
+              // set). The mode can still be mapped by id; it saves unchecked.
+              <div className="space-y-3">
+                <p className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
+                  {products.message}
+                </p>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="product-id">Polar product id</Label>
+                  <Input
+                    id="product-id"
+                    value={selected}
+                    onChange={(e) => {
+                      setSelected(e.target.value.trim());
+                      setError(null);
+                    }}
+                    placeholder="Copy it from the product in the Polar dashboard"
+                    autoComplete="off"
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-tertiary-foreground">
+                    Ogen can’t read this mode’s products, so the mapping saves as{" "}
+                    <em>Not checked</em> until it can.
+                  </p>
+                  {refusal?.productId === selected && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {refusal.message}
+                    </p>
+                  )}
+                </div>
+              </div>
             ) : options.length === 0 ? (
               <p className="text-sm text-tertiary-foreground">
                 The {modeName} organization has no recurring products yet. Create

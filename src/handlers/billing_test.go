@@ -60,7 +60,7 @@ func (f *fakeBilling) InvalidateSubscriptions(_ context.Context, req *billingv1.
 	return &billingv1.InvalidateSubscriptionsResponse{DryRun: req.GetDryRun(), Count: 1, TenantIds: []string{"t1"}}, nil
 }
 
-// The product-mapping RPCs (CON-404, renamed in CON-523): the live mode is
+// The product-mapping RPCs: the live mode is
 // unreadable (no live access token), and a product priced unlike the row is
 // refused.
 func (f *fakeBilling) ListProductMappings(_ context.Context, req *billingv1.ListProductMappingsRequest) (*billingv1.ListProductMappingsResponse, error) {
@@ -293,7 +293,7 @@ func TestBilling_CutoverScope(t *testing.T) {
 	}
 }
 
-// Product mapping (CON-404, renamed in CON-523): the mode is required and passed through, a reason
+// Product mapping: the mode is required and passed through, a reason
 // is required, an unreadable mode renders Ogen's message as readable:false, and
 // a refused mapping is a 409 with Ogen's message unchanged.
 func TestBilling_ProductMapping(t *testing.T) {

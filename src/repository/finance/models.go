@@ -48,7 +48,7 @@ const (
 )
 
 // Revenue vendors: a payment is booked against its billing provider. Polar is
-// the merchant of record since CON-523; lemonsqueezy rows are history.
+// the merchant of record now; lemonsqueezy rows are history.
 const (
 	VendorLemonSqueezy = "lemonsqueezy"
 	VendorPolar        = "polar"
@@ -229,5 +229,8 @@ type SyncState struct {
 	LastSuccessAt *time.Time `bun:"last_success_at"`
 	LastError     string     `bun:"last_error,notnull"`
 	ThroughDate   *time.Time `bun:"through_date,type:date"`
-	UpdatedAt     time.Time  `bun:"updated_at,notnull,default:current_timestamp"`
+	// PendingFrom is the oldest payment a revenue sync skipped while it waited
+	// for its USD conversion; nil when none waits.
+	PendingFrom *time.Time `bun:"pending_from"`
+	UpdatedAt   time.Time  `bun:"updated_at,notnull,default:current_timestamp"`
 }
