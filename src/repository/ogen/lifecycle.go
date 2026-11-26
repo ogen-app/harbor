@@ -9,7 +9,7 @@ import (
 )
 
 // LifecycleSignal is one tenant's raw lifecycle input for the Lifecycle tab
-// (CON-437): the milestone timestamps, its last activity and the problems that
+// : the milestone timestamps, its last activity and the problems that
 // explain why it may be stuck. Harbor's stats/lifecycle turns it into a stage.
 type LifecycleSignal struct {
 	ID        string     `bun:"id"`
@@ -83,9 +83,13 @@ func (l *LifecycleRepository) Signals(ctx context.Context) ([]LifecycleSignal, e
 	if postCols["platform_id"] {
 		platformExpr, platformJoin = "COALESCE(pl.name, '')", "LEFT JOIN platforms pl ON pl.id = po.platform_id"
 	}
-	const failed24h = `po.tenant_id = t.id
+	failed24h, newestFirst := "false", "1"
+	if postCols["failure_reason"] && postCols["updated_at"] {
+		failed24h = `po.tenant_id = t.id
 		AND po.failure_reason IS NOT NULL AND po.failure_reason <> ''
 		AND po.updated_at >= now() - interval '24 hours'`
+		newestFirst = "po.updated_at DESC"
+	}
 
 	query := fmt.Sprintf(`
 		WITH weeks AS (
@@ -135,11 +139,11 @@ func (l *LifecycleRepository) Signals(ctx context.Context) ([]LifecycleSignal, e
 			SELECT %[5]s AS platform
 			FROM posts po %[7]s
 			WHERE %[6]s
-			ORDER BY po.updated_at DESC
+			ORDER BY %[8]s
 			LIMIT 1
 		) f ON true
 		ORDER BY t.created_at`,
-		statusExpr, deletedExpr, connectedExpr, draftsExpr, platformExpr, failed24h, platformJoin)
+		statusExpr, deletedExpr, connectedExpr, draftsExpr, platformExpr, failed24h, platformJoin, newestFirst)
 
 	var rows []LifecycleSignal
 	if err := l.r.db.NewRaw(query).Scan(ctx, &rows); err != nil {

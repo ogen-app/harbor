@@ -8,9 +8,9 @@ import { linear, niceScale, type Scale } from "@/components/charts/scale";
 import { dayLabel } from "@/components/pnl/format";
 import { fmtDays, fmtPct, HEALTH_LABEL, stageLabel, type Health, type Progress } from "./shared";
 
-// The three panels under the board (CON-437): what moved since the previous
+// The three panels under the board: what moved since the previous
 // snapshot, median days to a first post by signup week, and the signup cohort
-// grid. Charts follow the revision-2 style (CON-413).
+// grid. Charts follow the revision-2 style.
 
 export interface Move {
     tenantId: string;
@@ -116,12 +116,23 @@ export function MedianDaysChart({ cohorts }: { cohorts: Cohort[] }) {
         ? `Median days from signup to a first post, by signup week, over the last ${n} weeks. Latest known: ${fmtDays(known[known.length - 1])}. Use the arrow keys to read each week.`
         : "No tenant has published a first post in these weeks yet.";
 
+    // Arrow keys pick a week, so the chart is a slider over the weeks: the
+    // selected week's figures reach screen readers through aria-valuetext.
+    const current = active ?? n - 1;
+    const c = cohorts[current];
+    const valueText = c
+        ? `Week of ${dayLabel(c.weekStart)}: ${c.signups} ${c.signups === 1 ? "signup" : "signups"}, median to first post ${c.medianDaysToFirst == null ? "not known yet" : fmtDays(c.medianDaysToFirst)}`
+        : "";
+
     return (
         <div
             ref={ref}
-            role="group"
-            aria-roledescription="chart"
+            role="slider"
             aria-label={summary}
+            aria-valuemin={0}
+            aria-valuemax={Math.max(0, n - 1)}
+            aria-valuenow={current}
+            aria-valuetext={valueText}
             tabIndex={0}
             onKeyDown={onKeyDown}
             onBlur={onBlur}

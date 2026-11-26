@@ -258,7 +258,7 @@ func main() {
 		slog.Info("ogen vendor cost client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
-	// The Lifecycle tab on /tenants (CON-437): tenants placed by stage from the
+	// The Lifecycle tab on /tenants: tenants placed by stage from the
 	// Ogen and analytics DBs, with daily snapshots in Harbor's own database.
 	lifecycleSvc := lifecycle.NewService(
 		ogen.NewLifecycleRepository(ogenDB),

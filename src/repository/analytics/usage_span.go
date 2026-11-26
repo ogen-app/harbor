@@ -8,7 +8,7 @@ import (
 )
 
 // UsageSpan is when a tenant first and last used AI generation, for the
-// Lifecycle tab's Generating milestone and its activity (CON-437).
+// Lifecycle tab's Generating milestone and its activity.
 type UsageSpan struct {
 	First time.Time
 	Last  time.Time

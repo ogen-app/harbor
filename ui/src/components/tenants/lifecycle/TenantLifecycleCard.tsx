@@ -18,14 +18,15 @@ import {
     type Progress,
 } from "./shared";
 
-// The tenant's Lifecycle card in General information (CON-437): the milestones
+// The tenant's Lifecycle card in General information: the milestones
 // it reached and how long each step took, then its health over time from the
 // daily snapshots.
 
+// "unknown" spans cover days the snapshot job didn't run.
 interface HealthSpan {
     from: string;
     to: string;
-    health: Health;
+    health: Health | "unknown";
 }
 interface Response {
     available: boolean;
@@ -38,12 +39,15 @@ interface Response {
     };
 }
 
-const BAND: Record<Health, string> = {
+const BAND: Record<Health | "unknown", string> = {
     active: `${GREEN}59`,
     cooling: `${AMBER}80`,
     quiet: "#C9C4BD",
     churned: "#E6E3DE",
+    unknown: "repeating-linear-gradient(135deg, #F4F3F1 0 4px, #E6E3DE 4px 5px)",
 };
+
+const bandLabel = (h: HealthSpan["health"]) => (h === "unknown" ? "No snapshot" : HEALTH_LABEL[h]);
 
 const DAY_MS = 86_400_000;
 
@@ -56,13 +60,13 @@ function HealthBand({ spans }: { spans: HealthSpan[] }) {
     const total = Math.max(DAY_MS, end - start);
     return (
         <div>
-            <div className="flex h-4 w-full overflow-hidden" role="img" aria-label={spans.map((s) => `${HEALTH_LABEL[s.health]} ${shortDate(s.from)} to ${shortDate(s.to)}`).join(", ")}>
+            <div className="flex h-4 w-full overflow-hidden" role="img" aria-label={spans.map((s) => `${bandLabel(s.health)} ${shortDate(s.from)} to ${shortDate(s.to)}`).join(", ")}>
                 {spans.map((s) => {
                     const w = ((new Date(s.to).getTime() + DAY_MS - new Date(s.from).getTime()) / total) * 100;
                     return (
                         <div
                             key={s.from}
-                            title={`${HEALTH_LABEL[s.health]}: ${shortDate(s.from)} – ${shortDate(s.to)}`}
+                            title={`${bandLabel(s.health)}: ${shortDate(s.from)} – ${shortDate(s.to)}`}
                             className="h-full"
                             style={{ width: `${w}%`, background: BAND[s.health] }}
                         />

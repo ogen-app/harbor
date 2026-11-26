@@ -6,7 +6,7 @@ import { TenantsTable } from "@/components/tenants/TenantsTable";
 import { TenantRegistrationsChart } from "@/components/tenants/TenantRegistrationsChart";
 import { LifecycleView } from "@/components/tenants/lifecycle/LifecycleView";
 
-// The /tenants tabs: the table, and the Lifecycle board (CON-437). Deep link:
+// The /tenants tabs: the table, and the Lifecycle board. Deep link:
 // ?tab=lifecycle.
 const TABS = [
     { key: "all", label: "All tenants" },

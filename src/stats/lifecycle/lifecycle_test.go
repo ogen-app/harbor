@@ -238,6 +238,41 @@ func TestMovement(t *testing.T) {
 	if len(Movement([]Tenant{a}, nil, false)) != 0 {
 		t.Fatal("no previous snapshot means no movement")
 	}
+
+	// Progress made before churning still reads as a loss.
+	gone := Tenant{ID: "e", Name: "E", Progress: FirstPost, Health: Churned}
+	if m := Movement([]Tenant{gone}, map[string]Previous{"e": {Progress: Connected, Health: Active}}, true); m[0].Direction != "down" {
+		t.Fatalf("churn direction %s, want down", m[0].Direction)
+	}
+}
+
+func TestRecoveryToCoolingReadsAsRecovery(t *testing.T) {
+	s := signal(60)
+	s.LastActivityAt = ago(10)
+	got := Evaluate(now, Input{Signal: s}, DefaultLimits, &Previous{Progress: SignedUp, Health: Quiet}, true)
+	if got.Health != Cooling || got.Reasons[0].Text != "Active again after going quiet" {
+		t.Fatalf("health %s, reasons %v", got.Health, got.Reasons)
+	}
+}
+
+func TestCohortDeadlineUsesEarlierStages(t *testing.T) {
+	// Signed up 15 days before the end of its week: past the 10 days a first
+	// post is due by (2 + 3 + 5), so a cohort that never posted reads 0%.
+	s := signal(22)
+	ts := []Tenant{Evaluate(now, Input{Signal: s}, DefaultLimits, nil, false)}
+	cs := Cohorts(now, ts, DefaultLimits)
+	var c Cohort
+	for _, x := range cs {
+		if x.Signups > 0 {
+			c = x
+		}
+	}
+	if r := c.Reached[2]; r == nil || *r != 0 {
+		t.Fatalf("first post share %v, want 0", r)
+	}
+	if c.Reached[3] != nil {
+		t.Fatalf("regular share %v, want too early", *c.Reached[3])
+	}
 }
 
 func TestSortBoard(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// StageSnapshot is one tenant's lifecycle stage on one UTC day (CON-437).
+// StageSnapshot is one tenant's lifecycle stage on one UTC day.
 type StageSnapshot struct {
 	bun.BaseModel `bun:"table:tenant_stage_snapshots,alias:s"`
 
@@ -88,7 +88,7 @@ func (r *LifecycleRepository) ChurnedSince(ctx context.Context) (map[string]time
 			FROM tenant_stage_snapshots
 			GROUP BY tenant_id
 		)
-		SELECT s.tenant_id, min(s.snapshot_date)::timestamptz AS since
+		SELECT s.tenant_id, min(s.snapshot_date)::timestamp AT TIME ZONE 'UTC' AS since
 		FROM tenant_stage_snapshots s
 		JOIN last_live l ON l.tenant_id = s.tenant_id
 		WHERE s.health = 'churned' AND (l.live_until IS NULL OR s.snapshot_date > l.live_until)
