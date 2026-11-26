@@ -1,4 +1,4 @@
-.PHONY: all build ui ui-install ui-dev run dev-api test tidy proto docker clean
+.PHONY: all build ui ui-install ui-dev run dev-api test test-remote tidy proto docker clean
 
 # The repo pins Go 1.26.1 (see go.mod); select it explicitly so a different
 # default `go` on PATH still builds with the right toolchain.
@@ -45,6 +45,10 @@ ui-dev: ui-install
 # ── Checks ────────────────────────────────────────────────────────────────────
 test:
 	go test ./cmd/... ./src/...
+
+# Runs `make test` on another machine over SSH (REMOTE_HOST, default mac2).
+test-remote:
+	@scripts/test-remote.sh
 
 tidy:
 	go mod tidy
