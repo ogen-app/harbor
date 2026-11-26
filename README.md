@@ -335,7 +335,9 @@ make all      # builds the Next.js export, stages it into src/ui/dist, then `go 
 
 `make ui` (re)builds just the UI export; `make build` compiles the server with
 whatever is currently staged in `src/ui/dist` (a placeholder until `make ui`
-has run at least once). `make test` runs the Go suite. `make proto`
+has run at least once). `make test` runs the Go suite; `make test-remote` runs
+it on another Mac over SSH (`REMOTE_HOST`, default `mac2`) so it doesn't load
+this one, the same arrangement as `ogen` and `ui`. `make proto`
 regenerates the gRPC stubs in `gen/` (needs [`buf`](https://buf.build)); bump
 `PROTO_VERSION` in the Makefile to pick up a new proto release.
 
