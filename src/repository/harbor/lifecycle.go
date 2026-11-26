@@ -65,6 +65,13 @@ func (r *LifecycleRepository) LatestBefore(ctx context.Context, date time.Time) 
 	return latest.Time, rows, true, nil
 }
 
+// Day returns the rows recorded for one UTC date.
+func (r *LifecycleRepository) Day(ctx context.Context, date time.Time) ([]StageSnapshot, error) {
+	var rows []StageSnapshot
+	err := r.db.NewSelect().Model(&rows).Where("snapshot_date = ?", date.Format(time.DateOnly)).Scan(ctx)
+	return rows, err
+}
+
 // History returns one tenant's snapshots, oldest first.
 func (r *LifecycleRepository) History(ctx context.Context, tenantID string) ([]StageSnapshot, error) {
 	var rows []StageSnapshot
