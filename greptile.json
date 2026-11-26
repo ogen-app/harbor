@@ -1,0 +1,50 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax"],
+  "autoReview": ["open", "push", "rebase"],
+  "triggerOnDrafts": false,
+  "includeBranches": ["main"],
+  "summarySection": { "included": true, "collapsible": false },
+  "instructions": "Be terse. Skip preamble and pleasantries. State the issue, why it matters, and the fix. Prefer suggested diffs over prose. Harbor is a single Go binary (Fiber + bun/Postgres) that embeds a Next.js static export (App Router, output: export, no runtime SSR).",
+  "ignorePatterns": "gen/**\nsrc/ui/dist/**\nui/out/**\nui/.next/**\nui/package-lock.json\ntmp/**\n**/*.min.js\n**/.DS_Store",
+  "customContext": {
+    "rules": [
+      {
+        "scope": ["src/**/*.go"],
+        "rule": "Prefer minimal diffs. Do not add error handling, fallbacks, or validation for cases that cannot happen at internal call sites; validate only at system boundaries (HTTP input, gRPC responses, external APIs). Avoid speculative abstractions; three similar lines beat a premature helper."
+      },
+      {
+        "scope": ["src/**/*.go", "ui/src/**/*.{ts,tsx}"],
+        "rule": "Default to no comments. Only flag a missing comment when the WHY is non-obvious (a hidden constraint, a workaround, a subtle invariant). Comments must not reference ticket numbers or review bots."
+      },
+      {
+        "scope": ["src/**/*.go"],
+        "rule": "External dependencies are fail-open: the Ogen control-plane and analytics (Timescale) pools and the Ogen gRPC clients may be nil or unreachable. Read endpoints must turn that into a soft JSON state such as {\"available\": false, ...}, never a 500 or a panic. Inbound webhooks are the exception: they return 503 so Ogen retries."
+      },
+      {
+        "scope": ["src/handlers/**/*.go"],
+        "rule": "Register Fiber routes with a :param segment AFTER their static sibling routes so the param route does not shadow them (e.g. /api/tenants/overview before /api/tenants/:id). Use errors.Is for sentinel errors such as sql.ErrNoRows."
+      },
+      {
+        "scope": ["src/**/*.go"],
+        "rule": "Flag SQL assembled by concatenating request input; bound parameters (bun's ? placeholders) are expected."
+      },
+      {
+        "scope": ["src/repository/ogen/**/*.go"],
+        "rule": "Harbor only READS the external Ogen databases. Flag any write (INSERT, UPDATE, DELETE or DDL) against Ogen-owned tables; changes to Ogen state go through Ogen's gRPC services."
+      },
+      {
+        "scope": ["ui/src/**/*.{ts,tsx}"],
+        "rule": "The UI is a static export embedded in the Go binary; there is no server at runtime. Do not introduce server-only features (server actions, route handlers, server-side dynamic rendering, server-read env). Data fetching is client-side against /api/*. Auth is enforced by the API session cookie; the client AuthGuard is UX only, so never treat a client-side check as a security boundary."
+      },
+      {
+        "scope": ["ui/src/app/**"],
+        "rule": "A dynamic route segment (e.g. [id]) needs generateStaticParams and is served as a single client shell that reads the real id from the URL at runtime. Any new dynamic route also needs a matching fallback in src/server/static.go so the Go file server serves that shell for arbitrary ids."
+      },
+      {
+        "scope": ["**/*.md"],
+        "rule": "Skip stylistic prose nits. Only flag factual errors, broken code samples, or stale references (renamed files, removed flags, deleted endpoints)."
+      }
+    ]
+  }
+}
