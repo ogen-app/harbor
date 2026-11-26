@@ -157,8 +157,8 @@ function MoveTierBody({
       <DialogHeader>
         <DialogTitle>Move {target.tenantName}</DialogTitle>
         <DialogDescription>
-          Pins the workspace to a tier version. This does not touch the Lemon
-          Squeezy subscription — cancel or refund it there if needed.
+          Pins the workspace to a tier version. This does not touch the Polar
+          subscription — cancel or refund it there if needed.
         </DialogDescription>
       </DialogHeader>
 

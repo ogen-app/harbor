@@ -23,7 +23,7 @@ type fakeServer struct {
 	gotAuth     string
 	lastPage    *billingv1.ListBillingAttentionRequest
 	lastTenant  string
-	lastCutover *billingv1.InvalidateTestSubscriptionsRequest
+	lastCutover *billingv1.InvalidateSubscriptionsRequest
 }
 
 func (s *fakeServer) auth(ctx context.Context) {
@@ -36,7 +36,7 @@ func (s *fakeServer) auth(ctx context.Context) {
 
 func (s *fakeServer) GetBillingSettings(ctx context.Context, _ *billingv1.GetBillingSettingsRequest) (*billingv1.GetBillingSettingsResponse, error) {
 	s.auth(ctx)
-	return &billingv1.GetBillingSettingsResponse{Provider: "lemonsqueezy", TestMode: true, Configured: true, StoreId: "42", TrialTeardownLive: false}, nil
+	return &billingv1.GetBillingSettingsResponse{Provider: "polar", TestMode: true, Configured: true, OrganizationId: "org_42", ApiVersion: "2026-10", TrialTeardownLive: false}, nil
 }
 
 func (s *fakeServer) ListBillingAttention(ctx context.Context, req *billingv1.ListBillingAttentionRequest) (*billingv1.ListBillingAttentionResponse, error) {
@@ -69,21 +69,40 @@ func (s *fakeServer) GetTenantBilling(ctx context.Context, req *billingv1.GetTen
 		BillingRequired: true,
 		Gated:           false,
 		Subscriptions: []*billingv1.Subscription{{
-			Id:          "s1",
-			Status:      "active",
-			TestMode:    true,
-			RenewsAt:    timestamppb.New(time.Unix(9000, 0)),
-			FirstPaidAt: nil, // never paid
-			Duplicate:   true,
+			Id:                 "s1",
+			Status:             "active",
+			ProviderStatus:     "active",
+			ProviderProductId:  "prod_pro",
+			PendingProductId:   "prod_lite",
+			PendingEffectiveAt: timestamppb.New(time.Unix(9000, 0)),
+			CancelAtPeriodEnd:  true,
+			TestMode:           true,
+			RenewsAt:           timestamppb.New(time.Unix(9000, 0)),
+			FirstPaidAt:        nil, // never paid
+			Duplicate:          true,
 		}},
 		Owners: []*billingv1.OwnerTrial{{UserId: "u1", Email: "o@example.com", TrialEligible: true}},
 	}}, nil
 }
 
-func (s *fakeServer) InvalidateTestSubscriptions(ctx context.Context, req *billingv1.InvalidateTestSubscriptionsRequest) (*billingv1.InvalidateTestSubscriptionsResponse, error) {
+func (s *fakeServer) InvalidateSubscriptions(ctx context.Context, req *billingv1.InvalidateSubscriptionsRequest) (*billingv1.InvalidateSubscriptionsResponse, error) {
 	s.auth(ctx)
 	s.lastCutover = req
-	return &billingv1.InvalidateTestSubscriptionsResponse{DryRun: req.GetDryRun()}, nil
+	return &billingv1.InvalidateSubscriptionsResponse{DryRun: req.GetDryRun()}, nil
+}
+
+// ListPayments answers one converted USD payment and one EUR payment still
+// waiting for its ECB rate (every *_usd unset).
+func (s *fakeServer) ListPayments(ctx context.Context, _ *billingv1.ListPaymentsRequest) (*billingv1.ListPaymentsResponse, error) {
+	s.auth(ctx)
+	return &billingv1.ListPaymentsResponse{Payments: []*billingv1.Payment{
+		{
+			Id: "pay1", Provider: "polar", Kind: "order", Currency: "EUR", Total: 5000, ProviderProductId: "prod_pro",
+			SubtotalUsd: new(int64(5400)), TotalUsd: new(int64(5400)), FeeUsd: new(int64(0)),
+			FxRate: "1.08", FxSource: "ecb", FxDate: "2026-11-25",
+		},
+		{Id: "pay2", Provider: "polar", Kind: "order", Currency: "EUR", Total: 5000},
+	}}, nil
 }
 
 func newClient(t *testing.T, fake *fakeServer) *Client {
@@ -120,7 +139,7 @@ func TestClientRoundTrip(t *testing.T) {
 	if fake.gotAuth != "Bearer tok-123" {
 		t.Errorf("auth = %q, want bearer token", fake.gotAuth)
 	}
-	if s.Provider != "lemonsqueezy" || !s.TestMode || !s.Configured || s.StoreID != "42" || s.TrialTeardownLive {
+	if s.Provider != "polar" || !s.TestMode || !s.Configured || s.OrganizationID != "org_42" || s.APIVersion != "2026-10" || s.TrialTeardownLive {
 		t.Errorf("settings = %+v", s)
 	}
 
@@ -156,16 +175,56 @@ func TestClientRoundTrip(t *testing.T) {
 	if sub := b.Subscriptions[0]; sub.FirstPaidAt != nil || !sub.Duplicate || !sub.TestMode || sub.RenewsAt == nil {
 		t.Errorf("subscription = %+v", sub)
 	}
+	if sub := b.Subscriptions[0]; sub.ProviderProductID != "prod_pro" || sub.ProviderStatus != "active" || sub.PendingProductID != "prod_lite" ||
+		sub.PendingEffectiveAt == nil || !sub.CancelAtPeriodEnd {
+		t.Errorf("subscription pending change = %+v", sub)
+	}
 	if b.ScheduledChanges == nil || b.RecentWebhookEvents == nil {
 		t.Errorf("empty lists must be non-nil so the UI can map over them")
 	}
 
-	res, err := c.InvalidateTestSubscriptions(ctx, true)
+	res, err := c.InvalidateSubscriptions(ctx, true, ScopeProviderSwitch)
 	if err != nil {
-		t.Fatalf("InvalidateTestSubscriptions: %v", err)
+		t.Fatalf("InvalidateSubscriptions: %v", err)
 	}
-	if !fake.lastCutover.GetDryRun() || !res.DryRun || res.TenantIDs == nil {
+	if !fake.lastCutover.GetDryRun() || !res.DryRun || res.TenantIDs == nil ||
+		fake.lastCutover.GetScope() != billingv1.InvalidationScope_INVALIDATION_SCOPE_PROVIDER_SWITCH {
 		t.Errorf("cutover = %+v (req %+v)", res, fake.lastCutover)
+	}
+	if _, err := c.InvalidateSubscriptions(ctx, true, ScopeModeCutover); err != nil {
+		t.Fatalf("InvalidateSubscriptions: %v", err)
+	}
+	if got := fake.lastCutover.GetScope(); got != billingv1.InvalidationScope_INVALIDATION_SCOPE_MODE_CUTOVER {
+		t.Errorf("mode cutover scope = %v", got)
+	}
+	if _, err := c.InvalidateSubscriptions(ctx, true, "everything"); err != nil {
+		t.Fatalf("InvalidateSubscriptions: %v", err)
+	}
+	if got := fake.lastCutover.GetScope(); got != billingv1.InvalidationScope_INVALIDATION_SCOPE_UNSPECIFIED {
+		t.Errorf("unknown scope = %v, want UNSPECIFIED (Ogen refuses it)", got)
+	}
+}
+
+// Unset *_usd amounts stay nil, so the ledger can tell "not converted yet" from
+// a real 0; the FX fields pass through.
+func TestListPaymentsOptionalUSD(t *testing.T) {
+	c := newClient(t, &fakeServer{})
+	page, err := c.ListPayments(t.Context(), time.Time{}, time.Time{}, true, 0, "")
+	if err != nil {
+		t.Fatalf("ListPayments: %v", err)
+	}
+	if len(page.Payments) != 2 {
+		t.Fatalf("payments = %+v", page.Payments)
+	}
+	conv, waiting := page.Payments[0], page.Payments[1]
+	if conv.TotalUSD == nil || *conv.TotalUSD != 5400 || conv.FeeUSD == nil || *conv.FeeUSD != 0 || conv.TaxUSD != nil {
+		t.Errorf("converted payment USD = %+v", conv)
+	}
+	if conv.FxRate != "1.08" || conv.FxSource != "ecb" || conv.FxDate != "2026-11-25" || conv.ProviderProductID != "prod_pro" {
+		t.Errorf("converted payment FX = %+v", conv)
+	}
+	if waiting.TotalUSD != nil || waiting.SubtotalUSD != nil || waiting.FeeUSD != nil || waiting.FxSource != "" {
+		t.Errorf("waiting payment = %+v, want every USD amount nil", waiting)
 	}
 }
 
@@ -181,59 +240,66 @@ func TestNilClientUnavailable(t *testing.T) {
 	if _, err := c.SetFreeTrialTier(t.Context(), "", "off"); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("SetFreeTrialTier err = %v", err)
 	}
-	if _, err := c.VariantMappings(t.Context(), true); !errors.Is(err, ErrUnavailable) {
-		t.Errorf("VariantMappings err = %v", err)
+	if _, err := c.ProductMappings(t.Context(), true); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("ProductMappings err = %v", err)
 	}
-	if _, err := c.SetVariantMapping(t.Context(), "p1", true, "", "unmap"); !errors.Is(err, ErrUnavailable) {
-		t.Errorf("SetVariantMapping err = %v", err)
+	if _, err := c.SetProductMapping(t.Context(), "p1", true, "", "unmap"); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("SetProductMapping err = %v", err)
+	}
+	if _, err := c.InvalidateSubscriptions(t.Context(), true, ScopeProviderSwitch); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("InvalidateSubscriptions err = %v", err)
 	}
 }
 
-// variantServer answers the variant-mapping RPCs (CON-404) and records the
-// modes and the write it was sent.
-type variantServer struct {
+// productServer answers the product-mapping RPCs (CON-404, renamed in CON-523)
+// and records the modes and the write it was sent.
+type productServer struct {
 	billingv1.UnimplementedBillingAdminServiceServer
 	modes   []bool
-	lastSet *billingv1.SetVariantMappingRequest
+	lastSet *billingv1.SetProductMappingRequest
 }
 
-func (s *variantServer) ListProviderVariants(_ context.Context, req *billingv1.ListProviderVariantsRequest) (*billingv1.ListProviderVariantsResponse, error) {
+func (s *productServer) ListProviderProducts(_ context.Context, req *billingv1.ListProviderProductsRequest) (*billingv1.ListProviderProductsResponse, error) {
 	s.modes = append(s.modes, req.GetTestMode())
-	return &billingv1.ListProviderVariantsResponse{Variants: []*billingv1.ProviderVariant{
-		{Id: "123459", ProductName: "Max", Name: "Yearly", PriceMinor: 100000, Currency: "EUR", Interval: "year", TestMode: true},
-		{Id: "123456", ProductName: "Pro", Name: "Monthly", PriceMinor: 5000, Currency: "EUR", Interval: "month", HasFreeTrial: true, TrialInterval: "month", TrialIntervalCount: 1, MappedPriceId: "p1"},
+	return &billingv1.ListProviderProductsResponse{Products: []*billingv1.ProviderProduct{
+		{Id: "prod_max_y", Name: "Max yearly", Interval: "year", IntervalCount: 1, Archived: true, TestMode: true,
+			Prices: []*billingv1.ProductPrice{{Currency: "EUR", AmountMinor: 100000}}},
+		{Id: "prod_pro_m", Name: "Pro monthly", Interval: "month", IntervalCount: 1, HasFreeTrial: true, TrialInterval: "month", TrialIntervalCount: 1,
+			Prices:         []*billingv1.ProductPrice{{Currency: "EUR", AmountMinor: 5000}, {Currency: "USD", AmountMinor: 5500}},
+			MappedPriceIds: []string{"p1", "p3"}},
 	}}, nil
 }
 
-func (s *variantServer) ListVariantMappings(_ context.Context, req *billingv1.ListVariantMappingsRequest) (*billingv1.ListVariantMappingsResponse, error) {
+func (s *productServer) ListProductMappings(_ context.Context, req *billingv1.ListProductMappingsRequest) (*billingv1.ListProductMappingsResponse, error) {
 	s.modes = append(s.modes, req.GetTestMode())
-	return &billingv1.ListVariantMappingsResponse{TestMode: req.GetTestMode(), Checked: true, Mappings: []*billingv1.VariantMapping{
+	return &billingv1.ListProductMappingsResponse{TestMode: req.GetTestMode(), Checked: true, Mappings: []*billingv1.ProductMapping{
 		{
 			TierVersionPriceId: "p1", TierName: "Pro", TierVersion: 2, Interval: "month", NetMinor: 5000, Currency: "EUR", FreeTrialTier: true,
-			VariantId: "123456", Variant: &billingv1.ProviderVariant{Id: "123456"}, Status: "ok",
+			ProductId: "prod_pro_m", Product: &billingv1.ProviderProduct{Id: "prod_pro_m"}, Status: "ok",
 			UpdatedAt: timestamppb.New(time.Unix(7000, 0)), UpdatedBy: "harbor",
 		},
 		{TierVersionPriceId: "p2", TierName: "Max", TierVersion: 1, Interval: "year", NetMinor: 100000, Currency: "EUR", Status: "unmapped", Message: "Not mapped"},
 	}}, nil
 }
 
-func (s *variantServer) SetVariantMapping(_ context.Context, req *billingv1.SetVariantMappingRequest) (*billingv1.SetVariantMappingResponse, error) {
+func (s *productServer) SetProductMapping(_ context.Context, req *billingv1.SetProductMappingRequest) (*billingv1.SetProductMappingResponse, error) {
 	s.lastSet = req
-	return &billingv1.SetVariantMappingResponse{Mapping: &billingv1.VariantMapping{TierVersionPriceId: req.GetTierVersionPriceId(), VariantId: req.GetVariantId(), Status: "ok"}}, nil
+	return &billingv1.SetProductMappingResponse{Mapping: &billingv1.ProductMapping{TierVersionPriceId: req.GetTierVersionPriceId(), ProductId: req.GetProductId(), Status: "ok"}}, nil
 }
 
-func (s *variantServer) SuggestVariantMappings(_ context.Context, req *billingv1.SuggestVariantMappingsRequest) (*billingv1.SuggestVariantMappingsResponse, error) {
+func (s *productServer) SuggestProductMappings(_ context.Context, req *billingv1.SuggestProductMappingsRequest) (*billingv1.SuggestProductMappingsResponse, error) {
 	s.modes = append(s.modes, req.GetTestMode())
-	return &billingv1.SuggestVariantMappingsResponse{Suggestions: []*billingv1.VariantSuggestion{
-		{TierVersionPriceId: "p2", Variant: &billingv1.ProviderVariant{Id: "123459", Interval: "year"}},
+	return &billingv1.SuggestProductMappingsResponse{Suggestions: []*billingv1.ProductSuggestion{
+		{TierVersionPriceId: "p2", Product: &billingv1.ProviderProduct{Id: "prod_max_y", Interval: "year"}},
 	}}, nil
 }
 
-// TestVariantMappingRoundTrip covers the four variant-mapping RPCs: the mode is
-// passed through, an unmapped row has no variant and no updated_at, and a write
-// carries the price, mode, variant and reason.
-func TestVariantMappingRoundTrip(t *testing.T) {
-	fake := &variantServer{}
+// TestProductMappingRoundTrip covers the four product-mapping RPCs: the mode is
+// passed through, an unmapped row has no product and no updated_at, a product's
+// prices and mapped rows come through per currency, and a write carries the
+// price, mode, product and reason.
+func TestProductMappingRoundTrip(t *testing.T) {
+	fake := &productServer{}
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -249,48 +315,56 @@ func TestVariantMappingRoundTrip(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 	ctx := t.Context()
 
-	list, err := c.VariantMappings(ctx, false)
+	list, err := c.ProductMappings(ctx, false)
 	if err != nil {
-		t.Fatalf("VariantMappings: %v", err)
+		t.Fatalf("ProductMappings: %v", err)
 	}
 	if list.TestMode || !list.Checked || len(list.Mappings) != 2 {
 		t.Fatalf("list = %+v", list)
 	}
 	mapped, unmapped := list.Mappings[0], list.Mappings[1]
-	if mapped.Variant == nil || mapped.Variant.ID != "123456" || mapped.UpdatedAt == nil || !mapped.FreeTrialTier || mapped.TierVersion != 2 {
+	if mapped.Product == nil || mapped.Product.ID != "prod_pro_m" || mapped.UpdatedAt == nil || !mapped.FreeTrialTier || mapped.TierVersion != 2 {
 		t.Errorf("mapped row = %+v", mapped)
 	}
-	if unmapped.Variant != nil || unmapped.UpdatedAt != nil || unmapped.Status != "unmapped" || unmapped.Message == "" {
+	if unmapped.Product != nil || unmapped.UpdatedAt != nil || unmapped.Status != "unmapped" || unmapped.Message == "" {
 		t.Errorf("unmapped row = %+v", unmapped)
 	}
 
-	variants, err := c.ProviderVariants(ctx, true)
+	products, err := c.ProviderProducts(ctx, true)
 	if err != nil {
-		t.Fatalf("ProviderVariants: %v", err)
+		t.Fatalf("ProviderProducts: %v", err)
 	}
-	if len(variants) != 2 || variants[1].MappedPriceID != "p1" || variants[1].TrialIntervalCount != 1 || variants[0].PriceMinor != 100000 {
-		t.Errorf("variants = %+v", variants)
+	if len(products) != 2 {
+		t.Fatalf("products = %+v", products)
+	}
+	archived, pro := products[0], products[1]
+	if !archived.Archived || archived.MappedPriceIDs == nil || len(archived.Prices) != 1 || archived.Prices[0].AmountMinor != 100000 {
+		t.Errorf("archived product = %+v", archived)
+	}
+	wantPrices := []ProductPrice{{Currency: "EUR", AmountMinor: 5000}, {Currency: "USD", AmountMinor: 5500}}
+	if !slices.Equal(pro.Prices, wantPrices) || !slices.Equal(pro.MappedPriceIDs, []string{"p1", "p3"}) || pro.TrialIntervalCount != 1 || pro.IntervalCount != 1 {
+		t.Errorf("pro product = %+v", pro)
 	}
 
-	sugg, err := c.SuggestVariantMappings(ctx, true)
+	sugg, err := c.SuggestProductMappings(ctx, true)
 	if err != nil {
-		t.Fatalf("SuggestVariantMappings: %v", err)
+		t.Fatalf("SuggestProductMappings: %v", err)
 	}
-	if len(sugg) != 1 || sugg[0].TierVersionPriceID != "p2" || sugg[0].Variant.ID != "123459" {
+	if len(sugg) != 1 || sugg[0].TierVersionPriceID != "p2" || sugg[0].Product.ID != "prod_max_y" {
 		t.Errorf("suggestions = %+v", sugg)
 	}
 	if !slices.Equal(fake.modes, []bool{false, true, true}) {
 		t.Errorf("modes sent = %v, want [false true true]", fake.modes)
 	}
 
-	m, err := c.SetVariantMapping(ctx, "p2", true, "123459", "created in the test store")
+	m, err := c.SetProductMapping(ctx, "p2", true, "prod_max_y", "created in the sandbox")
 	if err != nil {
-		t.Fatalf("SetVariantMapping: %v", err)
+		t.Fatalf("SetProductMapping: %v", err)
 	}
-	if got := fake.lastSet; got.GetTierVersionPriceId() != "p2" || !got.GetTestMode() || got.GetVariantId() != "123459" || got.GetReason() != "created in the test store" {
-		t.Errorf("SetVariantMapping request = %+v", got)
+	if got := fake.lastSet; got.GetTierVersionPriceId() != "p2" || !got.GetTestMode() || got.GetProductId() != "prod_max_y" || got.GetReason() != "created in the sandbox" {
+		t.Errorf("SetProductMapping request = %+v", got)
 	}
-	if m.Status != "ok" || m.VariantID != "123459" {
+	if m.Status != "ok" || m.ProductID != "prod_max_y" {
 		t.Errorf("mapping = %+v", m)
 	}
 }

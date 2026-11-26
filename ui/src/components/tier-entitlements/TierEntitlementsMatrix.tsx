@@ -23,7 +23,7 @@ import {
   Tick02Icon,
   WorkHistoryIcon,
 } from "@hugeicons/core-free-icons";
-import type { VariantMappingsResponse } from "@/components/billing/types";
+import type { ProductMappingsResponse } from "@/components/billing/types";
 import { Loader } from "@/components/ui/loader";
 import {
   DropdownMenu,
@@ -357,7 +357,7 @@ export function TierEntitlementsMatrix({
     }
   };
 
-  // After a publish: the version's prices that Lemon Squeezy can't sell yet in
+  // After a publish: the version's prices that Polar can't sell yet in
   // the mode Ogen runs in (CON-407 §C). Publishing never waits for this.
   const [unsold, setUnsold] = useState<{ versionId: string; label: string; count: number } | null>(null);
   const checkMapping = useCallback(async (versionId: string) => {
@@ -365,9 +365,9 @@ export function TierEntitlementsMatrix({
       const s = await fetch("/api/billing/settings").then((r) => (r.ok ? r.json() : null));
       if (!s?.available || !s.settings?.provider || s.settings.provider === "none") return;
       const m = s.settings.testMode ? "test" : "live";
-      const j = (await fetch(`/api/billing/variant-mappings?mode=${m}`).then((r) =>
+      const j = (await fetch(`/api/billing/product-mappings?mode=${m}`).then((r) =>
         r.ok ? r.json() : null,
-      )) as VariantMappingsResponse | null;
+      )) as ProductMappingsResponse | null;
       const bad = (j?.mappings ?? []).filter((x) => x.tierVersionId === versionId && x.status !== "ok");
       if (bad.length > 0) {
         setUnsold({ versionId, label: `${bad[0].tierName} v${bad[0].tierVersion}`, count: bad.length });
@@ -789,14 +789,14 @@ export function TierEntitlementsMatrix({
           <span className="min-w-0 flex-1">
             {actionErr ?? saveErr ??
               (unsold &&
-                `${unsold.label} is published, but ${unsold.count} of its price${unsold.count === 1 ? " is" : "s are"} not sellable yet in Lemon Squeezy.`)}
+                `${unsold.label} is published, but ${unsold.count} of its price${unsold.count === 1 ? " is" : "s are"} not sellable yet in Polar.`)}
           </span>
           {unsold && !actionErr && !saveErr && (
             <Link
               href={`/billing?tab=mapping&version=${encodeURIComponent(unsold.versionId)}`}
               className="shrink-0 font-medium underline underline-offset-2"
             >
-              Map to Lemon Squeezy
+              Map to Polar products
             </Link>
           )}
           <button

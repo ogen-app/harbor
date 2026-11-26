@@ -39,10 +39,10 @@ func seedTenants(t *testing.T, h *harness) {
 
 	at := today.Add(time.Hour)
 	h.payments.payments = []ogenbilling.Payment{
-		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 4900, TotalUSD: 4900, Fee: 300, FeeUSD: 300, OccurredAt: at, TenantID: "t1"},
-		{ID: "p2", ProviderID: "LS-2", Kind: "subscription_invoice", Currency: "USD", Total: 2400, TotalUSD: 2400, Tax: 400, TaxUSD: 400, OccurredAt: at, TenantID: "t2"},
-		{ID: "p3", ProviderID: "LS-9", Kind: "refund", Currency: "USD", Total: 1000, TotalUSD: 1000, OccurredAt: at}, // untenanted
-		{ID: "pt", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: 99900, OccurredAt: at, TenantID: "t1", TestMode: true},
+		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 4900, TotalUSD: new(int64(4900)), Fee: 300, FeeUSD: new(int64(300)), OccurredAt: at, TenantID: "t1"},
+		{ID: "p2", ProviderID: "LS-2", Kind: "subscription_invoice", Currency: "USD", Total: 2400, TotalUSD: new(int64(2400)), Tax: 400, TaxUSD: new(int64(400)), OccurredAt: at, TenantID: "t2"},
+		{ID: "p3", ProviderID: "LS-9", Kind: "refund", Currency: "USD", Total: 1000, TotalUSD: new(int64(1000)), OccurredAt: at}, // untenanted
+		{ID: "pt", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: new(int64(99900)), OccurredAt: at, TenantID: "t1", TestMode: true},
 	}
 	// Sync test mode first, then live: reports follow the mode synced last.
 	h.payments.testMode = true

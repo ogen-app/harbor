@@ -25,7 +25,8 @@ type fakeBilling struct {
 	lastRequired *billingv1.SetBillingRequiredRequest
 	lastTrial    *billingv1.SetFreeTrialTierRequest
 	lastComp     *billingv1.SetComplimentaryRequest
-	lastVariant  *billingv1.SetVariantMappingRequest
+	lastProduct  *billingv1.SetProductMappingRequest
+	lastCutover  *billingv1.InvalidateSubscriptionsRequest
 	cutoverErr   error
 }
 
@@ -46,43 +47,45 @@ func (f *fakeBilling) SetComplimentary(_ context.Context, req *billingv1.SetComp
 func (f *fakeBilling) SetFreeTrialTier(_ context.Context, req *billingv1.SetFreeTrialTierRequest) (*billingv1.SetFreeTrialTierResponse, error) {
 	f.lastTrial = req
 	if req.GetTierId() == "no-trial" {
-		return nil, status.Error(codes.FailedPrecondition, "tier no-trial has no one-month trial variant")
+		return nil, status.Error(codes.FailedPrecondition, "a product of tier no-trial has no one-month trial")
 	}
 	return &billingv1.SetFreeTrialTierResponse{Offer: &billingv1.FreeTrialTier{TierId: req.GetTierId()}}, nil
 }
 
-func (f *fakeBilling) InvalidateTestSubscriptions(_ context.Context, req *billingv1.InvalidateTestSubscriptionsRequest) (*billingv1.InvalidateTestSubscriptionsResponse, error) {
+func (f *fakeBilling) InvalidateSubscriptions(_ context.Context, req *billingv1.InvalidateSubscriptionsRequest) (*billingv1.InvalidateSubscriptionsResponse, error) {
+	f.lastCutover = req
 	if f.cutoverErr != nil {
 		return nil, f.cutoverErr
 	}
-	return &billingv1.InvalidateTestSubscriptionsResponse{DryRun: req.GetDryRun(), Count: 1, TenantIds: []string{"t1"}}, nil
+	return &billingv1.InvalidateSubscriptionsResponse{DryRun: req.GetDryRun(), Count: 1, TenantIds: []string{"t1"}}, nil
 }
 
-// The variant-mapping RPCs (CON-404): the live mode is unreadable (no live API
-// key), and a variant priced unlike the row is refused.
-func (f *fakeBilling) ListVariantMappings(_ context.Context, req *billingv1.ListVariantMappingsRequest) (*billingv1.ListVariantMappingsResponse, error) {
-	return &billingv1.ListVariantMappingsResponse{TestMode: req.GetTestMode(), Checked: req.GetTestMode(), Mappings: []*billingv1.VariantMapping{
+// The product-mapping RPCs (CON-404, renamed in CON-523): the live mode is
+// unreadable (no live access token), and a product priced unlike the row is
+// refused.
+func (f *fakeBilling) ListProductMappings(_ context.Context, req *billingv1.ListProductMappingsRequest) (*billingv1.ListProductMappingsResponse, error) {
+	return &billingv1.ListProductMappingsResponse{TestMode: req.GetTestMode(), Checked: req.GetTestMode(), Mappings: []*billingv1.ProductMapping{
 		{TierVersionPriceId: "p1", TierName: "Max", TierVersion: 1, Interval: "year", Status: "unmapped", Message: "Not mapped"},
 	}}, nil
 }
 
-func (f *fakeBilling) ListProviderVariants(_ context.Context, req *billingv1.ListProviderVariantsRequest) (*billingv1.ListProviderVariantsResponse, error) {
+func (f *fakeBilling) ListProviderProducts(_ context.Context, req *billingv1.ListProviderProductsRequest) (*billingv1.ListProviderProductsResponse, error) {
 	if !req.GetTestMode() {
-		return nil, status.Error(codes.FailedPrecondition, "cannot read that Lemon Squeezy mode: set lemonsqueezy_api_key_live in Harbor → Secrets to read live variants")
+		return nil, status.Error(codes.FailedPrecondition, "cannot read Polar production: set polar_access_token_live in Harbor → Secrets to read production products")
 	}
-	return &billingv1.ListProviderVariantsResponse{Variants: []*billingv1.ProviderVariant{{Id: "123459"}}}, nil
+	return &billingv1.ListProviderProductsResponse{Products: []*billingv1.ProviderProduct{{Id: "prod_max_y"}}}, nil
 }
 
-func (f *fakeBilling) SuggestVariantMappings(_ context.Context, _ *billingv1.SuggestVariantMappingsRequest) (*billingv1.SuggestVariantMappingsResponse, error) {
-	return &billingv1.SuggestVariantMappingsResponse{}, nil
+func (f *fakeBilling) SuggestProductMappings(_ context.Context, _ *billingv1.SuggestProductMappingsRequest) (*billingv1.SuggestProductMappingsResponse, error) {
+	return &billingv1.SuggestProductMappingsResponse{}, nil
 }
 
-func (f *fakeBilling) SetVariantMapping(_ context.Context, req *billingv1.SetVariantMappingRequest) (*billingv1.SetVariantMappingResponse, error) {
-	f.lastVariant = req
-	if req.GetVariantId() == "123461" {
-		return nil, status.Error(codes.FailedPrecondition, "Lemon Squeezy variant 123461 sells €100.00 / month; this price is €120.00 / month.")
+func (f *fakeBilling) SetProductMapping(_ context.Context, req *billingv1.SetProductMappingRequest) (*billingv1.SetProductMappingResponse, error) {
+	f.lastProduct = req
+	if req.GetProductId() == "prod_cheap" {
+		return nil, status.Error(codes.FailedPrecondition, "Polar product prod_cheap sells €100.00 / month; this price is €120.00 / month.")
 	}
-	return &billingv1.SetVariantMappingResponse{Mapping: &billingv1.VariantMapping{TierVersionPriceId: req.GetTierVersionPriceId(), VariantId: req.GetVariantId(), Status: "ok"}}, nil
+	return &billingv1.SetProductMappingResponse{Mapping: &billingv1.ProductMapping{TierVersionPriceId: req.GetTierVersionPriceId(), ProductId: req.GetProductId(), Status: "ok"}}, nil
 }
 
 func newBillingApp(t *testing.T, fake *fakeBilling) *fiber.App {
@@ -137,9 +140,9 @@ func TestBilling_ReadsSoftUnavailable(t *testing.T) {
 		"/api/billing/attention",
 		"/api/billing/free-trial-tier",
 		"/api/tenants/t1/billing",
-		"/api/billing/variant-mappings?mode=test",
-		"/api/billing/provider-variants?mode=live",
-		"/api/billing/variant-suggestions?mode=test",
+		"/api/billing/product-mappings?mode=test",
+		"/api/billing/provider-products?mode=live",
+		"/api/billing/product-suggestions?mode=test",
 	} {
 		code, body := doJSON(t, app, "GET", path, "")
 		if code != fiber.StatusOK {
@@ -177,8 +180,8 @@ func TestBilling_WritesUnavailableAre503(t *testing.T) {
 		{"PUT", "/api/tenants/t1/billing/complimentary", `{"complimentary":false,"reason":"beta ended"}`},
 		{"POST", "/api/tenants/t1/billing/resync", ""},
 		{"PUT", "/api/billing/free-trial-tier", `{"tierId":"pro","reason":"launch"}`},
-		{"POST", "/api/billing/cutover", `{"dryRun":true}`},
-		{"PUT", "/api/billing/variant-mappings/p1", `{"mode":"test","variantId":"1","reason":"created"}`},
+		{"POST", "/api/billing/cutover", `{"dryRun":true,"scope":"provider_switch"}`},
+		{"PUT", "/api/billing/product-mappings/p1", `{"mode":"test","productId":"prod_1","reason":"created"}`},
 	}
 	for _, tc := range cases {
 		if code, _ := doJSON(t, app, tc.method, tc.path, tc.body); code != fiber.StatusServiceUnavailable {
@@ -212,19 +215,15 @@ func TestBilling_ReasonRequired(t *testing.T) {
 	}
 }
 
-// Ogen's FailedPrecondition message (tier without a trial variant, cutover in
-// test mode) reaches the UI unchanged as a 409, so the screen can show it as is.
+// Ogen's FailedPrecondition message (a tier product without a trial) reaches
+// the UI unchanged as a 409, so the screen can show it as is.
 func TestBilling_FailedPreconditionPassesMessage(t *testing.T) {
-	fake := &fakeBilling{cutoverErr: status.Error(codes.FailedPrecondition, "billing still runs in test mode")}
+	fake := &fakeBilling{}
 	app := newBillingApp(t, fake)
 
 	code, body := doJSON(t, app, "PUT", "/api/billing/free-trial-tier", `{"tierId":"no-trial","reason":"launch"}`)
-	if code != fiber.StatusConflict || !strings.Contains(string(body), "no one-month trial variant") {
+	if code != fiber.StatusConflict || !strings.Contains(string(body), "no one-month trial") {
 		t.Errorf("ineligible tier: status = %d, body = %s; want 409 with Ogen's message", code, body)
-	}
-	code, body = doJSON(t, app, "POST", "/api/billing/cutover", `{"dryRun":false}`)
-	if code != fiber.StatusConflict || !strings.Contains(string(body), "test mode") {
-		t.Errorf("cutover in test mode: status = %d, body = %s; want 409 with Ogen's message", code, body)
 	}
 
 	// An empty tier id turns the offer off and is passed through as such.
@@ -261,54 +260,87 @@ func TestBilling_SetComplimentary(t *testing.T) {
 	}
 }
 
-// Variant mapping (CON-404): the mode is required and passed through, a reason
-// is required, an unreadable mode renders Ogen's message as readable:false, and
-// a refused mapping is a 409 with Ogen's message unchanged.
-func TestBilling_VariantMapping(t *testing.T) {
+// The cutover needs an explicit scope, passes it through as the proto enum, and
+// a mode cutover refused in sandbox reads as such.
+func TestBilling_CutoverScope(t *testing.T) {
 	fake := &fakeBilling{}
 	app := newBillingApp(t, fake)
 
-	if code, _ := doJSON(t, app, "GET", "/api/billing/variant-mappings", ""); code != fiber.StatusBadRequest {
+	for _, body := range []string{`{"dryRun":true}`, `{"dryRun":true,"scope":""}`, `{"dryRun":true,"scope":"all"}`} {
+		if code, _ := doJSON(t, app, "POST", "/api/billing/cutover", body); code != fiber.StatusBadRequest {
+			t.Errorf("cutover %s: status = %d, want 400", body, code)
+		}
+	}
+	if fake.lastCutover != nil {
+		t.Fatalf("a cutover reached Ogen without a valid scope")
+	}
+
+	code, body := doJSON(t, app, "POST", "/api/billing/cutover", `{"dryRun":true,"scope":"provider_switch"}`)
+	if code != fiber.StatusOK || !strings.Contains(string(body), `"count":1`) {
+		t.Fatalf("provider switch: status = %d, body = %s", code, body)
+	}
+	if got := fake.lastCutover; !got.GetDryRun() || got.GetScope() != billingv1.InvalidationScope_INVALIDATION_SCOPE_PROVIDER_SWITCH {
+		t.Errorf("InvalidateSubscriptions got %+v, want dry run / provider switch", got)
+	}
+
+	fake.cutoverErr = status.Error(codes.FailedPrecondition, "billing runs in test mode")
+	code, body = doJSON(t, app, "POST", "/api/billing/cutover", `{"dryRun":false,"scope":"mode_cutover"}`)
+	if code != fiber.StatusConflict || !strings.Contains(string(body), "sandbox mode") {
+		t.Errorf("mode cutover in sandbox: status = %d, body = %s; want 409 naming sandbox", code, body)
+	}
+	if got := fake.lastCutover.GetScope(); got != billingv1.InvalidationScope_INVALIDATION_SCOPE_MODE_CUTOVER {
+		t.Errorf("scope = %v, want MODE_CUTOVER", got)
+	}
+}
+
+// Product mapping (CON-404, renamed in CON-523): the mode is required and passed through, a reason
+// is required, an unreadable mode renders Ogen's message as readable:false, and
+// a refused mapping is a 409 with Ogen's message unchanged.
+func TestBilling_ProductMapping(t *testing.T) {
+	fake := &fakeBilling{}
+	app := newBillingApp(t, fake)
+
+	if code, _ := doJSON(t, app, "GET", "/api/billing/product-mappings", ""); code != fiber.StatusBadRequest {
 		t.Errorf("no mode: status = %d, want 400", code)
 	}
-	code, body := doJSON(t, app, "GET", "/api/billing/variant-mappings?mode=live", "")
+	code, body := doJSON(t, app, "GET", "/api/billing/product-mappings?mode=live", "")
 	if code != fiber.StatusOK || !strings.Contains(string(body), `"testMode":false`) || !strings.Contains(string(body), `"checked":false`) || !strings.Contains(string(body), `"tierVersionPriceId":"p1"`) {
 		t.Errorf("live mappings: status = %d, body = %s", code, body)
 	}
 
-	code, body = doJSON(t, app, "GET", "/api/billing/provider-variants?mode=live", "")
-	if code != fiber.StatusOK || !strings.Contains(string(body), `"readable":false`) || !strings.Contains(string(body), "lemonsqueezy_api_key_live") || !strings.Contains(string(body), `"variants":[]`) {
-		t.Errorf("unreadable live variants: status = %d, body = %s", code, body)
+	code, body = doJSON(t, app, "GET", "/api/billing/provider-products?mode=live", "")
+	if code != fiber.StatusOK || !strings.Contains(string(body), `"readable":false`) || !strings.Contains(string(body), "polar_access_token_live") || !strings.Contains(string(body), `"products":[]`) {
+		t.Errorf("unreadable live products: status = %d, body = %s", code, body)
 	}
-	code, body = doJSON(t, app, "GET", "/api/billing/provider-variants?mode=test", "")
-	if code != fiber.StatusOK || !strings.Contains(string(body), `"readable":true`) || !strings.Contains(string(body), `"id":"123459"`) {
-		t.Errorf("test variants: status = %d, body = %s", code, body)
+	code, body = doJSON(t, app, "GET", "/api/billing/provider-products?mode=test", "")
+	if code != fiber.StatusOK || !strings.Contains(string(body), `"readable":true`) || !strings.Contains(string(body), `"id":"prod_max_y"`) {
+		t.Errorf("test products: status = %d, body = %s", code, body)
 	}
-	code, body = doJSON(t, app, "GET", "/api/billing/variant-suggestions?mode=test", "")
+	code, body = doJSON(t, app, "GET", "/api/billing/product-suggestions?mode=test", "")
 	if code != fiber.StatusOK || !strings.Contains(string(body), `"suggestions":[]`) {
 		t.Errorf("suggestions: status = %d, body = %s", code, body)
 	}
 
-	if code, _ := doJSON(t, app, "PUT", "/api/billing/variant-mappings/p1", `{"mode":"test","variantId":"123459","reason":" "}`); code != fiber.StatusBadRequest {
+	if code, _ := doJSON(t, app, "PUT", "/api/billing/product-mappings/p1", `{"mode":"test","productId":"prod_max_y","reason":" "}`); code != fiber.StatusBadRequest {
 		t.Errorf("without reason: status = %d, want 400", code)
 	}
-	if code, _ := doJSON(t, app, "PUT", "/api/billing/variant-mappings/p1", `{"variantId":"123459","reason":"x"}`); code != fiber.StatusBadRequest {
+	if code, _ := doJSON(t, app, "PUT", "/api/billing/product-mappings/p1", `{"productId":"prod_max_y","reason":"x"}`); code != fiber.StatusBadRequest {
 		t.Errorf("without mode: status = %d, want 400", code)
 	}
-	if fake.lastVariant != nil {
+	if fake.lastProduct != nil {
 		t.Fatalf("a request reached Ogen without a reason or mode")
 	}
 
-	code, body = doJSON(t, app, "PUT", "/api/billing/variant-mappings/p2", `{"mode":"test","variantId":"123461","reason":"price change"}`)
+	code, body = doJSON(t, app, "PUT", "/api/billing/product-mappings/p2", `{"mode":"test","productId":"prod_cheap","reason":"price change"}`)
 	if code != fiber.StatusConflict || !strings.Contains(string(body), "sells €100.00 / month") {
 		t.Errorf("refused mapping: status = %d, body = %s; want 409 with Ogen's message", code, body)
 	}
 
-	code, body = doJSON(t, app, "PUT", "/api/billing/variant-mappings/p1", `{"mode":"live","variantId":"","reason":" retired "}`)
+	code, body = doJSON(t, app, "PUT", "/api/billing/product-mappings/p1", `{"mode":"live","productId":"","reason":" retired "}`)
 	if code != fiber.StatusOK {
 		t.Fatalf("unmap: status = %d, body = %s", code, body)
 	}
-	if got := fake.lastVariant; got.GetTierVersionPriceId() != "p1" || got.GetTestMode() || got.GetVariantId() != "" || got.GetReason() != "retired" {
-		t.Errorf("SetVariantMapping got %+v, want p1/live/unmap/trimmed reason", got)
+	if got := fake.lastProduct; got.GetTierVersionPriceId() != "p1" || got.GetTestMode() || got.GetProductId() != "" || got.GetReason() != "retired" {
+		t.Errorf("SetProductMapping got %+v, want p1/live/unmap/trimmed reason", got)
 	}
 }

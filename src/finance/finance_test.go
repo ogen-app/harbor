@@ -279,9 +279,9 @@ func TestRevenueSync(t *testing.T) {
 	ctx := t.Context()
 	at := func(d int) time.Time { return time.Date(2026, 10, d, 9, 0, 0, 0, time.UTC) }
 	h.payments.payments = []ogenbilling.Payment{
-		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 2400, TotalUSD: 2400, Tax: 400, TaxUSD: 400, Fee: 170, FeeUSD: 170, FeeIsEstimated: true, OccurredAt: at(3), TenantID: "t1"},
-		{ID: "p2", ProviderID: "LS-1", Kind: "refund", Currency: "USD", Total: 2400, TotalUSD: 2400, OccurredAt: at(20)},
-		{ID: "p3", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: 99900, OccurredAt: at(5), TestMode: true},
+		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 2400, TotalUSD: new(int64(2400)), Tax: 400, TaxUSD: new(int64(400)), Fee: 170, FeeUSD: new(int64(170)), FeeIsEstimated: true, OccurredAt: at(3), TenantID: "t1"},
+		{ID: "p2", ProviderID: "LS-1", Kind: "refund", Currency: "USD", Total: 2400, TotalUSD: new(int64(2400)), OccurredAt: at(20)},
+		{ID: "p3", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: new(int64(99900)), OccurredAt: at(5), TestMode: true},
 	}
 	for range 2 {
 		if err := h.svc.SyncRevenue(ctx); err != nil {

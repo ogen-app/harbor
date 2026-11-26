@@ -22,107 +22,120 @@ import { Loader } from "@/components/ui/loader";
 import { cn } from "@/lib/utils";
 import {
   Chip,
-  LEMON_SQUEEZY_PRODUCTS,
   errorText,
   formatMoney,
   intervalLabel,
+  polarProductsUrl,
+  priceIn,
+  pricesLabel,
   trialLabel,
+  type PolarOrg,
 } from "./format";
 import type {
   BillingMode,
-  ProviderVariant,
-  ProviderVariantsResponse,
-  VariantMapping,
+  ProviderProduct,
+  ProviderProductsResponse,
+  ProductMapping,
 } from "./types";
 
-// Fit is how a store variant relates to the price being mapped. Harbor only
+// Fit is how a Polar product relates to the price being mapped. Harbor only
 // greys out what can't possibly match; Ogen re-checks on save and its refusal
 // is shown as is.
 type Fit =
   | { ok: true; current: boolean; suggested: boolean }
   | { ok: false; why: string };
 
-function hasMonthTrial(v: ProviderVariant): boolean {
-  return v.hasFreeTrial && v.trialInterval === "month" && (v.trialIntervalCount || 1) === 1;
+function hasMonthTrial(p: ProviderProduct): boolean {
+  return p.hasFreeTrial && p.trialInterval === "month" && (p.trialIntervalCount || 1) === 1;
 }
 
-export function variantFit(
-  row: VariantMapping,
-  v: ProviderVariant,
+export function productFit(
+  row: ProductMapping,
+  p: ProviderProduct,
   suggestedId: string,
-  mappings: VariantMapping[],
+  mappings: ProductMapping[],
 ): Fit {
-  if (v.mappedPriceId && v.mappedPriceId !== row.tierVersionPriceId) {
-    const other = mappings.find((m) => m.tierVersionPriceId === v.mappedPriceId);
+  if (p.archived) return { ok: false, why: "Archived" };
+  // A product sells one price row per currency: it is taken only by another
+  // row in this row's currency.
+  const cur = row.currency.toUpperCase();
+  const taken = p.mappedPriceIds
+    .filter((id) => id !== row.tierVersionPriceId)
+    .map((id) => mappings.find((m) => m.tierVersionPriceId === id))
+    .find((m) => m && m.currency.toUpperCase() === cur);
+  if (taken) {
     return {
       ok: false,
-      why: other
-        ? `Mapped to ${other.tierName} v${other.tierVersion} ${intervalLabel(other.interval)}`
-        : "Sells another price",
+      why: `Sells ${taken.tierName} v${taken.tierVersion} ${intervalLabel(taken.interval)} in ${cur}`,
     };
   }
-  if (v.currency.toUpperCase() !== row.currency.toUpperCase()) {
-    return { ok: false, why: "Currency differs" };
+  const price = priceIn(p.prices, cur);
+  if (!price) return { ok: false, why: `No ${cur} price` };
+  if (p.interval !== row.interval || (p.intervalCount || 1) !== 1) {
+    return { ok: false, why: "Interval differs" };
   }
-  if (v.interval !== row.interval) return { ok: false, why: "Interval differs" };
-  if (v.priceMinor !== row.netMinor) return { ok: false, why: "Price differs" };
-  if (row.freeTrialTier && !hasMonthTrial(v)) return { ok: false, why: "No 1-month trial" };
+  if (price.amountMinor !== row.netMinor) return { ok: false, why: "Price differs" };
+  if (row.freeTrialTier && !hasMonthTrial(p)) return { ok: false, why: "No 1-month trial" };
   return {
     ok: true,
-    current: v.id === row.variantId,
-    suggested: v.id === suggestedId,
+    current: p.id === row.productId,
+    suggested: p.id === suggestedId,
   };
 }
 
-// VariantMapDrawer maps one tier price to the Lemon Squeezy variant that sells
-// it (CON-407 §B). Step 1 is the checklist of what to create in the Lemon
-// Squeezy dashboard, built from the price row; step 2 picks the variant from the
-// store (ListProviderVariants) with the suggestion preselected. A reason is
-// required; a refusal (FailedPrecondition) is Ogen's message, shown as is under
-// the choice, and keeps "Map variant" disabled until the choice changes.
-export function VariantMapDrawer({
+// ProductMapDrawer maps one tier price to the Polar product that sells it
+// (CON-407 §B, Polar since CON-523). Step 1 is the checklist of what to create
+// in the Polar dashboard, built from the price row; step 2 picks the product
+// from the organization (ListProviderProducts) with the suggestion preselected.
+// A reason is required; a refusal (FailedPrecondition) is Ogen's message, shown
+// as is under the choice, and keeps "Map product" disabled until the choice
+// changes.
+export function ProductMapDrawer({
   open,
   onOpenChange,
   row,
   mode,
-  suggestedVariantId,
+  org,
+  suggestedProductId,
   mappings,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  row: VariantMapping | null;
+  row: ProductMapping | null;
   mode: BillingMode;
-  suggestedVariantId: string;
-  mappings: VariantMapping[];
+  // The Polar organization of this mode, for the dashboard link.
+  org: PolarOrg;
+  suggestedProductId: string;
+  mappings: ProductMapping[];
   onSaved: (message: string) => void;
 }) {
-  const [variants, setVariants] = useState<ProviderVariantsResponse | null>(null);
+  const [products, setProducts] = useState<ProviderProductsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  // Ogen's refusal of a particular variant; cleared when the choice changes.
-  const [refusal, setRefusal] = useState<{ variantId: string; message: string } | null>(null);
+  // Ogen's refusal of a particular product; cleared when the choice changes.
+  const [refusal, setRefusal] = useState<{ productId: string; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmUnmap, setConfirmUnmap] = useState(false);
 
   const load = useCallback(
     (signal?: AbortSignal) => {
       setLoading(true);
-      return fetch(`/api/billing/provider-variants?mode=${mode}`, { signal })
+      return fetch(`/api/billing/provider-products?mode=${mode}`, { signal })
         .then(async (r) => {
           if (!r.ok) throw new Error(await errorText(r));
-          return r.json() as Promise<ProviderVariantsResponse>;
+          return r.json() as Promise<ProviderProductsResponse>;
         })
         .then((j) => {
-          setVariants(j);
+          setProducts(j);
           setLoadError(null);
         })
         .catch((e: unknown) => {
           if (signal?.aborted) return;
-          setLoadError(e instanceof Error ? e.message : "Failed to load the store’s variants.");
+          setLoadError(e instanceof Error ? e.message : "Failed to load the Polar products.");
         })
         .finally(() => {
           if (!signal?.aborted) setLoading(false);
@@ -135,62 +148,65 @@ export function VariantMapDrawer({
   useEffect(() => {
     if (!open || !row) return;
     /* eslint-disable react-hooks/set-state-in-effect */
-    setSelected(suggestedVariantId || row.variantId);
+    setSelected(suggestedProductId || row.productId);
     setReason("");
     setRefusal(null);
     setError(null);
     setConfirmUnmap(false);
-    setVariants(null);
+    setProducts(null);
     /* eslint-enable react-hooks/set-state-in-effect */
     const controller = new AbortController();
     load(controller.signal);
     return () => controller.abort();
-  }, [open, row, suggestedVariantId, load]);
+  }, [open, row, suggestedProductId, load]);
 
   const options = useMemo(() => {
-    if (!row || !variants) return [];
+    if (!row || !products) return [];
     const rank = (f: Fit) => (!f.ok ? 3 : f.suggested ? 0 : f.current ? 1 : 2);
-    return variants.variants
-      .map((v) => ({ v, fit: variantFit(row, v, suggestedVariantId, mappings) }))
+    return products.products
+      .map((p) => ({ p, fit: productFit(row, p, suggestedProductId, mappings) }))
       .sort((a, b) => rank(a.fit) - rank(b.fit));
-  }, [row, variants, suggestedVariantId, mappings]);
+  }, [row, products, suggestedProductId, mappings]);
 
   if (!row) return null;
 
   const label = `${row.tierName} v${row.tierVersion} · ${intervalLabel(row.interval)}`;
-  const mapped = !!row.variantId;
-  const needsCreating = !mapped || row.status === "variant_missing";
+  const mapped = !!row.productId;
+  const needsCreating =
+    !mapped || row.status === "product_missing" || row.status === "product_archived";
   const price = formatMoney(row.netMinor, row.currency);
   const per = row.interval === "year" ? "year" : row.interval;
   const reasonOk = reason.trim().length > 0;
-  const refused = !!refusal && refusal.variantId === selected;
+  const refused = !!refusal && refusal.productId === selected;
   const canMap =
-    !!selected && selected !== row.variantId && reasonOk && !busy && !refused;
+    !!selected && selected !== row.productId && reasonOk && !busy && !refused;
+  const modeName = mode === "test" ? "sandbox" : "production";
 
-  const save = async (variantId: string) => {
+  const save = async (productId: string) => {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(
-        `/api/billing/variant-mappings/${encodeURIComponent(row.tierVersionPriceId)}`,
+        `/api/billing/product-mappings/${encodeURIComponent(row.tierVersionPriceId)}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode, variantId, reason: reason.trim() }),
+          body: JSON.stringify({ mode, productId, reason: reason.trim() }),
         },
       );
       if (res.status === 409) {
         const message = await errorText(res);
-        if (variantId) setRefusal({ variantId, message });
+        if (productId) setRefusal({ productId, message });
         else setError(message);
         return;
       }
       if (!res.ok) throw new Error(await errorText(res));
       onOpenChange(false);
+      const name = products?.products.find((p) => p.id === productId)?.name ?? productId;
       onSaved(
-        variantId
-          ? `${label} mapped to variant ${variantId} (${mode}).`
-          : `${label} unmapped (${mode}).`,
+        productId
+          ? `${label} mapped to ${name} (${modeName}).`
+          : `${label} unmapped (${modeName}).`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Saving the mapping failed.");
@@ -216,18 +232,25 @@ export function VariantMapDrawer({
         <DrawerBody className="space-y-6">
           {needsCreating && (
             <section className="space-y-3">
-              <StepTitle>
-                1 · Create in Lemon Squeezy ({mode === "test" ? "test mode" : "live mode"})
-              </StepTitle>
+              <StepTitle>1 · Create in Polar ({modeName})</StepTitle>
               <dl className="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2.5 rounded-lg bg-secondary/50 px-4 py-3 text-sm">
                 <dt className="text-tertiary-foreground">Product</dt>
-                <dd className="font-medium">{row.tierName}</dd>
-                <dt className="text-tertiary-foreground">Variant</dt>
-                <dd className="font-medium">{intervalLabel(row.interval)}</dd>
-                <dt className="text-tertiary-foreground">Price</dt>
-                <dd className="font-medium">{price}, excluding tax</dd>
+                <dd className="font-medium">
+                  {row.tierName} {intervalLabel(row.interval).toLowerCase()}
+                  <span className="block text-xs font-normal text-tertiary-foreground">
+                    One product per interval: monthly and yearly are separate products.
+                  </span>
+                </dd>
                 <dt className="text-tertiary-foreground">Billing</dt>
-                <dd className="font-medium">Subscription, every 1 {per}</dd>
+                <dd className="font-medium">Recurring, every 1 {per}</dd>
+                <dt className="text-tertiary-foreground">Price</dt>
+                <dd className="font-medium">
+                  Fixed price {price} in {row.currency.toUpperCase()}
+                  <span className="block text-xs font-normal text-tertiary-foreground">
+                    Compared on the amount excluding tax. Add the product’s other
+                    currencies to the same product.
+                  </span>
+                </dd>
                 {row.countryCode && (
                   <>
                     <dt className="text-tertiary-foreground">Country</dt>
@@ -240,22 +263,24 @@ export function VariantMapDrawer({
                     ? `1 month — ${row.tierName} is the free-month tier`
                     : `None — ${row.tierName} is not the free-month tier`}
                 </dd>
+                <dt className="text-tertiary-foreground">Discounts</dt>
+                <dd className="font-medium">None — checkouts never accept discount codes</dd>
               </dl>
               <a
-                href={LEMON_SQUEEZY_PRODUCTS}
+                href={polarProductsUrl(org)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm underline underline-offset-2 hover:text-foreground"
               >
                 <ArrowSquareOutIcon className="size-4" />
-                Open products in Lemon Squeezy
+                Open products in Polar
               </a>
             </section>
           )}
 
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <StepTitle>{needsCreating ? "2 · " : ""}Choose the variant</StepTitle>
+              <StepTitle>{needsCreating ? "2 · " : ""}Choose the product</StepTitle>
               <Button
                 type="button"
                 variant="ghost"
@@ -268,40 +293,42 @@ export function VariantMapDrawer({
               </Button>
             </div>
 
-            {loading && !variants ? (
+            {loading && !products ? (
               <div className="flex items-center gap-2 text-sm text-tertiary-foreground">
                 <Loader className="size-4" />
-                Reading the store…
+                Reading Polar…
               </div>
             ) : loadError ? (
               <p className="text-sm text-destructive">{loadError}</p>
-            ) : variants && !variants.available ? (
+            ) : products && !products.available ? (
               <p className="text-sm text-tertiary-foreground">
                 The billing-admin service is unavailable.
               </p>
-            ) : variants && !variants.readable ? (
-              // Ogen's FailedPrecondition, as is (e.g. the live key is not set).
+            ) : products && !products.readable ? (
+              // Ogen's FailedPrecondition, as is (e.g. the production token is not set).
               <p className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
-                {variants.message}
+                {products.message}
               </p>
             ) : options.length === 0 ? (
               <p className="text-sm text-tertiary-foreground">
-                The {mode} store has no subscription variants yet. Create one in
-                Lemon Squeezy, then Refresh.
+                The {modeName} organization has no recurring products yet. Create
+                one in Polar, then Refresh.
               </p>
             ) : (
-              <div role="radiogroup" aria-label="Lemon Squeezy variant" className="space-y-2">
-                {options.map(({ v, fit }) => (
-                  <VariantOption
-                    key={v.id}
-                    variant={v}
+              <div role="radiogroup" aria-label="Polar product" className="space-y-2">
+                {options.map(({ p, fit }) => (
+                  <ProductOption
+                    key={p.id}
+                    product={p}
+                    row={row}
                     fit={fit}
-                    checked={selected === v.id}
+                    mappings={mappings}
+                    checked={selected === p.id}
                     onSelect={() => {
-                      setSelected(v.id);
+                      setSelected(p.id);
                       setError(null);
                     }}
-                    refusal={refusal?.variantId === v.id ? refusal.message : null}
+                    refusal={refusal?.productId === p.id ? refusal.message : null}
                   />
                 ))}
               </div>
@@ -309,12 +336,12 @@ export function VariantMapDrawer({
           </section>
 
           <section className="grid gap-1.5">
-            <Label htmlFor="variant-reason">Reason</Label>
+            <Label htmlFor="product-reason">Reason</Label>
             <Input
-              id="variant-reason"
+              id="product-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder={`e.g. ${row.tierName} ${intervalLabel(row.interval).toLowerCase()} created in the ${mode} store`}
+              placeholder={`e.g. ${row.tierName} ${intervalLabel(row.interval).toLowerCase()} created in the Polar ${modeName}`}
               autoComplete="off"
             />
             <p className="text-xs text-tertiary-foreground">
@@ -332,7 +359,7 @@ export function VariantMapDrawer({
             <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
               <p>
                 Unmap {label}? Until it is mapped again, the pricing page shows
-                this price as unavailable in {mode} mode. Uses the reason above.
+                this price as unavailable in {modeName}. Uses the reason above.
               </p>
               <div className="flex justify-end gap-2">
                 <Button
@@ -382,7 +409,7 @@ export function VariantMapDrawer({
               disabled={!canMap}
               onClick={() => save(selected)}
             >
-              {busy && !confirmUnmap ? "Mapping…" : "Map variant"}
+              {busy && !confirmUnmap ? "Mapping…" : "Map product"}
             </Button>
           </div>
         </DrawerFooter>
@@ -399,20 +426,30 @@ function StepTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function VariantOption({
-  variant: v,
+function ProductOption({
+  product: p,
+  row,
   fit,
+  mappings,
   checked,
   onSelect,
   refusal,
 }: {
-  variant: ProviderVariant;
+  product: ProviderProduct;
+  row: ProductMapping;
   fit: Fit;
+  mappings: ProductMapping[];
   checked: boolean;
   onSelect: () => void;
   refusal: string | null;
 }) {
   const disabled = !fit.ok;
+  const matched = priceIn(p.prices, row.currency);
+  // The rows it already sells (one per currency), named when they are known.
+  const sells = p.mappedPriceIds.map((id) => {
+    const m = mappings.find((x) => x.tierVersionPriceId === id);
+    return m ? `${m.tierName} v${m.tierVersion} ${m.currency.toUpperCase()}` : id;
+  });
   return (
     <div
       className={cn(
@@ -433,22 +470,37 @@ function VariantOption({
       >
         <input
           type="radio"
-          name="lemon-squeezy-variant"
+          name="polar-product"
           className="mt-1 accent-foreground"
           checked={checked}
           disabled={disabled}
           onChange={onSelect}
         />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">
-            {v.productName} · {v.name}{" "}
-            <span className="font-normal text-tertiary-foreground">#{v.id}</span>
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <span className="truncate">{p.name}</span>
+            {p.archived && <Chip tone="bad" label="Archived" />}
           </span>
           <span className="block text-xs text-tertiary-foreground">
-            {formatMoney(v.priceMinor, v.currency)} / {v.interval} · {v.currency.toUpperCase()} ·{" "}
-            {trialLabel(v)}
-            {v.status && v.status !== "published" ? ` · ${v.status}` : ""}
+            {matched ? (
+              <span className="font-medium text-secondary-foreground">
+                {formatMoney(matched.amountMinor, matched.currency)}
+              </span>
+            ) : (
+              <span className="text-red-700">no {row.currency.toUpperCase()} price</span>
+            )}{" "}
+            / {(p.intervalCount || 1) > 1 ? `${p.intervalCount} ${p.interval}s` : p.interval} ·{" "}
+            {trialLabel(p)}
           </span>
+          <span className="block truncate text-xs text-tertiary-foreground">
+            Prices: {pricesLabel(p.prices)}
+          </span>
+          {sells.length > 0 && (
+            <span className="block truncate text-xs text-tertiary-foreground">
+              Sells: {sells.join(" · ")}
+            </span>
+          )}
+          <span className="block truncate font-mono text-[11px] text-tertiary-foreground">{p.id}</span>
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1 text-right text-xs">
           {fit.ok ? (

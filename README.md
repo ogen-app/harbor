@@ -39,11 +39,14 @@ Access is gated by **Google sign-in** against an email allowlist.
   versioned entitlements: draft, publish, retire, and pin tenants to a version.
 - **Announcements** (`/announcements`) — author, schedule, and manage tenant
   announcements, with click stats.
-- **Billing** (`/billing`) — Lemon Squeezy oversight: provider mode and
-  secrets status, the attention list (past due, unpaid, expired trials,
-  duplicates, unresolved webhooks) with suspend / move-tier / resync actions,
-  the free-month tier offer, and the sandbox→live cutover. Per-workspace
-  subscriptions, comp/exempt and the webhook log are on the tenant Billing tab.
+- **Billing** (`/billing`) — Polar oversight: provider mode (sandbox or
+  production), organization and secrets status, the attention list (past due,
+  unpaid, expired trials, duplicates, unresolved webhooks, unsellable prices)
+  with suspend / move-tier / resync actions, the free-month tier offer, and the
+  cutovers (Lemon Squeezy → Polar provider switch, sandbox → production). The
+  Product mapping tab maps each sellable tier price to the Polar product that
+  sells it. Per-workspace subscriptions (incl. a downgrade pending at Polar),
+  comp/exempt and the webhook log are on the tenant Billing tab.
 
 **System**
 
@@ -208,14 +211,18 @@ GET|PUT|DELETE  /api/announcements/:id
 PUT             /api/announcements/:id/status
 
 # Billing
-GET    /api/billing/settings              provider, test/live, configured, share-link origin
+GET    /api/billing/settings              provider, sandbox/production, organization, configured, share-link origin
 GET    /api/billing/attention             workspaces needing a decision (?page_token=)
 GET|PUT /api/billing/free-trial-tier      the free-month offer (PUT tierId "" turns it off)
-POST   /api/billing/cutover               sandbox→live cutover ({dryRun})
+POST   /api/billing/cutover               invalidate subscriptions ({dryRun, scope: provider_switch | mode_cutover})
+GET    /api/billing/product-mappings      sellable prices + their Polar product and check (?mode=test|live)
+PUT    /api/billing/product-mappings/:priceId  map / unmap ({mode, productId, reason})
+GET    /api/billing/provider-products     the organization's recurring products (?mode=)
+GET    /api/billing/product-suggestions   proposed products for unmapped prices (?mode=)
 GET    /api/tenants/:id/billing           a workspace's subscriptions, changes, webhooks
 PUT    /api/tenants/:id/billing/required  comp/exempt ({required, reason})
 PUT    /api/tenants/:id/billing/complimentary  tester comp on/off ({complimentary, reason})
-POST   /api/tenants/:id/billing/resync    re-read subscriptions from Lemon Squeezy
+POST   /api/tenants/:id/billing/resync    re-read subscriptions from Polar
 
 # Invites + signup mode (created_by / updated_by = the signed-in operator)
 GET|PUT  /api/signup-settings          mode (open | invite_only) + workspace cap

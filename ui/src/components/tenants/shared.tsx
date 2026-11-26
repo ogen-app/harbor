@@ -46,7 +46,7 @@ export interface Tenant {
   // zero-filled array when the tenant simply had no events.
   activity?: number[] | null;
   // Billing summary from Ogen (CON-327): "" when billing is off or unreachable;
-  // not_required; awaiting_checkout; or the Lemon Squeezy subscription status.
+  // not_required; awaiting_checkout; or Ogen's subscription status.
   billingStatus?: string;
   // Month to date from the Harbor ledger (CON-434), through the same formula
   // as the Tenant P&L tab. revenueMicros is net revenue, null when the tenant

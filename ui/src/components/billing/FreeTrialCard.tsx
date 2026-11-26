@@ -12,10 +12,11 @@ import { ReasonDialog, type ReasonRequest } from "./ReasonDialog";
 import type { FreeTrialTierResponse } from "./types";
 
 // FreeTrialCard manages the marketing "1 month free" offer (CON-322 §5.7): which
-// single tier currently carries it (card in Lemon Squeezy → $0 → one month →
-// the tier's normal price), switching it, turning it off, and the share link.
-// Only tiers whose Lemon Squeezy trial variants exist (eligibleTierIds) are
-// offered; Ogen still re-checks and its FailedPrecondition message is shown as is.
+// single tier currently carries it (card at checkout → nothing charged today →
+// one month → the tier's normal price), switching it, turning it off, and the
+// share link. Only tiers whose Polar products all carry a 1-month trial
+// (eligibleTierIds) are offered; Ogen still re-checks and its
+// FailedPrecondition message is shown as is.
 export function FreeTrialCard({
   tiers,
   appBaseUrl,
@@ -101,8 +102,8 @@ export function FreeTrialCard({
             Free-month offer
           </h2>
           <p className="mt-1 max-w-xl text-xs text-tertiary-foreground">
-            One tier at a time can start with a free month: card in Lemon
-            Squeezy, $0 today, then the tier’s normal price. Changes apply to new
+            One tier at a time can start with a free month: card at checkout,
+            nothing charged today, then the tier’s normal price. Changes apply to new
             checkouts only — people already in their free month keep it — and
             public pricing pages pick them up within 5 minutes. Each account gets
             one free month in total.
@@ -138,8 +139,8 @@ export function FreeTrialCard({
           <>
             {eligible.length === 0 ? (
               <p className="text-sm text-tertiary-foreground">
-                No tier has one-month trial variants in Lemon Squeezy yet. Add a
-                trial variant for every price of a tier to make it eligible.
+                No tier is sold by Polar products with a 1-month trial yet. Give
+                every product of a tier a 1-month trial to make it eligible.
               </p>
             ) : (
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Free-month tier">
@@ -176,8 +177,8 @@ export function FreeTrialCard({
 
             {current && !eligible.includes(current) && (
               <p className="text-xs text-amber-700">
-                The current tier is no longer eligible (its trial variants are
-                missing). Pick another tier or turn the offer off.
+                The current tier is no longer eligible (one of its Polar products
+                has no 1-month trial). Pick another tier or turn the offer off.
               </p>
             )}
 

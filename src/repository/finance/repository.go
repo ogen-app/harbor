@@ -386,6 +386,10 @@ func (r *Repository) UpsertAIEntries(ctx context.Context, entries []LedgerEntry)
 			On("CONFLICT (source, booked_date, vendor_id, COALESCE(model, ''), COALESCE(tenant_id, '')) WHERE source = 'token_pipeline' DO UPDATE").
 			Set("amount_micros = EXCLUDED.amount_micros").
 			Set("amount_usd_micros = EXCLUDED.amount_usd_micros").
+			Set("fx_rate = EXCLUDED.fx_rate").
+			Set("fx_date = EXCLUDED.fx_date").
+			Set("fx_source = EXCLUDED.fx_source").
+			Set("vendor_id = EXCLUDED.vendor_id").
 			Set("description = EXCLUDED.description").
 			Set("voided_at = NULL").
 			Set("updated_at = now()").

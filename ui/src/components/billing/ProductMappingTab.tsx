@@ -15,26 +15,28 @@ import { LabelChip } from "@/components/tenants/shared";
 import { cn } from "@/lib/utils";
 import {
   Chip,
-  LEMON_SQUEEZY_PRODUCTS,
   MappingStatusBadge,
   errorText,
   formatMoney,
   intervalLabel,
+  polarProductsUrl,
+  priceIn,
   trialLabel,
   useTierCatalog,
+  type PolarOrg,
 } from "./format";
-import { VariantMapDrawer } from "./VariantMapDrawer";
+import { ProductMapDrawer } from "./ProductMapDrawer";
 import type {
   BillingMode,
   BillingSettings,
   BillingSettingsResponse,
-  ProviderVariant,
-  VariantMapping,
-  VariantMappingsResponse,
-  VariantSuggestionsResponse,
+  ProviderProduct,
+  ProductMapping,
+  ProductMappingsResponse,
+  ProductSuggestionsResponse,
 } from "./types";
 
-// Columns: tier + version · interval · price excl. tax · variant · check · action.
+// Columns: tier + version · interval · price excl. tax · product · check · action.
 const GRID =
   "grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,2fr)_minmax(0,2fr)_6rem] items-center gap-3";
 
@@ -45,12 +47,13 @@ export interface MappingFocus {
   priceId?: string;
 }
 
-// VariantMappingTab is Billing → Variant mapping (CON-407 §A): every sellable
-// tier price and the Lemon Squeezy variant that sells it, in test or live mode,
-// with Ogen's check of each pair. Unmapped prices with a suggestion can be
+// ProductMappingTab is Billing → Product mapping (CON-407 §A, Polar since
+// CON-523): every sellable tier price and the Polar product that sells it, in
+// sandbox or production, with Ogen's check of each pair. A product carries a
+// fixed price per currency; each row shows the one in its own currency. Unmapped prices with a suggestion can be
 // accepted together; every problem row has one action, which opens the map
 // drawer. All checks and messages are Ogen's; nothing here invents a status.
-export function VariantMappingTab({
+export function ProductMappingTab({
   focus,
   onFocusChange,
 }: {
@@ -79,9 +82,14 @@ export function VariantMappingTab({
     return () => controller.abort();
   }, []);
   const runsTest = settings?.testMode ?? true;
+  // The organization id is the running mode's; the other mode's dashboard
+  // link lands on its host without one.
+  const org: PolarOrg = settings && settings.testMode === (mode === "test")
+    ? settings
+    : { organizationId: "", testMode: mode === "test" };
 
-  const [lists, setLists] = useState<Partial<Record<BillingMode, VariantMappingsResponse>>>({});
-  const [suggestions, setSuggestions] = useState<Partial<Record<BillingMode, VariantSuggestionsResponse>>>({});
+  const [lists, setLists] = useState<Partial<Record<BillingMode, ProductMappingsResponse>>>({});
+  const [suggestions, setSuggestions] = useState<Partial<Record<BillingMode, ProductSuggestionsResponse>>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ msg: string; error?: boolean } | null>(null);
   // Per-row refusals from "Accept all suggestions", keyed by price id.
@@ -90,7 +98,7 @@ export function VariantMappingTab({
   const [bulkReason, setBulkReason] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerRow, setDrawerRow] = useState<VariantMapping | null>(null);
+  const [drawerRow, setDrawerRow] = useState<ProductMapping | null>(null);
 
   // Both maps are read so the switch can show each side's coverage; the
   // suggestions are read for the visible mode only.
@@ -101,10 +109,10 @@ export function VariantMappingTab({
         return r.json() as Promise<T>;
       });
     return Promise.all([
-      get<VariantMappingsResponse>("/api/billing/variant-mappings?mode=test"),
-      get<VariantMappingsResponse>("/api/billing/variant-mappings?mode=live"),
-      get<VariantSuggestionsResponse>("/api/billing/variant-suggestions?mode=test"),
-      get<VariantSuggestionsResponse>("/api/billing/variant-suggestions?mode=live"),
+      get<ProductMappingsResponse>("/api/billing/product-mappings?mode=test"),
+      get<ProductMappingsResponse>("/api/billing/product-mappings?mode=live"),
+      get<ProductSuggestionsResponse>("/api/billing/product-suggestions?mode=test"),
+      get<ProductSuggestionsResponse>("/api/billing/product-suggestions?mode=live"),
     ])
       .then(([test, live, sTest, sLive]) => {
         setLists({ test, live });
@@ -113,7 +121,7 @@ export function VariantMappingTab({
       })
       .catch((e: unknown) => {
         if (signal?.aborted) return;
-        setLoadError(e instanceof Error ? e.message : "Failed to load the variant map.");
+        setLoadError(e instanceof Error ? e.message : "Failed to load the product map.");
       });
   }, []);
 
@@ -131,8 +139,8 @@ export function VariantMappingTab({
   const list = lists[mode];
   const allRows = useMemo(() => list?.mappings ?? [], [list]);
   const suggestionFor = useMemo(() => {
-    const m = new Map<string, ProviderVariant>();
-    for (const s of suggestions[mode]?.suggestions ?? []) m.set(s.tierVersionPriceId, s.variant);
+    const m = new Map<string, ProviderProduct>();
+    for (const s of suggestions[mode]?.suggestions ?? []) m.set(s.tierVersionPriceId, s.product);
     return m;
   }, [suggestions, mode]);
 
@@ -144,7 +152,7 @@ export function VariantMappingTab({
     [allRows, focus.versionId],
   );
   const pending = rows.filter(
-    (r) => !r.variantId && suggestionFor.has(r.tierVersionPriceId),
+    (r) => !r.productId && suggestionFor.has(r.tierVersionPriceId),
   );
 
   // Open the drawer a deep link asked for, once that mode's rows are in.
@@ -158,7 +166,7 @@ export function VariantMappingTab({
     onFocusChange({ versionId: focus.versionId });
   }, [focus.priceId, focus.versionId, list, settingsRead, onFocusChange]);
 
-  const openRow = (row: VariantMapping) => {
+  const openRow = (row: ProductMapping) => {
     setDrawerRow(row);
     setDrawerOpen(true);
   };
@@ -177,15 +185,15 @@ export function VariantMappingTab({
     const errors: Record<string, string> = {};
     let done = 0;
     for (const row of pending) {
-      const v = suggestionFor.get(row.tierVersionPriceId);
-      if (!v) continue;
+      const product = suggestionFor.get(row.tierVersionPriceId);
+      if (!product) continue;
       try {
         const res = await fetch(
-          `/api/billing/variant-mappings/${encodeURIComponent(row.tierVersionPriceId)}`,
+          `/api/billing/product-mappings/${encodeURIComponent(row.tierVersionPriceId)}`,
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode, variantId: v.id, reason }),
+            body: JSON.stringify({ mode, productId: product.id, reason }),
           },
         );
         if (!res.ok) throw new Error(await errorText(res));
@@ -212,7 +220,7 @@ export function VariantMappingTab({
   const sideCount = (m: BillingMode) => {
     const l = lists[m];
     if (!l?.available) return null;
-    return { mapped: l.mappings.filter((r) => !!r.variantId).length, total: l.mappings.length };
+    return { mapped: l.mappings.filter((r) => !!r.productId).length, total: l.mappings.length };
   };
   const sellCount = rows.filter((r) => r.status === "ok").length;
   const viewingRunningMode = (mode === "test") === runsTest;
@@ -221,7 +229,7 @@ export function VariantMappingTab({
     <div className="space-y-6">
       {/* Mode strip */}
       <div className="flex flex-wrap items-center gap-4 rounded-xl bg-primary px-6 py-4">
-        <div role="radiogroup" aria-label="Lemon Squeezy mode" className="inline-flex rounded-md border border-border p-0.5">
+        <div role="radiogroup" aria-label="Polar mode" className="inline-flex rounded-md border border-border p-0.5">
           {(["test", "live"] as const).map((m) => {
             const c = sideCount(m);
             return (
@@ -238,7 +246,7 @@ export function VariantMappingTab({
                     : "text-tertiary-foreground hover:text-foreground",
                 )}
               >
-                {m === "test" ? "Test mode" : "Live mode"}
+                {m === "test" ? "Sandbox" : "Production"}
                 {c && (
                   <span className="font-mono text-xs tabular-nums" title={`${c.mapped} of ${c.total} prices mapped`}>
                     {c.mapped} / {c.total}
@@ -250,14 +258,17 @@ export function VariantMappingTab({
         </div>
         {settings &&
           (viewingRunningMode ? (
-            <Chip tone="info" label={runsTest ? "Ogen runs in test mode" : "Ogen runs live"} />
+            <Chip tone="info" label={runsTest ? "Ogen runs in sandbox" : "Ogen runs in production"} />
           ) : mode === "live" ? (
-            <Chip tone="warn" label="Prepared ahead of the switch to live" />
+            <Chip tone="warn" label="Prepared ahead of the switch to production" />
           ) : (
-            <Chip tone="neutral" label="Not used while Ogen runs live" />
+            <Chip tone="neutral" label="Not used while Ogen runs in production" />
           ))}
         <span className="ml-auto text-xs text-tertiary-foreground">
-          {settings?.storeId ? `Store ${settings.storeId} · ` : ""}changes reach every replica within 60 s
+          {viewingRunningMode && settings?.organizationId
+            ? `Organization ${settings.organizationId}${settings.apiVersion ? ` · API ${settings.apiVersion}` : ""} · `
+            : ""}
+          changes reach every replica within 60 s
         </span>
       </div>
 
@@ -266,17 +277,18 @@ export function VariantMappingTab({
           <WarningIcon className="mt-0.5 size-4 shrink-0" />
           {mode === "live" ? (
             <p>
-              Set <code className="font-mono">lemonsqueezy_api_key_live</code> in{" "}
+              Set <code className="font-mono">polar_access_token_live</code> in{" "}
               <Link href="/secrets" className="underline underline-offset-2">
                 Secrets
               </Link>{" "}
-              to check live variants. Live prices can still be mapped; they save
-              as <em>Not checked</em>.
+              to check production products — a read-only token with the{" "}
+              <code className="font-mono">products:read</code> scope is enough.
+              Production prices can still be mapped; they save as <em>Not checked</em>.
             </p>
           ) : (
             <p>
-              Lemon Squeezy could not be read, so these checks are missing. Mappings
-              still save; they show as <em>Not checked</em>.
+              Polar could not be read, so these checks are missing. Mappings still
+              save; they show as <em>Not checked</em>.
             </p>
           )}
         </div>
@@ -285,18 +297,19 @@ export function VariantMappingTab({
       <div className="rounded-xl bg-primary">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="min-w-0">
-            <h2 className="text-sm font-medium text-foreground">Prices and variants</h2>
+            <h2 className="text-sm font-medium text-foreground">Prices and products</h2>
             <p className="mt-1 max-w-2xl text-xs text-tertiary-foreground">
-              Each sellable price of a published tier version and the Lemon Squeezy
-              variant that sells it. Lemon Squeezy’s API cannot create products, so
-              create the variant there first, then map it here.
+              Each sellable price of a published tier version and the Polar product
+              that sells it. Create the product in Polar first — one per tier and
+              interval, with a fixed price in each currency you sell — then map it
+              here.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
-              <a href={LEMON_SQUEEZY_PRODUCTS} target="_blank" rel="noreferrer">
+              <a href={polarProductsUrl(org)} target="_blank" rel="noreferrer">
                 <ArrowSquareOutIcon className="size-4" />
-                Open Lemon Squeezy
+                Open Polar
               </a>
             </Button>
             {pending.length > 0 && !confirming && (
@@ -333,13 +346,13 @@ export function VariantMappingTab({
             <div className="min-w-0 flex-1 space-y-3">
               <div>
                 <p className="text-sm font-medium">
-                  Map {pending.length} {mode} price{pending.length === 1 ? "" : "s"} to their suggested variants?
+                  Map {pending.length} {mode === "test" ? "sandbox" : "production"} price{pending.length === 1 ? "" : "s"} to their suggested products?
                 </p>
                 <p className="mt-1 text-sm text-secondary-foreground">
                   {pending
                     .map(
                       (r) =>
-                        `${r.tierName} v${r.tierVersion} ${intervalLabel(r.interval)} → ${suggestionFor.get(r.tierVersionPriceId)?.id}`,
+                        `${r.tierName} v${r.tierVersion} ${intervalLabel(r.interval)} → ${suggestionFor.get(r.tierVersionPriceId)?.name}`,
                     )
                     .join(" · ")}
                   .
@@ -355,7 +368,7 @@ export function VariantMappingTab({
                   id="bulk-reason"
                   value={bulkReason}
                   onChange={(e) => setBulkReason(e.target.value)}
-                  placeholder={mode === "live" ? "e.g. live store copied (Copy to Live Mode)" : "e.g. variants created in the test store"}
+                  placeholder={mode === "live" ? "e.g. products created in production" : "e.g. products created in the sandbox"}
                   autoComplete="off"
                   autoFocus
                   inputSize="sm"
@@ -397,7 +410,7 @@ export function VariantMappingTab({
                 <HeaderCell label="Tier" />
                 <HeaderCell label="Interval" />
                 <HeaderCell label="Price, excl. tax" />
-                <HeaderCell label="Lemon Squeezy variant" />
+                <HeaderCell label="Polar product" />
                 <HeaderCell label="Check" />
                 <span aria-hidden />
               </div>
@@ -406,7 +419,7 @@ export function VariantMappingTab({
                   key={r.tierVersionPriceId}
                   row={r}
                   color={tierColor(r.tierId)}
-                  suggestion={r.variantId ? undefined : suggestionFor.get(r.tierVersionPriceId)}
+                  suggestion={r.productId ? undefined : suggestionFor.get(r.tierVersionPriceId)}
                   refusal={rowErrors[r.tierVersionPriceId]}
                   onOpen={() => openRow(r)}
                 />
@@ -414,7 +427,7 @@ export function VariantMappingTab({
               <p className="px-6 py-3 text-xs text-tertiary-foreground">
                 {sellCount} of {rows.length} price{rows.length === 1 ? "" : "s"} sell
                 {mode === "live" && runsTest
-                  ? " · nothing changes until the switch to live"
+                  ? " · nothing changes until the switch to production"
                   : " · unmapped prices show as unavailable on the pricing page"}
               </p>
             </div>
@@ -422,13 +435,14 @@ export function VariantMappingTab({
         </div>
       </div>
 
-      <VariantMapDrawer
+      <ProductMapDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         row={drawerRow}
         mode={mode}
-        suggestedVariantId={
-          drawerRow && !drawerRow.variantId
+        org={org}
+        suggestedProductId={
+          drawerRow && !drawerRow.productId
             ? (suggestionFor.get(drawerRow.tierVersionPriceId)?.id ?? "")
             : ""
         }
@@ -465,17 +479,20 @@ function MappingRow({
   refusal,
   onOpen,
 }: {
-  row: VariantMapping;
+  row: ProductMapping;
   color: string;
-  suggestion: ProviderVariant | undefined;
+  suggestion: ProviderProduct | undefined;
   refusal: string | undefined;
   onOpen: () => void;
 }) {
-  const v = r.variant ?? (suggestion && !r.variantId ? suggestion : null);
-  const suggested = !r.variantId && !!suggestion;
+  const product = r.product ?? (suggestion && !r.productId ? suggestion : null);
+  const suggested = !r.productId && !!suggestion;
   const status = suggested ? "suggested" : r.status;
   const action =
-    suggested ? "Accept" : !r.variantId ? "Map…" : r.status === "ok" ? "" : "Change…";
+    suggested ? "Accept" : !r.productId ? "Map…" : r.status === "ok" ? "" : "Change…";
+  // The product's price in the row's currency: what the row actually sells at.
+  const matched = product ? priceIn(product.prices, r.currency) : undefined;
+  const otherCurrencies = product ? product.prices.length - (matched ? 1 : 0) : 0;
 
   return (
     <div className={`${GRID} group px-6 py-3.5 text-sm transition-colors hover:bg-secondary/40`}>
@@ -485,7 +502,7 @@ function MappingRow({
         {r.freeTrialTier && (
           <span
             className="whitespace-nowrap text-[11px] text-sky-700"
-            title="The free-month tier: its variants must carry a 1-month trial"
+            title="The free-month tier: its products must carry a 1-month trial"
           >
             free month
           </span>
@@ -500,22 +517,36 @@ function MappingRow({
       </span>
 
       <span className="flex min-w-0 flex-col">
-        {v ? (
+        {product ? (
           <>
             <span
               className={cn(
-                "truncate font-medium",
+                "flex min-w-0 items-center gap-1.5 truncate font-medium",
                 suggested && "w-fit underline decoration-dotted underline-offset-4 text-secondary-foreground",
               )}
             >
-              {v.productName} · {v.name}
+              <span className="truncate">{product.name}</span>
+              {product.archived && <Chip tone="bad" label="Archived" />}
             </span>
             <span className="truncate text-xs text-tertiary-foreground">
-              #{v.id} · {formatMoney(v.priceMinor, v.currency)} / {v.interval} · {trialLabel(v)}
+              {matched ? (
+                <span
+                  className={cn(
+                    "font-mono tabular-nums",
+                    matched.amountMinor !== r.netMinor && "text-red-700",
+                  )}
+                >
+                  {formatMoney(matched.amountMinor, matched.currency)}
+                </span>
+              ) : (
+                <span className="text-red-700">no {r.currency.toUpperCase()} price</span>
+              )}{" "}
+              / {product.interval} · {trialLabel(product)}
+              {otherCurrencies > 0 && ` · +${otherCurrencies} other currenc${otherCurrencies === 1 ? "y" : "ies"}`}
             </span>
           </>
-        ) : r.variantId ? (
-          <span className="truncate text-xs text-tertiary-foreground">#{r.variantId}</span>
+        ) : r.productId ? (
+          <span className="truncate font-mono text-xs text-tertiary-foreground">{r.productId}</span>
         ) : (
           <span className="text-tertiary-foreground">—</span>
         )}

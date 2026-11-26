@@ -489,18 +489,44 @@ func isDir(d string) func(fin.Bucket) bool {
 // any), refunds and the net total. Net is returned on its own as well.
 func (g *grid) revenue() ([]Row, Row) {
 	revSrc := []string{fin.SourceBilling}
-	gross := g.row("revenue_gross", "revenue", "Lemon Squeezy, gross", "Payments", fin.VendorLemonSqueezy,
-		Drill{Direction: []string{fin.DirRevenue}, Source: revSrc}, isDir(fin.DirRevenue))
+	grosses := g.grossRows(revSrc)
 	fees := g.row("fees", "revenue", "Fees (deducted)", "", "", Drill{Direction: []string{fin.DirFee}, Source: revSrc}, isDir(fin.DirFee))
 	tax := g.row("tax", "revenue", "Tax (deducted)", "", "", Drill{Direction: []string{fin.DirTax}, Source: revSrc}, isDir(fin.DirTax))
 	refunds := g.row("refunds", "revenue", "Refunds (deducted)", "", "", Drill{Direction: []string{fin.DirRefund}, Source: revSrc}, isDir(fin.DirRefund))
-	net := g.sum("net_revenue", "revenue", "Net revenue", "total", gross, fees, tax, refunds)
+	net := g.sum("net_revenue", "revenue", "Net revenue", "total", append(slices.Clone(grosses), fees, tax, refunds)...)
 	net.Total.Drill = g.rangeDrill(Drill{Source: revSrc})
-	rows := []Row{gross, fees}
+	rows := slices.Concat(grosses, []Row{fees})
 	if tax.Total.Value != nil {
 		rows = append(rows, tax)
 	}
 	return append(rows, refunds, net), net
+}
+
+// revenueVendors are the billing providers, oldest first. Each gets its own
+// gross row, labelled with its name, in a range that has its payments.
+var revenueVendors = []struct{ id, name string }{
+	{fin.VendorLemonSqueezy, "Lemon Squeezy"},
+	{fin.VendorPolar, "Polar"},
+}
+
+// grossRows is one gross revenue row per provider with payments in the range.
+// Polar, the running provider, always has one, so an empty range still shows
+// where revenue will appear. Polar's row keeps the revenue_gross key.
+func (g *grid) grossRows(revSrc []string) []Row {
+	var rows []Row
+	for _, v := range revenueVendors {
+		match := func(b fin.Bucket) bool { return b.Direction == fin.DirRevenue && b.VendorID == v.id }
+		if v.id != fin.VendorPolar && !slices.ContainsFunc(g.buckets, match) {
+			continue
+		}
+		key := "revenue_gross"
+		if v.id != fin.VendorPolar {
+			key += "_" + v.id
+		}
+		rows = append(rows, g.row(key, "revenue", v.name+", gross", "Payments", v.id,
+			Drill{Vendor: v.id, Direction: []string{fin.DirRevenue}, Source: revSrc}, match))
+	}
+	return rows
 }
 
 // result fills the bottom line (net minus costs) and its margin, per month and

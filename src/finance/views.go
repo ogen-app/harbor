@@ -29,14 +29,18 @@ type LedgerRow struct {
 	Currency             string   `json:"currency"`
 	OriginalAmountMicros int64    `json:"originalAmountMicros"`
 	FxRate               *float64 `json:"fxRate"`
-	Entries              int      `json:"entries"`
-	Expandable           bool     `json:"expandable"`
-	ReceiptID            string   `json:"receiptId"`
-	TenantID             string   `json:"tenantId"`
-	TenantName           string   `json:"tenantName"`
-	Model                string   `json:"model"`
-	InvoiceNumber        string   `json:"invoiceNumber"`
-	TestMode             bool     `json:"testMode"`
+	// FxSource and FxDate say how a payment was converted: "ecb" is Ogen's
+	// conversion at the ECB reference rate of FxDate, shown as approximate.
+	FxSource      string `json:"fxSource"`
+	FxDate        string `json:"fxDate"`
+	Entries       int    `json:"entries"`
+	Expandable    bool   `json:"expandable"`
+	ReceiptID     string `json:"receiptId"`
+	TenantID      string `json:"tenantId"`
+	TenantName    string `json:"tenantName"`
+	Model         string `json:"model"`
+	InvoiceNumber string `json:"invoiceNumber"`
+	TestMode      bool   `json:"testMode"`
 }
 
 type LedgerPage struct {
@@ -118,6 +122,8 @@ func ledgerRow(g fin.LedgerGroup, vendors, tenants map[string]string) LedgerRow 
 		Currency:             g.Currency,
 		OriginalAmountMicros: g.OrigMicros,
 		FxRate:               g.FxRate,
+		FxSource:             g.FxSource,
+		FxDate:               g.FxDate,
 		Entries:              g.Entries,
 		ReceiptID:            g.ReceiptID,
 		InvoiceNumber:        g.InvoiceNumber,

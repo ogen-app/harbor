@@ -21,10 +21,10 @@ func TestDailyAddsUpToMonthly(t *testing.T) {
 	at := func(m time.Month, d int) time.Time { return time.Date(2026, m, d, 9, 0, 0, 0, time.UTC) }
 	h.payments.payments = []ogenbilling.Payment{
 		// September loses money: $50 net against $120 of expenses.
-		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 6000, TotalUSD: 6000, Tax: 500, TaxUSD: 500, Fee: 500, FeeUSD: 500, OccurredAt: at(9, 4)},
-		{ID: "p2", ProviderID: "LS-2", Kind: "subscription_invoice", Currency: "USD", Total: 24000, TotalUSD: 24000, Tax: 4000, TaxUSD: 4000, Fee: 1000, FeeUSD: 1000, OccurredAt: at(10, 3)},
-		{ID: "p3", ProviderID: "LS-2", Kind: "refund", Currency: "USD", Total: 2000, TotalUSD: 2000, OccurredAt: at(10, 20)},
-		{ID: "p4", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: 99900, OccurredAt: at(10, 5), TestMode: true},
+		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 6000, TotalUSD: new(int64(6000)), Tax: 500, TaxUSD: new(int64(500)), Fee: 500, FeeUSD: new(int64(500)), OccurredAt: at(9, 4)},
+		{ID: "p2", ProviderID: "LS-2", Kind: "subscription_invoice", Currency: "USD", Total: 24000, TotalUSD: new(int64(24000)), Tax: 4000, TaxUSD: new(int64(4000)), Fee: 1000, FeeUSD: new(int64(1000)), OccurredAt: at(10, 3)},
+		{ID: "p3", ProviderID: "LS-2", Kind: "refund", Currency: "USD", Total: 2000, TotalUSD: new(int64(2000)), OccurredAt: at(10, 20)},
+		{ID: "p4", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: new(int64(99900)), OccurredAt: at(10, 5), TestMode: true},
 	}
 	if err := h.svc.SyncRevenue(ctx); err != nil {
 		t.Fatal(err)

@@ -4,21 +4,22 @@ import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { BillingOverview } from "@/components/billing/BillingOverview";
 import {
-  VariantMappingTab,
+  ProductMappingTab,
   type MappingFocus,
-} from "@/components/billing/VariantMappingTab";
+} from "@/components/billing/ProductMappingTab";
 
-// Billing is the operator's oversight of Lemon Squeezy billing (CON-322/327):
-// which workspaces need a decision (Ogen never changes a tier or status on its
-// own), the free-month offer, and the sandbox→live cutover. Per-workspace detail
-// lives in the tenant page's Billing tab. The second tab maps each sellable tier
-// price to the Lemon Squeezy variant that sells it (CON-404/407).
+// Billing is the operator's oversight of Polar billing (CON-322/327, Polar since
+// CON-523): which workspaces need a decision (Ogen never changes a tier or
+// status on its own), the free-month offer, and the cutovers (provider switch,
+// sandbox → production). Per-workspace detail lives in the tenant page's
+// Billing tab. The second tab maps each sellable tier price to the Polar
+// product that sells it (CON-404/407).
 //
 // Deep links: ?tab=mapping opens the map, &version=<tier version id> filters it
 // to one version (after a publish), &price=<price id> opens that price's drawer.
 const TABS = [
   { key: "overview", label: "Overview" },
-  { key: "mapping", label: "Variant mapping" },
+  { key: "mapping", label: "Product mapping" },
 ] as const;
 
 const tabId = (i: number) => `billing-tab-${i}`;
@@ -126,7 +127,7 @@ export default function BillingPage() {
           {tab === 0 ? (
             <BillingOverview onOpenPrice={openPrice} />
           ) : (
-            <VariantMappingTab focus={focus} onFocusChange={setFocus} />
+            <ProductMappingTab focus={focus} onFocusChange={setFocus} />
           )}
         </div>
       </div>

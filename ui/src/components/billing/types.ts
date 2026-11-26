@@ -3,10 +3,11 @@
 // Optional instants are null when unset (e.g. firstPaidAt null = never paid).
 
 export interface BillingSettings {
-  provider: string; // none | lemonsqueezy
-  testMode: boolean;
-  configured: boolean; // API key + webhook secret both set
-  storeId: string;
+  provider: string; // none | polar
+  testMode: boolean; // Polar sandbox
+  configured: boolean; // access token + webhook secret both set
+  organizationId: string; // the Polar organization of the running mode
+  apiVersion: string; // the Polar API version requests are pinned to
   trialTeardownLive: boolean; // never-paid trials torn down (true) or only logged
 }
 
@@ -21,11 +22,17 @@ export interface Subscription {
   provider: string;
   providerSubscriptionId: string;
   providerCustomerId: string;
-  providerVariantId: string;
+  providerProductId: string;
   tierVersionPriceId: string;
   tierId: string;
   tierVersionId: string;
-  status: string; // Lemon Squeezy vocabulary
+  status: string; // Ogen subscription status, whatever the provider
+  providerStatus: string; // the provider's raw status, for support
+  // The product a scheduled change moves to at the provider on
+  // pendingEffectiveAt; '' when nothing is pending.
+  pendingProductId: string;
+  pendingEffectiveAt: string | null;
+  cancelAtPeriodEnd: boolean; // cancelled by the owner, live until endsAt
   testMode: boolean;
   renewsAt: string | null;
   endsAt: string | null;
@@ -109,8 +116,8 @@ export interface AttentionItem {
   webhookEvent: WebhookEvent | null;
   since: string | null;
   teardownStatus: "" | "dry_run" | "enqueued" | string;
-  // Set for unmapped_price: a sellable price with no variant in the current
-  // mode (tenantId and tenantName are '' then).
+  // Set for unmapped_price: a sellable price with no product (or an archived
+  // one) in the current mode (tenantId and tenantName are '' then).
   tierVersionPriceId: string;
 }
 
@@ -132,33 +139,39 @@ export interface FreeTrialTierResponse {
   offer: FreeTrialTier;
 }
 
-// ── Variant mapping (CON-404/407) ──────────────────────────────────────────────
-// Each sellable tier price is sold through one Lemon Squeezy variant, mapped
-// separately for test and live mode.
+// ── Product mapping (CON-404/407, Polar since CON-523) ─────────────────────────
+// Each sellable tier price is sold through one Polar product, mapped separately
+// for sandbox (test) and production (live). A product bills one interval and
+// may carry a fixed price in several currencies, so it can sell one price row
+// per currency.
 
 export type BillingMode = "test" | "live";
 
-export interface ProviderVariant {
+export interface ProductPrice {
+  currency: string; // ISO 4217
+  amountMinor: number; // excluding tax
+}
+
+export interface ProviderProduct {
   id: string;
-  productId: string;
-  productName: string;
   name: string;
-  priceMinor: number; // excluding tax
-  currency: string;
   interval: string; // month | year
+  intervalCount: number; // billing periods per interval; 1 is the norm
+  prices: ProductPrice[];
   hasFreeTrial: boolean;
   trialInterval: string; // day | week | month | year; '' without a trial
   trialIntervalCount: number;
-  status: string; // the provider's variant status, e.g. published
+  archived: boolean; // an archived product cannot be bought or mapped
   testMode: boolean;
-  mappedPriceId: string; // the price this variant sells in its mode; '' = none
+  mappedPriceIds: string[]; // the price rows it sells in its mode, one per currency
 }
 
-// ok | unmapped | variant_missing | price_mismatch | currency_mismatch |
-// interval_mismatch | mode_mismatch | trial_missing | unchecked
+// ok | unmapped | product_missing | product_archived | price_mismatch |
+// currency_mismatch | interval_mismatch | mode_mismatch | trial_missing |
+// unchecked
 export type MappingStatus = string;
 
-export interface VariantMapping {
+export interface ProductMapping {
   tierVersionPriceId: string;
   tierId: string;
   tierName: string;
@@ -166,43 +179,48 @@ export interface VariantMapping {
   tierVersion: number;
   interval: string; // month | year
   netMinor: number; // excluding tax
-  currency: string;
+  currency: string; // the row's currency, the product price it is sold at
   countryCode: string; // '' = the currency's default price
-  freeTrialTier: boolean; // its variants must carry a one-month trial
-  variantId: string; // '' when unmapped
-  variant: ProviderVariant | null;
+  freeTrialTier: boolean; // its products must carry a one-month trial
+  productId: string; // '' when unmapped
+  product: ProviderProduct | null;
   status: MappingStatus;
   message: string; // Ogen's explanation for every status but ok
   updatedAt: string | null;
   updatedBy: string;
 }
 
-export interface VariantMappingsResponse {
+export interface ProductMappingsResponse {
   available: boolean;
   testMode: boolean;
-  // false: statuses could not come from Lemon Squeezy (no API key for the mode).
+  // false: statuses could not come from Polar (no access token for the mode).
   checked: boolean;
-  mappings: VariantMapping[];
+  mappings: ProductMapping[];
 }
 
-export interface ProviderVariantsResponse {
+export interface ProviderProductsResponse {
   available: boolean;
   readable: boolean; // false: Ogen cannot read the mode; message says why
   message: string;
-  variants: ProviderVariant[];
+  products: ProviderProduct[];
 }
 
-export interface VariantSuggestion {
+export interface ProductSuggestion {
   tierVersionPriceId: string;
-  variant: ProviderVariant;
+  product: ProviderProduct;
 }
 
-export interface VariantSuggestionsResponse {
+export interface ProductSuggestionsResponse {
   available: boolean;
   readable: boolean;
   message: string;
-  suggestions: VariantSuggestion[];
+  suggestions: ProductSuggestion[];
 }
+
+// provider_switch: subscriptions of another provider than the running one
+// (Lemon Squeezy → Polar), allowed in either mode. mode_cutover: sandbox
+// subscriptions at the switch to production, refused while in sandbox.
+export type CutoverScope = "provider_switch" | "mode_cutover";
 
 export interface CutoverResult {
   dryRun: boolean;

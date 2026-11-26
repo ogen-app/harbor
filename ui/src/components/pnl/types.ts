@@ -212,6 +212,10 @@ export interface LedgerRow {
   currency: string;
   originalAmountMicros: number;
   fxRate: number | null;
+  // How a payment was converted: "ecb" (Ogen, at the ECB reference rate of
+  // fxDate), "identity" (USD), "polar"; '' for everything else.
+  fxSource: string;
+  fxDate: string; // YYYY-MM-DD of the rate; '' with fxSource
   entries: number;
   expandable: boolean;
   receiptId: string;

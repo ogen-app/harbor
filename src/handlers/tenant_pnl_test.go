@@ -13,7 +13,7 @@ import (
 
 type fakePlans struct {
 	billing  ogenbilling.TenantBilling
-	mappings []ogenbilling.VariantMapping
+	mappings []ogenbilling.ProductMapping
 	err      error
 }
 
@@ -21,8 +21,8 @@ func (f *fakePlans) TenantBilling(context.Context, string) (ogenbilling.TenantBi
 	return f.billing, f.err
 }
 
-func (f *fakePlans) VariantMappings(_ context.Context, testMode bool) (ogenbilling.VariantMappingList, error) {
-	return ogenbilling.VariantMappingList{TestMode: testMode, Mappings: f.mappings}, f.err
+func (f *fakePlans) ProductMappings(_ context.Context, testMode bool) (ogenbilling.ProductMappingList, error) {
+	return ogenbilling.ProductMappingList{TestMode: testMode, Mappings: f.mappings}, f.err
 }
 
 // The plan line follows the subscription the tenant pays on, in the report's
@@ -36,7 +36,7 @@ func TestTenantPlan(t *testing.T) {
 			{Status: "active", TierVersionPriceID: "test", TestMode: true},
 			{Status: "active", TierVersionPriceID: "gone", InvalidatedAt: new(time.Now())},
 		}},
-		mappings: []ogenbilling.VariantMapping{
+		mappings: []ogenbilling.ProductMapping{
 			{TierVersionPriceID: "trial", TierName: "Starter", NetMinor: 0, Currency: "USD", Interval: "month"},
 			{TierVersionPriceID: "pro-m", TierName: "Pro", NetMinor: 4900, Currency: "USD", Interval: "month"},
 		},
