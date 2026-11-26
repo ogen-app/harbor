@@ -8,11 +8,16 @@ import (
 // FunnelStep is one stage of the funnel strip: how many tenants have reached
 // it (churned ones included: they did reach it), the share of the previous
 // step that got here, and the median days it took from the previous stage.
+//
+// The Invited step is the exception (see InviteFunnel): its conversion is the
+// share of invites redeemed, and Signed up carries ViaInvite instead of a
+// conversion, because organic signups never went through an invite.
 type FunnelStep struct {
 	Stage      Progress `json:"stage"`
 	Reached    int      `json:"reached"`
 	Conversion *float64 `json:"conversion"`
 	MedianDays *float64 `json:"medianDays"`
+	ViaInvite  *int     `json:"viaInvite"`
 }
 
 // Funnel counts every tenant whose progress is at or past each stage. The

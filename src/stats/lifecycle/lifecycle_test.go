@@ -6,6 +6,7 @@ import (
 
 	"github.com/ogen-app/harbor/src/repository/analytics"
 	"github.com/ogen-app/harbor/src/repository/ogen"
+	"github.com/ogen-app/harbor/src/repository/ogeninvites"
 )
 
 var now = time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
@@ -253,5 +254,40 @@ func TestSortBoard(t *testing.T) {
 	}
 	if order != "dacb" {
 		t.Fatalf("order %s, want dacb", order)
+	}
+}
+
+func TestInviteFunnelAndChips(t *testing.T) {
+	invites := []ogeninvites.Invite{
+		{ID: "1", Email: "a@x", Status: "redeemed", CreatedAt: ago(10), RedeemedAt: ago(8)},
+		{ID: "2", Email: "b@x", Status: "redeemed", CreatedAt: ago(10), RedeemedAt: ago(6)},
+		{ID: "3", Email: "c@x", Status: "pending", CreatedAt: ago(5), LastSentAt: ago(5), EmailStatus: "opened"},
+		{ID: "4", Email: "d@x", Status: "pending", CreatedAt: ago(1), EmailStatus: "bounced"},
+		{ID: "5", Email: "e@x", Status: "expired", CreatedAt: ago(20), ExpiresAt: ago(6)},
+		{ID: "6", Email: "f@x", Status: "revoked", CreatedAt: ago(3)},
+	}
+	step, via := InviteFunnel(invites)
+	if step.Stage != Invited || step.Reached != 5 || via != 2 {
+		t.Fatalf("reached %d via %d", step.Reached, via)
+	}
+	if *step.Conversion != 0.4 || *step.MedianDays != 3 {
+		t.Fatalf("conversion %v median %v", *step.Conversion, *step.MedianDays)
+	}
+
+	chips := OpenInvites(now, invites)
+	got := ""
+	for _, c := range chips {
+		got += c.ID
+	}
+	// Stuck (sent more than 3 days ago) first, longest first; redeemed and
+	// revoked invites aren't open.
+	if got != "534" {
+		t.Fatalf("chips %s, want 534", got)
+	}
+	want := map[string]string{"5": "Expired 6d ago", "3": "Opened, no signup", "4": "Invite email not delivered"}
+	for _, c := range chips {
+		if c.Reason.Text != want[c.ID] {
+			t.Fatalf("invite %s reason %q, want %q", c.ID, c.Reason.Text, want[c.ID])
+		}
 	}
 }

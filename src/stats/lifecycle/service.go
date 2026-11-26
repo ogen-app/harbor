@@ -54,9 +54,11 @@ type Service struct {
 	ai      AISource
 	classes Classification
 	billing BillingSource
-	store   Store
-	limits  map[Progress]time.Duration
-	now     func() time.Time
+	// inviteSrc lists tester invites for the Invited column; nil leaves it out.
+	inviteSrc InviteSource
+	store     Store
+	limits    map[Progress]time.Duration
+	now       func() time.Time
 }
 
 // billingTimeout bounds the billing summary call; the board renders without it.
@@ -65,11 +67,11 @@ const billingTimeout = 3 * time.Second
 // churnedWindow is how far back the Churned lane looks.
 const churnedWindow = 90 * day
 
-// NewService wires the sources. billing may be nil (gRPC unconfigured): no
-// tenant counts as paying then.
-func NewService(signals SignalSource, ai AISource, classes Classification, billing BillingSource, store Store) *Service {
+// NewService wires the sources. billing and invites may be nil (gRPC
+// unconfigured): no tenant counts as paying, and the Invited column is empty.
+func NewService(signals SignalSource, ai AISource, classes Classification, billing BillingSource, invites InviteSource, store Store) *Service {
 	return &Service{
-		signals: signals, ai: ai, classes: classes, billing: billing, store: store,
+		signals: signals, ai: ai, classes: classes, billing: billing, inviteSrc: invites, store: store,
 		limits: DefaultLimits, now: func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -78,6 +80,7 @@ func NewService(signals SignalSource, ai AISource, classes Classification, billi
 type Sources struct {
 	AI      bool `json:"ai"`
 	Billing bool `json:"billing"`
+	Invites bool `json:"invites"`
 	// PreviousSnapshot is the day the board compares against, "" before the
 	// first snapshot.
 	PreviousSnapshot string `json:"previousSnapshot"`
@@ -161,13 +164,15 @@ func (s *Service) evaluate(ctx context.Context) (evaluation, error) {
 	return e, nil
 }
 
-// Board is the Lifecycle tab: the funnel strip, live tenants for the board,
-// the Churned lane, the activation footer and the movement feed.
+// Board is the Lifecycle tab: the funnel strip (Invited, then the tenant
+// stages), open invites and live tenants for the board, the Churned lane, the
+// activation footer and the movement feed.
 type Board struct {
 	CheckedAt  time.Time        `json:"checkedAt"`
 	Sources    Sources          `json:"sources"`
 	Limits     map[Progress]int `json:"limits"`
 	Funnel     []FunnelStep     `json:"funnel"`
+	Invites    []InviteChip     `json:"invites"`
 	Tenants    []Tenant         `json:"tenants"`
 	Churned    []Tenant         `json:"churned"`
 	Activation Activation       `json:"activation"`
@@ -181,10 +186,27 @@ func (s *Service) Board(ctx context.Context) (Board, error) {
 	}
 	b := Board{
 		CheckedAt: e.now, Sources: e.sources, Limits: limitDays(s.limits),
-		Funnel: Funnel(e.tenants), Activation: ActivationOf(e.now, e.tenants),
-		Movement: Movement(e.tenants, e.prev, e.hasPrev),
-		Tenants:  []Tenant{}, Churned: []Tenant{},
+		Activation: ActivationOf(e.now, e.tenants),
+		Movement:   Movement(e.tenants, e.prev, e.hasPrev),
+		Invites:    []InviteChip{}, Tenants: []Tenant{}, Churned: []Tenant{},
 	}
+	b.Limits[Invited] = int(inviteLimit / day)
+
+	// The Invited step leads the funnel only when invites can be read; an
+	// unreachable gRPC surface would otherwise read as nobody invited.
+	funnel := Funnel(e.tenants)
+	if s.inviteSrc != nil {
+		invites, err := s.invites(ctx)
+		logFail("invites", err)
+		if err == nil {
+			b.Sources.Invites = true
+			step, via := InviteFunnel(invites)
+			funnel[0].ViaInvite = &via
+			funnel = append([]FunnelStep{step}, funnel...)
+			b.Invites = OpenInvites(e.now, invites)
+		}
+	}
+	b.Funnel = funnel
 	for _, t := range e.tenants {
 		switch {
 		case t.Health != Churned:

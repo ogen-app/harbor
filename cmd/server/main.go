@@ -265,6 +265,7 @@ func main() {
 		analytics.NewUsageSpanRepository(analyticsDB),
 		ogen.NewTenantRepository(ogenDB),
 		tenantsAdminClient,
+		invitesClient,
 		harbor.NewLifecycleRepository(db),
 	)
 

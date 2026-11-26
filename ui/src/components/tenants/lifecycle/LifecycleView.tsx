@@ -20,6 +20,7 @@ import {
     HEALTH_LABEL,
     HealthDot,
     healthText,
+    INVITED,
     shortDate,
     STAGES,
     stageLabel,
@@ -27,23 +28,39 @@ import {
     type Health,
     type LifecycleTenant,
     type Progress,
+    type Reason,
 } from "./shared";
 
 // The Lifecycle tab on /tenants (CON-437): every live tenant on its furthest
 // onboarding stage, coloured by health, stuck ones first. The funnel strip
 // counts who has reached each stage; the board shows where each tenant is now.
 
+// Invited's conversion is the share of invites redeemed; Signed up carries
+// viaInvite instead, since organic signups never had an invite.
 interface FunnelStep {
-    stage: Progress;
+    stage: Progress | "invited";
     reached: number;
     conversion: number | null;
     medianDays: number | null;
+    viaInvite: number | null;
+}
+interface InviteChip {
+    id: string;
+    email: string;
+    tier: string;
+    status: "pending" | "expired";
+    sentAt: string;
+    expiresAt: string | null;
+    daysInStage: number;
+    stuck: boolean;
+    reason: Reason;
 }
 interface Board {
     checkedAt: string;
-    sources: { ai: boolean; billing: boolean; previousSnapshot: string };
-    limits: Partial<Record<Progress, number>>;
+    sources: { ai: boolean; billing: boolean; invites: boolean; previousSnapshot: string };
+    limits: Partial<Record<Progress | "invited", number>>;
     funnel: FunnelStep[];
+    invites: InviteChip[];
     tenants: LifecycleTenant[];
     churned: LifecycleTenant[];
     activation: { eligible: number; activatedIn7Days: number; medianDaysToFirst: number | null };
@@ -127,17 +144,22 @@ function FunnelStrip({ funnel }: { funnel: FunnelStep[] }) {
                 <h3 className="text-[11px] font-medium uppercase tracking-[0.08em] text-secondary-foreground">Reached · all time</h3>
                 <span className="text-xs text-tertiary-foreground">conversion from the previous stage · median time to reach it</span>
             </div>
-            <ol className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
+            <ol className={cn("grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3", funnel.length > 5 ? "lg:grid-cols-6" : "lg:grid-cols-5")}>
                 {funnel.map((f) => (
                     <li key={f.stage} className="min-w-0">
                         <div className="text-xs text-secondary-foreground">{stageLabel(f.stage)}</div>
                         <div className="mt-1 flex items-baseline gap-2">
                             <span className="text-[22px] font-semibold tabular-nums leading-none text-foreground">{f.reached}</span>
-                            {f.conversion != null && (
-                                <span className="text-xs tabular-nums">
-                                    <span className="font-medium text-foreground">{fmtPct(f.conversion)}</span>
-                                    {f.medianDays != null && <span className="text-tertiary-foreground"> · {fmtDays(f.medianDays)}</span>}
-                                </span>
+                            {f.viaInvite != null ? (
+                                <span className="text-xs tabular-nums text-tertiary-foreground">{f.viaInvite} via invite</span>
+                            ) : (
+                                f.conversion != null && (
+                                    <span className="text-xs tabular-nums">
+                                        <span className="font-medium text-foreground">{fmtPct(f.conversion)}</span>
+                                        {f.stage === "invited" && <span className="text-tertiary-foreground"> redeemed</span>}
+                                        {f.medianDays != null && <span className="text-tertiary-foreground"> · {fmtDays(f.medianDays)}</span>}
+                                    </span>
+                                )
                             )}
                         </div>
                         <div className="mt-2 h-1.5 bg-[#E6E3DE]">
@@ -185,56 +207,135 @@ function Chip({ t }: { t: LifecycleTenant }) {
     );
 }
 
+// InviteCard is an open invite in the Invited column; it opens the invite's
+// drawer on /invites.
+function InviteCard({ inv }: { inv: InviteChip }) {
+    return (
+        <Link
+            href={`/invites?invite=${encodeURIComponent(inv.id)}`}
+            className="block rounded-[3px] border border-dashed border-[#C9C4BD] bg-primary px-3 py-2 transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title={`${inv.email} · sent ${shortDate(inv.sentAt)}`}
+        >
+            <div className="flex items-center gap-2">
+                <span aria-hidden className="size-2 shrink-0 rounded-full border-[1.5px] border-dashed" style={{ borderColor: "#86817A" }} />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{inv.email}</span>
+                <span className="shrink-0 text-[11px] text-secondary-foreground">{inv.tier || "—"}</span>
+            </div>
+            <div className="mt-1 flex items-baseline gap-2 text-xs">
+                <span className={cn("min-w-0 flex-1 truncate", TONE_CLASS[inv.reason.tone])}>{inv.reason.text}</span>
+                <span className={cn("shrink-0 tabular-nums", inv.stuck ? "font-semibold text-[#B91C1C]" : "text-tertiary-foreground")}>
+                    {inv.daysInStage}d
+                </span>
+            </div>
+            {inv.stuck && <span className="sr-only">, stuck</span>}
+        </Link>
+    );
+}
+
+function ColumnHeader({
+    label,
+    sub,
+    count,
+    stuck,
+    limit,
+    share,
+}: {
+    label: string;
+    sub: string;
+    count: number;
+    stuck: number;
+    limit: number | undefined;
+    share: number;
+}) {
+    return (
+        <>
+            <div className="flex items-center gap-2">
+                <h3 className="text-[13px] font-semibold text-foreground">{label}</h3>
+                {stuck > 0 && (
+                    <span className="rounded-[2px] bg-[#FEF2F2] px-1.5 text-[11px] font-medium tabular-nums text-[#B91C1C]">
+                        {stuck} stuck
+                    </span>
+                )}
+                <span className="ml-auto text-[13px] font-semibold tabular-nums text-foreground">{count}</span>
+            </div>
+            <p className="text-[11px] text-secondary-foreground">{sub}</p>
+            <p className="text-[11px] text-tertiary-foreground">{limit ? `stuck after ${limit}d` : "health is the signal"}</p>
+            <div className="mt-2 h-1 bg-[#E6E3DE]">
+                <div className="h-full" style={{ width: `${share * 100}%`, background: "#509EE3" }} />
+            </div>
+        </>
+    );
+}
+
+function MoreButton({ n, onClick }: { n: number; onClick: () => void }) {
+    return (
+        <button type="button" onClick={onClick} className="w-full py-1.5 text-left text-xs font-medium text-foreground hover:underline">
+            +{n} more
+        </button>
+    );
+}
+
 function BoardView({
     tenants,
+    invites,
     limits,
     total,
     onShowStage,
 }: {
     tenants: LifecycleTenant[];
+    // Null when invites can't be read: the Invited column says so instead of
+    // reading as empty.
+    invites: InviteChip[] | null;
     limits: Board["limits"];
     total: number;
     onShowStage: (p: Progress) => void;
 }) {
+    const share = (n: number) => (total ? n / total : 0);
     return (
         <div className="overflow-x-auto px-6 py-4">
-            <div className="grid min-w-[880px] grid-cols-5 gap-3">
+            <div className="grid min-w-[1040px] grid-cols-6 gap-3">
+                <section aria-label={INVITED.label} className="min-w-0">
+                    <ColumnHeader
+                        label={INVITED.label}
+                        sub={INVITED.sub}
+                        count={invites?.length ?? 0}
+                        stuck={invites?.filter((i) => i.stuck).length ?? 0}
+                        limit={limits.invited}
+                        share={share(invites?.length ?? 0)}
+                    />
+                    <div className="mt-3 space-y-2">
+                        {invites == null ? (
+                            <p className="py-2 text-xs text-tertiary-foreground">Invites unavailable</p>
+                        ) : invites.length === 0 ? (
+                            <p className="py-2 text-xs text-tertiary-foreground">No open invites</p>
+                        ) : (
+                            invites.slice(0, COLUMN_CHIPS).map((inv) => <InviteCard key={inv.id} inv={inv} />)
+                        )}
+                        {invites && invites.length > COLUMN_CHIPS && (
+                            <Link href="/invites" className="block py-1.5 text-xs font-medium text-foreground hover:underline">
+                                +{invites.length - COLUMN_CHIPS} more on Invites
+                            </Link>
+                        )}
+                    </div>
+                </section>
                 {STAGES.map((s) => {
                     const col = tenants.filter((t) => t.progress === s.key);
-                    const stuck = col.filter((t) => t.stuck).length;
-                    const limit = limits[s.key];
                     return (
                         <section key={s.key} aria-label={s.label} className="min-w-0">
-                            <div className="flex items-center gap-2">
-                                <h3 className="text-[13px] font-semibold text-foreground">{s.label}</h3>
-                                {stuck > 0 && (
-                                    <span className="rounded-[2px] bg-[#FEF2F2] px-1.5 text-[11px] font-medium tabular-nums text-[#B91C1C]">
-                                        {stuck} stuck
-                                    </span>
-                                )}
-                                <span className="ml-auto text-[13px] font-semibold tabular-nums text-foreground">{col.length}</span>
-                            </div>
-                            <p className="text-[11px] text-secondary-foreground">{s.sub}</p>
-                            <p className="text-[11px] text-tertiary-foreground">
-                                {limit ? `stuck after ${limit}d` : "health is the signal"}
-                            </p>
-                            <div className="mt-2 h-1 bg-[#E6E3DE]">
-                                <div className="h-full" style={{ width: `${total ? (col.length / total) * 100 : 0}%`, background: "#509EE3" }} />
-                            </div>
+                            <ColumnHeader
+                                label={s.label}
+                                sub={s.sub}
+                                count={col.length}
+                                stuck={col.filter((t) => t.stuck).length}
+                                limit={limits[s.key]}
+                                share={share(col.length)}
+                            />
                             <div className="mt-3 space-y-2">
                                 {col.length === 0 && <p className="py-2 text-xs text-tertiary-foreground">Nobody here</p>}
                                 {col.slice(0, COLUMN_CHIPS).map((t) => (
                                     <Chip key={t.id} t={t} />
                                 ))}
-                                {col.length > COLUMN_CHIPS && (
-                                    <button
-                                        type="button"
-                                        onClick={() => onShowStage(s.key)}
-                                        className="w-full py-1.5 text-left text-xs font-medium text-foreground hover:underline"
-                                    >
-                                        +{col.length - COLUMN_CHIPS} more
-                                    </button>
-                                )}
+                                {col.length > COLUMN_CHIPS && <MoreButton n={col.length - COLUMN_CHIPS} onClick={() => onShowStage(s.key)} />}
                             </div>
                         </section>
                     );
@@ -386,6 +487,15 @@ export function LifecycleView() {
         [data, filters, view],
     );
 
+    // Invites have a tier but no group or health, so those filters hide them.
+    const visibleInvites = useMemo(() => {
+        if (!data?.sources.invites) return null;
+        if (filters.group !== "all" || filters.health !== "all") return [];
+        return (data.invites ?? []).filter(
+            (i) => (filters.tier === "all" || i.tier === filters.tier) && (!filters.stuckOnly || i.stuck),
+        );
+    }, [data, filters]);
+
     if (!data) {
         return (
             <div className="rounded-lg bg-primary">
@@ -402,7 +512,7 @@ export function LifecycleView() {
 
     const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
     const a = data.activation;
-    const stuckTotal = data.tenants.filter((t) => t.stuck).length;
+    const stuckTotal = data.tenants.filter((t) => t.stuck).length + (data.invites ?? []).filter((i) => i.stuck).length;
 
     return (
         <div className="space-y-6">
@@ -487,8 +597,9 @@ export function LifecycleView() {
                     {view === "board" ? (
                         <BoardView
                             tenants={visible}
+                            invites={visibleInvites}
                             limits={data.limits}
-                            total={data.tenants.length}
+                            total={data.tenants.length + (data.invites?.length ?? 0)}
                             onShowStage={(p) => {
                                 set({ stage: p });
                                 setView("list");
