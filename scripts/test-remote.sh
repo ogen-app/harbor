@@ -6,7 +6,7 @@
 #   scripts/test-remote.sh build test # any make targets
 #
 # The working tree, uncommitted changes included, is rsynced to
-# ~/src/harbor-<checkout dir> on REMOTE_HOST (default: mac2, an ~/.ssh/config
+# ~/src/harbor-<checkout dir>-<path checksum> on REMOTE_HOST (default: mac2, an ~/.ssh/config
 # alias), minus build output, node_modules and .env. Each checkout or worktree
 # gets its own remote directory, so suites from several worktrees can run at
 # once. The exit code is the suite's.
@@ -17,8 +17,11 @@ set -euo pipefail
 
 host=${REMOTE_HOST:-mac2}
 root=$(git rev-parse --show-toplevel)
-name=$(basename "$root")
-dir="src/harbor-$name"
+# The checkout dir's name, cut to characters no shell or rsync needs quoted,
+# plus a checksum of the full path, so two checkouts that share a name never
+# share a remote directory.
+name=$(printf '%s' "${root##*/}" | tr -c 'A-Za-z0-9._-' '-')
+dir="src/harbor-$name-$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
 
 # Explicit rather than a .gitignore merge: rsync reads its leading ! as "clear
 # the list", not git's negation, which would drop the dist placeholder the Go
@@ -38,7 +41,7 @@ targets=$(printf '%q ' "${@:-test}")
 
 # A terminal only when there is one: colours for a person, none for a pipe.
 tty=-T
-[ -t 1 ] && tty=-t
+[[ -t 1 ]] && tty=-t
 set +e
 ssh "$tty" "$host" "zsh -lc 'cd ~/$dir && make $targets'"
 rc=$?
