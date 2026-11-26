@@ -53,9 +53,13 @@ type Platform struct {
 	VideoConstraints   *VideoConstraints `json:"videoConstraints"`
 	PdfConstraints     *PdfConstraints   `json:"pdfConstraints"`
 	TextConstraints    *TextConstraints  `json:"textConstraints"`
-	Usage              PlatformUsage     `json:"usage"`
-	CreatedAt          time.Time         `json:"createdAt"`
-	UpdatedAt          time.Time         `json:"updatedAt"`
+	// PostTypeCanvases is the recommended artwork size per media-bearing post
+	// type; a slug with no entry has no recommendation. Writing nil leaves the
+	// stored canvases as they are, and an empty map clears them.
+	PostTypeCanvases map[string]Canvas `json:"postTypeCanvases"`
+	Usage            PlatformUsage     `json:"usage"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
 }
 
 // PlatformUsage is the read-only footprint that drives the disable/delete
@@ -96,6 +100,12 @@ type TextConstraints struct {
 	MaxContentChars int32            `json:"maxContentChars"`
 	MaxTitleChars   int32            `json:"maxTitleChars"`
 	PerPostType     map[string]int32 `json:"perPostType"`
+}
+
+// Canvas is a pixel size; Ogen takes 1..8192 for each side.
+type Canvas struct {
+	Width  int32 `json:"width"`
+	Height int32 `json:"height"`
 }
 
 // GlobalLimits are the five cross-platform ceilings a per-platform limit can't
@@ -278,6 +288,7 @@ func platformFromProto(p *platformsv1.Platform) Platform {
 		VideoConstraints:   videoFromProto(p.GetVideoConstraints()),
 		PdfConstraints:     pdfFromProto(p.GetPdfConstraints()),
 		TextConstraints:    textFromProto(p.GetTextConstraints()),
+		PostTypeCanvases:   canvasesFromProto(p.GetPostTypeCanvases()),
 		Usage: PlatformUsage{
 			ConnectedAccounts: p.GetUsage().GetConnectedAccounts(),
 			ScheduledPosts:    p.GetUsage().GetScheduledPosts(),
@@ -340,6 +351,16 @@ func textFromProto(c *platformsv1.TextConstraints) *TextConstraints {
 	}
 }
 
+// canvasesFromProto never returns nil: Ogen always sets the field on reads, so
+// the map the UI holds round-trips as a set (replacing) write.
+func canvasesFromProto(c *platformsv1.PostTypeCanvases) map[string]Canvas {
+	out := make(map[string]Canvas, len(c.GetBySlug()))
+	for slug, v := range c.GetBySlug() {
+		out[slug] = Canvas{Width: v.GetWidth(), Height: v.GetHeight()}
+	}
+	return out
+}
+
 func globalLimitsFromProto(l *platformsv1.GlobalLimits) GlobalLimits {
 	if l == nil {
 		return GlobalLimits{}
@@ -373,7 +394,21 @@ func platformToProto(p Platform) *platformsv1.Platform {
 		VideoConstraints:   videoToProto(p.VideoConstraints),
 		PdfConstraints:     pdfToProto(p.PdfConstraints),
 		TextConstraints:    textToProto(p.TextConstraints),
+		PostTypeCanvases:   canvasesToProto(p.PostTypeCanvases),
 	}
+}
+
+// canvasesToProto maps nil to an unset field, which tells Ogen to keep the
+// stored canvases, and any other map (empty included) to a replacing write.
+func canvasesToProto(m map[string]Canvas) *platformsv1.PostTypeCanvases {
+	if m == nil {
+		return nil
+	}
+	bySlug := make(map[string]*platformsv1.Canvas, len(m))
+	for slug, c := range m {
+		bySlug[slug] = &platformsv1.Canvas{Width: c.Width, Height: c.Height}
+	}
+	return &platformsv1.PostTypeCanvases{BySlug: bySlug}
 }
 
 func imageToProto(c *ImageConstraints) *platformsv1.ImageConstraints {

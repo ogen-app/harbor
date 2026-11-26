@@ -26,7 +26,16 @@ import {
   TagsField,
   FIELD_GRID,
 } from "./fields";
+import { CanvasField } from "./CanvasField";
+import {
+  ARTWORK_POST_TYPES,
+  checkCanvas,
+  draftOf,
+  toCanvas,
+  type CanvasDraft,
+} from "./canvas";
 import type {
+  Canvas,
   Platform,
   ImageConstraints,
   VideoConstraints,
@@ -37,12 +46,15 @@ import type {
 type Mode = "create" | "edit";
 
 // A post type as edited in the form: slug + display label + whether it's a
-// Zernio-publishable type. On submit these fan out into the Platform's
-// post_types map and its supported_post_types subset.
+// Zernio-publishable type + its recommended canvas. On submit these fan out
+// into the Platform's post_types map, its supported_post_types subset and its
+// post_type_canvases. The canvas lives on the row so it follows a renamed slug
+// and goes with a removed one.
 interface PostTypeRow {
   slug: string;
   label: string;
   publishable: boolean;
+  canvas: CanvasDraft;
 }
 
 // Top-level tabs — one per former column.
@@ -120,6 +132,7 @@ function toRows(p?: Platform): PostTypeRow[] {
     slug,
     label,
     publishable: supported.has(slug),
+    canvas: draftOf(p.postTypeCanvases?.[slug]),
   }));
 }
 
@@ -147,7 +160,7 @@ export function PlatformDialog({
 }: PlatformDialogProps) {
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-w-[min(46rem,calc(100vw-2.5rem))] gap-0 p-0">
+      <DrawerContent className="max-w-[min(54rem,calc(100vw-2.5rem))] gap-0 p-0">
         <PlatformForm
           mode={mode}
           platform={platform}
@@ -229,7 +242,7 @@ function PlatformForm({
   const addPostType = () =>
     setPostTypes((rows) => [
       ...rows,
-      { slug: "", label: "", publishable: false },
+      { slug: "", label: "", publishable: false, canvas: draftOf() },
     ]);
   const removePostType = (i: number) =>
     setPostTypes((rows) => rows.filter((_, idx) => idx !== i));
@@ -275,6 +288,23 @@ function PlatformForm({
     }
     const slugSet = new Set(Object.keys(postTypesMap));
 
+    // Canvases for post types that take artwork; a row with both sides empty
+    // has no recommendation and is left out. Rows of other types keep no
+    // canvas (Ogen rejects one on them).
+    const postTypeCanvases: Record<string, Canvas> = {};
+    for (const r of validRows) {
+      const slug = r.slug.trim();
+      if (!ARTWORK_POST_TYPES.has(slug)) continue;
+      const issue = checkCanvas(slug, r.canvas, video);
+      if (issue?.level === "error") {
+        setError(`Canvas for “${slug}”: ${issue.message}`);
+        setFormTab("Post types");
+        return;
+      }
+      const canvas = toCanvas(r.canvas);
+      if (canvas) postTypeCanvases[slug] = canvas;
+    }
+
     // per_post_type overrides only for current post types with a non-zero value
     // (Ogen rejects an override whose slug isn't a post type).
     const perPostType: Record<string, number> = {};
@@ -302,6 +332,7 @@ function PlatformForm({
       videoConstraints: videoEmpty(video) ? null : video,
       pdfConstraints: pdfEmpty(pdf) ? null : pdf,
       textConstraints: textEmpty(finalText) ? null : finalText,
+      postTypeCanvases,
       // Read-only server fields; ignored on write but required by the type.
       usage: platform?.usage ?? { connectedAccounts: 0, scheduledPosts: 0 },
       createdAt: platform?.createdAt ?? "",
@@ -497,7 +528,7 @@ function PlatformForm({
         {formTab === "Post types" && (
           <Section
             title="Post types"
-            subtitle="Slug → label. Mark the Zernio-publishable ones."
+            subtitle="Slug → label. Mark the Zernio-publishable ones. Canvas is the recommended artwork size in px, used by the Figma plugin and the composer; leave it empty for no recommendation."
           >
             <div className="grid gap-2">
               {postTypes.length === 0 && (
@@ -505,42 +536,77 @@ function PlatformForm({
                   No post types yet.
                 </p>
               )}
-              {postTypes.map((row, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    aria-label={`Post type ${i + 1} slug`}
-                    value={row.slug}
-                    onChange={(e) => setPostType(i, { slug: e.target.value })}
-                    placeholder="slug"
-                    className="font-mono"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <Input
-                    aria-label={`Post type ${i + 1} label`}
-                    value={row.label}
-                    onChange={(e) => setPostType(i, { label: e.target.value })}
-                    placeholder="Label"
-                    autoComplete="off"
-                  />
-                  <span className="flex shrink-0 items-center gap-2 text-xs text-secondary-foreground">
-                    <Switch
-                      checked={row.publishable}
-                      onChange={(v) => setPostType(i, { publishable: v })}
-                      label={`Publishable — post type ${i + 1}`}
-                    />
-                    Publishable
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removePostType(i)}
-                    aria-label={`Remove post type ${i + 1}`}
-                    className="shrink-0 rounded-xs p-1.5 text-tertiary-foreground transition-colors hover:bg-secondary hover:text-destructive"
-                  >
-                    <TrashIcon className="size-4" />
-                  </button>
-                </div>
-              ))}
+              {postTypes.map((row, i) => {
+                const slug = row.slug.trim();
+                const takesArtwork = ARTWORK_POST_TYPES.has(slug);
+                const issue = takesArtwork
+                  ? checkCanvas(slug, row.canvas, video)
+                  : null;
+                return (
+                  <div key={i} className="grid gap-1">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        aria-label={`Post type ${i + 1} slug`}
+                        value={row.slug}
+                        onChange={(e) => setPostType(i, { slug: e.target.value })}
+                        placeholder="slug"
+                        className="font-mono"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <Input
+                        aria-label={`Post type ${i + 1} label`}
+                        value={row.label}
+                        onChange={(e) => setPostType(i, { label: e.target.value })}
+                        placeholder="Label"
+                        autoComplete="off"
+                      />
+                      <span className="flex shrink-0 items-center gap-2 text-xs text-secondary-foreground">
+                        <Switch
+                          checked={row.publishable}
+                          onChange={(v) => setPostType(i, { publishable: v })}
+                          label={`Publishable — post type ${i + 1}`}
+                        />
+                        Publishable
+                      </span>
+                      <div className="flex w-[17.5rem] shrink-0 justify-end">
+                        {takesArtwork ? (
+                          <CanvasField
+                            slug={slug}
+                            value={row.canvas}
+                            onChange={(canvas) => setPostType(i, { canvas })}
+                            invalid={issue?.level === "error"}
+                          />
+                        ) : (
+                          <span className="w-full pl-2 text-xs text-tertiary-foreground">
+                            {slug ? "No artwork" : "Canvas after a slug is set"}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePostType(i)}
+                        aria-label={`Remove post type ${i + 1}`}
+                        className="shrink-0 rounded-xs p-1.5 text-tertiary-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                      >
+                        <TrashIcon className="size-4" />
+                      </button>
+                    </div>
+                    {issue && (
+                      <p
+                        className={cn(
+                          "text-right text-xs",
+                          issue.level === "error"
+                            ? "text-destructive"
+                            : "text-amber-700",
+                        )}
+                      >
+                        {issue.message}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
               <div>
                 <Button
                   type="button"
