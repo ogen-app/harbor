@@ -128,10 +128,13 @@ type Input struct {
 	Tier    string
 	Groups  []ogen.Group
 	Billing string
-	// Hold is the previous snapshot's state, set while the AI usage read is
-	// failing. Without AI facts the tenant would fall back from Generating and
-	// read as idle, so it keeps at least the stage and the health it had.
-	Hold *Previous
+	// Floor is the tenant's latest snapshot, today's included. Progress never
+	// goes back, so a source that lost a milestone (an analytics outage, no
+	// analytics at all, a deleted post) can't move it below the recorded stage.
+	Floor *Previous
+	// HoldHealth keeps at least the floor's health while the AI usage read is
+	// failing; without AI facts an AI-active tenant would read as idle.
+	HoldHealth bool
 }
 
 // Milestones are the times a tenant reached each stage. A later stage reached
@@ -229,8 +232,8 @@ func Evaluate(now time.Time, in Input, limits map[Progress]time.Duration, prev *
 			t.EnteredStageAt = *at
 		}
 	}
-	if h := in.Hold; h != nil && h.Progress.Rank() > t.Progress.Rank() {
-		t.Progress, t.EnteredStageAt = h.Progress, h.EnteredStageAt
+	if f := in.Floor; f != nil && f.Progress.Rank() > t.Progress.Rank() {
+		t.Progress, t.EnteredStageAt = f.Progress, f.EnteredStageAt
 	}
 	t.DaysInStage = wholeDays(now.Sub(t.EnteredStageAt))
 
@@ -256,8 +259,8 @@ func Evaluate(now time.Time, in Input, limits map[Progress]time.Duration, prev *
 	default:
 		t.Health = Active
 	}
-	if h := in.Hold; h != nil && t.Health != Churned && h.Health != Churned && healthRank(h.Health) < healthRank(t.Health) {
-		t.Health = h.Health
+	if f := in.Floor; in.HoldHealth && f != nil && t.Health != Churned && f.Health != Churned && healthRank(f.Health) < healthRank(t.Health) {
+		t.Health = f.Health
 	}
 
 	if limit, ok := limits[t.Progress]; ok && t.Health != Churned && now.Sub(t.EnteredStageAt) > limit {

@@ -21,9 +21,10 @@ func (f fakeSignals) Signals(context.Context) ([]ogen.LifecycleSignal, error) {
 type fakeAI struct {
 	spans map[string]analytics.UsageSpan
 	err   error
+	off   bool // no analytics pool configured
 }
 
-func (fakeAI) Available() bool { return true }
+func (f fakeAI) Available() bool { return !f.off }
 func (f fakeAI) AISpans(context.Context) (map[string]analytics.UsageSpan, error) {
 	return f.spans, f.err
 }
@@ -37,7 +38,12 @@ func (fakeClasses) TenantGroups(context.Context) (map[string][]ogen.Group, error
 
 type fakeStore struct {
 	prev    []harbor.StageSnapshot
+	today   []harbor.StageSnapshot
 	written []harbor.StageSnapshot
+}
+
+func (f *fakeStore) Day(context.Context, time.Time) ([]harbor.StageSnapshot, error) {
+	return f.today, nil
 }
 
 func (f *fakeStore) UpsertDay(_ context.Context, rows []harbor.StageSnapshot) error {
@@ -81,6 +87,54 @@ func TestAIOutageHoldsStageAndSkipsSnapshot(t *testing.T) {
 	svc.ai = fakeAI{spans: map[string]analytics.UsageSpan{"t1": {First: entered, Last: *ago(1)}}}
 	if err := svc.Snapshot(t.Context()); err != nil || len(store.written) != 1 || store.written[0].Progress != string(Generating) {
 		t.Fatalf("snapshot after recovery err=%v rows=%v", err, store.written)
+	}
+}
+
+func TestProgressNeverFallsBelowTheLatestSnapshot(t *testing.T) {
+	s := signal(20)
+	s.FirstSocialAt, s.LastActivityAt = ago(19), ago(1)
+	entered := *ago(4)
+	tests := []struct {
+		name  string
+		ai    fakeAI
+		store *fakeStore
+	}{
+		{
+			// Yesterday read Connected, but today's run already saw Generating.
+			name: "today's row outranks the previous snapshot",
+			ai:   fakeAI{err: errors.New("down")},
+			store: &fakeStore{
+				prev:  []harbor.StageSnapshot{{TenantID: "t1", Progress: string(Connected), Health: string(Active), EnteredStageAt: *ago(19)}},
+				today: []harbor.StageSnapshot{{TenantID: "t1", Progress: string(Generating), Health: string(Active), EnteredStageAt: entered}},
+			},
+		},
+		{
+			name:  "no analytics pool at all",
+			ai:    fakeAI{off: true},
+			store: &fakeStore{prev: []harbor.StageSnapshot{{TenantID: "t1", Progress: string(Generating), Health: string(Active), EnteredStageAt: entered}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(fakeSignals{s}, tt.ai, fakeClasses{}, nil, nil, tt.store)
+			svc.now = func() time.Time { return now }
+			b, err := svc.Board(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := b.Tenants[0]; got.Progress != Generating || !got.EnteredStageAt.Equal(entered) {
+				t.Fatalf("got %s since %v, want generating since %v", got.Progress, got.EnteredStageAt, entered)
+			}
+		})
+	}
+
+	// Without a pool there are never AI facts to wait for, so the day is still
+	// recorded, at the floored stage.
+	store := tests[1].store
+	svc := NewService(fakeSignals{s}, fakeAI{off: true}, fakeClasses{}, nil, nil, store)
+	svc.now = func() time.Time { return now }
+	if err := svc.Snapshot(t.Context()); err != nil || len(store.written) != 1 || store.written[0].Progress != string(Generating) {
+		t.Fatalf("snapshot without analytics err=%v rows=%v", err, store.written)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"slices"
 	"time"
 
@@ -48,6 +49,7 @@ type BillingSource interface {
 type Store interface {
 	UpsertDay(ctx context.Context, rows []harbor.StageSnapshot) error
 	LatestBefore(ctx context.Context, date time.Time) (time.Time, []harbor.StageSnapshot, bool, error)
+	Day(ctx context.Context, date time.Time) ([]harbor.StageSnapshot, error)
 	History(ctx context.Context, tenantID string) ([]harbor.StageSnapshot, error)
 	ChurnedSince(ctx context.Context) (map[string]time.Time, error)
 }
@@ -148,6 +150,15 @@ func (s *Service) evaluate(ctx context.Context) (evaluation, error) {
 	if ok {
 		e.sources.PreviousSnapshot = day.Format(time.DateOnly)
 	}
+	// The floor is the newest recorded state: today's row when the job already
+	// ran today, else the previous snapshot. Movement still compares against
+	// the previous snapshot.
+	floor := maps.Clone(e.prev)
+	todays, err := s.store.Day(ctx, today)
+	logFail("snapshot.today", err)
+	for _, r := range todays {
+		floor[r.TenantID] = Previous{Progress: Progress(r.Progress), Health: Health(r.Health), EnteredStageAt: r.EnteredStageAt}
+	}
 	churnedSince, err := s.store.ChurnedSince(ctx)
 	logFail("snapshot.churned", err)
 
@@ -160,9 +171,9 @@ func (s *Service) evaluate(ctx context.Context) (evaluation, error) {
 		var prev *Previous
 		if p, ok := e.prev[sig.ID]; ok {
 			prev = &p
-			if e.aiFailed {
-				in.Hold = prev
-			}
+		}
+		if f, ok := floor[sig.ID]; ok {
+			in.Floor, in.HoldHealth = &f, e.aiFailed
 		}
 		t := Evaluate(e.now, in, s.limits, prev, e.hasPrev)
 		if t.Health == Churned && t.ChurnedAt == nil {

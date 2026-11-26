@@ -123,6 +123,16 @@ export function MedianDaysChart({ cohorts }: { cohorts: Cohort[] }) {
     const valueText = c
         ? `Week of ${dayLabel(c.weekStart)}: ${c.signups} ${c.signups === 1 ? "signup" : "signups"}, median to first post ${c.medianDaysToFirst == null ? "not known yet" : fmtDays(c.medianDaysToFirst)}`
         : "";
+    // Before any selection the slider reports the newest week, so the first
+    // arrow press steps from there instead of from the hook's empty start.
+    const onSliderKeyDown = (e: React.KeyboardEvent) => {
+        if (active == null && n > 0 && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+            e.preventDefault();
+            setActive(e.key === "ArrowLeft" ? Math.max(0, n - 2) : n - 1);
+            return;
+        }
+        onKeyDown(e);
+    };
 
     return (
         <div
@@ -134,7 +144,7 @@ export function MedianDaysChart({ cohorts }: { cohorts: Cohort[] }) {
             aria-valuenow={current}
             aria-valuetext={valueText}
             tabIndex={0}
-            onKeyDown={onKeyDown}
+            onKeyDown={onSliderKeyDown}
             onBlur={onBlur}
             onMouseLeave={() => setActive(null)}
             className="relative outline-none focus-visible:ring-2 focus-visible:ring-ring"
