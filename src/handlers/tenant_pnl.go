@@ -19,7 +19,7 @@ import (
 // *ogenbilling.Client satisfies it (a nil client returns ErrUnavailable).
 type PlanSource interface {
 	TenantBilling(ctx context.Context, tenantID string) (ogenbilling.TenantBilling, error)
-	VariantMappings(ctx context.Context, testMode bool) (ogenbilling.VariantMappingList, error)
+	ProductMappings(ctx context.Context, testMode bool) (ogenbilling.ProductMappingList, error)
 }
 
 // planLookupTimeout bounds the best-effort plan line so a slow billing service
@@ -32,7 +32,7 @@ type tenantPlan struct {
 	NetMinor int64  `json:"netMinor"` // excluding tax
 	Currency string `json:"currency"`
 	Interval string `json:"interval"` // month | year
-	Status   string `json:"status"`   // Lemon Squeezy vocabulary
+	Status   string `json:"status"`   // Ogen subscription status
 }
 
 type tenantPnLResponse struct {
@@ -118,17 +118,17 @@ func (h *PnLHandler) tenantPlan(ctx context.Context, tenantID string, testMode b
 		return subscriptionRank[a.Status] - subscriptionRank[b.Status]
 	})
 
-	m, err := h.plans.VariantMappings(ctx, testMode)
+	m, err := h.plans.ProductMappings(ctx, testMode)
 	if err != nil {
-		warn("variant_mappings", err)
+		warn("product_mappings", err)
 		return nil
 	}
-	i := slices.IndexFunc(m.Mappings, func(v ogenbilling.VariantMapping) bool {
-		return v.TierVersionPriceID == sub.TierVersionPriceID
+	i := slices.IndexFunc(m.Mappings, func(pm ogenbilling.ProductMapping) bool {
+		return pm.TierVersionPriceID == sub.TierVersionPriceID
 	})
 	if i < 0 {
 		return nil
 	}
-	v := m.Mappings[i]
-	return &tenantPlan{TierName: v.TierName, NetMinor: v.NetMinor, Currency: v.Currency, Interval: v.Interval, Status: sub.Status}
+	pm := m.Mappings[i]
+	return &tenantPlan{TierName: pm.TierName, NetMinor: pm.NetMinor, Currency: pm.Currency, Interval: pm.Interval, Status: sub.Status}
 }

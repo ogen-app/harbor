@@ -1481,7 +1481,7 @@ export function TenantsTable() {
               col="billing"
               sort={sort}
               onSort={onSort}
-              info="Billing summary from Ogen: the Lemon Squeezy subscription status, awaiting checkout (gated, never subscribed), or not required (comped / grandfathered)."
+              info="Billing summary from Ogen: the subscription status, awaiting checkout (gated, never subscribed), or not required (comped / grandfathered)."
             />
           );
         case "groups":
@@ -1528,7 +1528,7 @@ export function TenantsTable() {
               sort={sort}
               onSort={onSort}
               isNew={shownNewColumns.includes("revenue")}
-              info="Net revenue for the month to date: Lemon Squeezy payments less tax, fees and refunds, from the Profit & loss ledger."
+              info="Net revenue for the month to date: Polar payments less tax, fees and refunds, from the Profit & loss ledger."
             />
           );
         case "margin":

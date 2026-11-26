@@ -26,23 +26,25 @@ import type { CatalogEntry } from "@/components/tiers-groups/types";
 import {
   BillingStatusBadge,
   Chip,
-  LEMON_SQUEEZY_DASHBOARD,
   ReasonBadge,
   errorText,
   formatDate,
   formatMoney,
   intervalLabel,
-  lemonSqueezySubscriptionUrl,
+  polarSubscriptionsUrl,
+  providerName,
   reasonHint,
+  subscriptionUrl,
   tierName,
+  type PolarOrg,
 } from "./format";
 import { ReasonDialog, type ReasonRequest } from "./ReasonDialog";
 import { MoveTierDialog, useTierVersions } from "./MoveTierDialog";
 import type {
   AttentionItem,
   AttentionResponse,
-  VariantMapping,
-  VariantMappingsResponse,
+  ProductMapping,
+  ProductMappingsResponse,
 } from "./types";
 
 // Columns: workspace · reason · status · since · renews/ends · tier · actions.
@@ -54,18 +56,21 @@ const GRID =
 // days (incl. never-paid trials and whether their Zernio teardown ran), duplicate
 // subscriptions, failed scheduled changes, and webhooks that matched no tenant.
 // Ogen takes no action on its own, so each row offers the operator's levers:
-// suspend, move tier/version, resync, and the Lemon Squeezy dashboard for
-// refunds and cancellations.
+// suspend, move tier/version, resync, and the provider's dashboard for refunds
+// and cancellations.
 export function AttentionTable({
   tiers,
   trialTeardownLive,
   testMode,
+  org,
   onOpenPrice,
 }: {
   tiers: CatalogEntry[];
   trialTeardownLive: boolean;
   // The mode Ogen runs in: unmapped_price items are about its map.
   testMode: boolean;
+  // The Polar organization, for dashboard links (null while unknown).
+  org: PolarOrg | null;
   onOpenPrice: (priceId: string) => void;
 }) {
   const [data, setData] = useState<AttentionResponse | null>(null);
@@ -177,15 +182,15 @@ export function AttentionTable({
   const hasUnmapped = items.some((it) => it.reason === "unmapped_price");
 
   // unmapped_price items carry only a price id; the tier, version and interval
-  // are resolved from the current mode's variant map.
-  const [prices, setPrices] = useState<Map<string, VariantMapping>>(new Map());
+  // are resolved from the current mode's product map.
+  const [prices, setPrices] = useState<Map<string, ProductMapping>>(new Map());
   useEffect(() => {
     if (!hasUnmapped) return;
     const controller = new AbortController();
-    fetch(`/api/billing/variant-mappings?mode=${testMode ? "test" : "live"}`, {
+    fetch(`/api/billing/product-mappings?mode=${testMode ? "test" : "live"}`, {
       signal: controller.signal,
     })
-      .then((r) => (r.ok ? (r.json() as Promise<VariantMappingsResponse>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<ProductMappingsResponse>) : null))
       .then((j) =>
         setPrices(new Map((j?.mappings ?? []).map((m) => [m.tierVersionPriceId, m]))),
       )
@@ -206,12 +211,12 @@ export function AttentionTable({
             workspace’s tier or status on its own — suspend, move the tier, or
             resync from here. Refunds and cancellations happen in{" "}
             <a
-              href={LEMON_SQUEEZY_DASHBOARD}
+              href={polarSubscriptionsUrl(org)}
               target="_blank"
               rel="noreferrer"
               className="underline underline-offset-2 hover:text-foreground"
             >
-              Lemon Squeezy
+              Polar
             </a>
             .
           </p>
@@ -266,6 +271,7 @@ export function AttentionTable({
                   item={item}
                   tiers={tiers}
                   trialTeardownLive={trialTeardownLive}
+                  org={org}
                   busy={busyKey === key}
                   onResync={() => resync(item, key)}
                   onSuspend={() => askSuspend(item)}
@@ -322,6 +328,7 @@ function AttentionRow({
   item,
   tiers,
   trialTeardownLive,
+  org,
   busy,
   onResync,
   onSuspend,
@@ -330,6 +337,7 @@ function AttentionRow({
   item: AttentionItem;
   tiers: CatalogEntry[];
   trialTeardownLive: boolean;
+  org: PolarOrg | null;
   busy: boolean;
   onResync: () => void;
   onSuspend: () => void;
@@ -430,7 +438,7 @@ function AttentionRow({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onResync}>
                 <ArrowsClockwiseIcon className="size-4" />
-                Resync from Lemon Squeezy
+                Resync from {s ? providerName(s.provider) : "the provider"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onMove}>
@@ -445,13 +453,9 @@ function AttentionRow({
             </>
           )}
           <DropdownMenuItem asChild>
-            <a
-              href={lemonSqueezySubscriptionUrl(s?.providerSubscriptionId ?? "")}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a href={subscriptionUrl(s, org)} target="_blank" rel="noreferrer">
               <ArrowSquareOutIcon className="size-4" />
-              {s ? "Open in Lemon Squeezy" : "Lemon Squeezy dashboard"}
+              {s ? `Open in ${providerName(s.provider)}` : "Polar dashboard"}
             </a>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -460,16 +464,16 @@ function AttentionRow({
   );
 }
 
-// UnmappedPriceRow is an unmapped_price item: a sellable price with no Lemon
-// Squeezy variant in the current mode. It has no workspace; its one action
-// opens the price's map drawer on the Variant mapping tab.
+// UnmappedPriceRow is an unmapped_price item: a sellable price with no Polar
+// product in the current mode, or only an archived one. It has no workspace; its
+// one action opens the price's map drawer on the Product mapping tab.
 function UnmappedPriceRow({
   item,
   price,
   onOpen,
 }: {
   item: AttentionItem;
-  price: VariantMapping | undefined;
+  price: ProductMapping | undefined;
   onOpen: () => void;
 }) {
   const name = price
@@ -508,8 +512,8 @@ function UnmappedPriceRow({
         variant="ghost"
         size="smIcon"
         onClick={onOpen}
-        aria-label={`Map ${name} to Lemon Squeezy`}
-        title="Map to Lemon Squeezy"
+        aria-label={`Map ${name} to a Polar product`}
+        title="Map to a Polar product"
         className="h-9 w-9 justify-self-end text-tertiary-foreground"
       >
         <LinkSimpleIcon className="size-5" />

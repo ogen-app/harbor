@@ -41,10 +41,10 @@ func (h *BillingHandler) Register(app *fiber.App, requireAuth fiber.Handler) {
 	app.Get("/api/billing/free-trial-tier", requireAuth, h.FreeTrialTier)
 	app.Put("/api/billing/free-trial-tier", requireAuth, h.SetFreeTrialTier)
 	app.Post("/api/billing/cutover", requireAuth, h.Cutover)
-	app.Get("/api/billing/variant-mappings", requireAuth, h.VariantMappings)
-	app.Put("/api/billing/variant-mappings/:priceId", requireAuth, h.SetVariantMapping)
-	app.Get("/api/billing/provider-variants", requireAuth, h.ProviderVariants)
-	app.Get("/api/billing/variant-suggestions", requireAuth, h.VariantSuggestions)
+	app.Get("/api/billing/product-mappings", requireAuth, h.ProductMappings)
+	app.Put("/api/billing/product-mappings/:priceId", requireAuth, h.SetProductMapping)
+	app.Get("/api/billing/provider-products", requireAuth, h.ProviderProducts)
+	app.Get("/api/billing/product-suggestions", requireAuth, h.ProductSuggestions)
 	app.Get("/api/tenants/:id/billing", requireAuth, h.TenantBilling)
 	app.Put("/api/tenants/:id/billing/required", requireAuth, h.SetRequired)
 	app.Put("/api/tenants/:id/billing/complimentary", requireAuth, h.SetComplimentary)
@@ -93,40 +93,43 @@ type setFreeTrialTierRequest struct {
 	Reason string `json:"reason"`
 }
 
+// cutoverRequest: Scope is provider_switch | mode_cutover, with no default — a
+// cutover of the wrong kind must never run by accident.
 type cutoverRequest struct {
-	DryRun bool `json:"dryRun"`
+	DryRun bool   `json:"dryRun"`
+	Scope  string `json:"scope"`
 }
 
-type variantMappingsResponse struct {
+type productMappingsResponse struct {
 	Available bool `json:"available"`
-	ogenbilling.VariantMappingList
+	ogenbilling.ProductMappingList
 }
 
-// providerVariantsResponse: Readable is false when Ogen cannot read that mode
-// (FailedPrecondition, e.g. the live API key is not set); Message is Ogen's text,
-// shown as is.
-type providerVariantsResponse struct {
+// providerProductsResponse: Readable is false when Ogen cannot read that mode
+// (FailedPrecondition, e.g. the live access token is not set); Message is Ogen's
+// text, shown as is.
+type providerProductsResponse struct {
 	Available bool                          `json:"available"`
 	Readable  bool                          `json:"readable"`
 	Message   string                        `json:"message"`
-	Variants  []ogenbilling.ProviderVariant `json:"variants"`
+	Products  []ogenbilling.ProviderProduct `json:"products"`
 }
 
-type variantSuggestionsResponse struct {
+type productSuggestionsResponse struct {
 	Available   bool                            `json:"available"`
 	Readable    bool                            `json:"readable"`
 	Message     string                          `json:"message"`
-	Suggestions []ogenbilling.VariantSuggestion `json:"suggestions"`
+	Suggestions []ogenbilling.ProductSuggestion `json:"suggestions"`
 }
 
-type setVariantMappingRequest struct {
+type setProductMappingRequest struct {
 	Mode      string `json:"mode"`      // test | live
-	VariantID string `json:"variantId"` // '' unmaps the price
+	ProductID string `json:"productId"` // '' unmaps the price
 	Reason    string `json:"reason"`
 }
 
-type variantMappingResponse struct {
-	Mapping ogenbilling.VariantMapping `json:"mapping"`
+type productMappingResponse struct {
+	Mapping ogenbilling.ProductMapping `json:"mapping"`
 }
 
 // Settings godoc
@@ -306,7 +309,7 @@ func (h *BillingHandler) SetFreeTrialTier(c *fiber.Ctx) error {
 }
 
 // Cutover godoc
-// @Summary  Sandbox→live cutover: invalidate test subscriptions (dryRun lists only)
+// @Summary  Invalidate subscriptions: provider_switch (other provider's) or mode_cutover (sandbox ones); dryRun lists only
 // @Tags     billing
 // @Accept   json
 // @Produce  json
@@ -319,49 +322,55 @@ func (h *BillingHandler) Cutover(c *fiber.Ctx) error {
 		logBilling(c, start, err)
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
-	out, err := h.client.InvalidateTestSubscriptions(c.Context(), req.DryRun)
+	if req.Scope != ogenbilling.ScopeProviderSwitch && req.Scope != ogenbilling.ScopeModeCutover {
+		return fiber.NewError(fiber.StatusBadRequest, `scope must be "provider_switch" or "mode_cutover"`)
+	}
+	out, err := h.client.InvalidateSubscriptions(c.Context(), req.DryRun, req.Scope)
 	logBilling(c, start, err)
 	if err != nil {
+		if _, ok := failedPrecondition(err); ok && req.Scope == ogenbilling.ScopeModeCutover {
+			return fiber.NewError(fiber.StatusConflict, "The mode cutover runs only once Ogen bills in production: Polar is still in sandbox mode.")
+		}
 		return mapBillingError(err)
 	}
 	return c.JSON(out)
 }
 
-// VariantMappings godoc
-// @Summary  Every sellable price with its Lemon Squeezy variant and check, in one mode
+// ProductMappings godoc
+// @Summary  Every sellable price with its Polar product and check, in one mode
 // @Tags     billing
 // @Produce  json
 // @Param    mode  query  string  true  "test | live"
-// @Success  200  {object}  variantMappingsResponse
-// @Router   /api/billing/variant-mappings [get]
-func (h *BillingHandler) VariantMappings(c *fiber.Ctx) error {
+// @Success  200  {object}  productMappingsResponse
+// @Router   /api/billing/product-mappings [get]
+func (h *BillingHandler) ProductMappings(c *fiber.Ctx) error {
 	testMode, err := parseBillingMode(c.Query("mode"))
 	if err != nil {
 		return err
 	}
 	start := time.Now()
-	list, err := h.client.VariantMappings(c.Context(), testMode)
+	list, err := h.client.ProductMappings(c.Context(), testMode)
 	logBilling(c, start, err)
 	if err != nil {
 		if isBillingUnavailable(err) {
-			return c.JSON(variantMappingsResponse{VariantMappingList: ogenbilling.VariantMappingList{TestMode: testMode, Mappings: []ogenbilling.VariantMapping{}}})
+			return c.JSON(productMappingsResponse{ProductMappingList: ogenbilling.ProductMappingList{TestMode: testMode, Mappings: []ogenbilling.ProductMapping{}}})
 		}
 		return mapBillingError(err)
 	}
-	return c.JSON(variantMappingsResponse{Available: true, VariantMappingList: list})
+	return c.JSON(productMappingsResponse{Available: true, ProductMappingList: list})
 }
 
-// SetVariantMapping godoc
-// @Summary  Map a price to a Lemon Squeezy variant in one mode, or unmap it (variantId '')
+// SetProductMapping godoc
+// @Summary  Map a price to a Polar product in one mode, or unmap it (productId ”)
 // @Tags     billing
 // @Accept   json
 // @Produce  json
 // @Param    priceId  path  string  true  "Tier version price id"
-// @Success  200  {object}  variantMappingResponse
-// @Router   /api/billing/variant-mappings/{priceId} [put]
-func (h *BillingHandler) SetVariantMapping(c *fiber.Ctx) error {
+// @Success  200  {object}  productMappingResponse
+// @Router   /api/billing/product-mappings/{priceId} [put]
+func (h *BillingHandler) SetProductMapping(c *fiber.Ctx) error {
 	start := time.Now()
-	var req setVariantMappingRequest
+	var req setProductMappingRequest
 	if err := c.BodyParser(&req); err != nil {
 		logBilling(c, start, err)
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
@@ -374,31 +383,31 @@ func (h *BillingHandler) SetVariantMapping(c *fiber.Ctx) error {
 	if reason == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "a reason is required")
 	}
-	m, err := h.client.SetVariantMapping(c.Context(), c.Params("priceId"), testMode, strings.TrimSpace(req.VariantID), reason)
+	m, err := h.client.SetProductMapping(c.Context(), c.Params("priceId"), testMode, strings.TrimSpace(req.ProductID), reason)
 	logBilling(c, start, err)
 	if err != nil {
 		return mapBillingError(err)
 	}
-	return c.JSON(variantMappingResponse{Mapping: m})
+	return c.JSON(productMappingResponse{Mapping: m})
 }
 
-// ProviderVariants godoc
-// @Summary  The store's subscription variants in one mode, for the mapping picker
+// ProviderProducts godoc
+// @Summary  The Polar organization's recurring products in one mode, for the mapping picker
 // @Tags     billing
 // @Produce  json
 // @Param    mode  query  string  true  "test | live"
-// @Success  200  {object}  providerVariantsResponse
-// @Router   /api/billing/provider-variants [get]
-func (h *BillingHandler) ProviderVariants(c *fiber.Ctx) error {
+// @Success  200  {object}  providerProductsResponse
+// @Router   /api/billing/provider-products [get]
+func (h *BillingHandler) ProviderProducts(c *fiber.Ctx) error {
 	testMode, err := parseBillingMode(c.Query("mode"))
 	if err != nil {
 		return err
 	}
 	start := time.Now()
-	variants, err := h.client.ProviderVariants(c.Context(), testMode)
+	products, err := h.client.ProviderProducts(c.Context(), testMode)
 	logBilling(c, start, err)
 	if err != nil {
-		empty := providerVariantsResponse{Variants: []ogenbilling.ProviderVariant{}}
+		empty := providerProductsResponse{Products: []ogenbilling.ProviderProduct{}}
 		if isBillingUnavailable(err) {
 			return c.JSON(empty)
 		}
@@ -408,26 +417,26 @@ func (h *BillingHandler) ProviderVariants(c *fiber.Ctx) error {
 		}
 		return mapBillingError(err)
 	}
-	return c.JSON(providerVariantsResponse{Available: true, Readable: true, Variants: variants})
+	return c.JSON(providerProductsResponse{Available: true, Readable: true, Products: products})
 }
 
-// VariantSuggestions godoc
-// @Summary  Proposed variants for unmapped prices in one mode (nothing is saved)
+// ProductSuggestions godoc
+// @Summary  Proposed products for unmapped prices in one mode (nothing is saved)
 // @Tags     billing
 // @Produce  json
 // @Param    mode  query  string  true  "test | live"
-// @Success  200  {object}  variantSuggestionsResponse
-// @Router   /api/billing/variant-suggestions [get]
-func (h *BillingHandler) VariantSuggestions(c *fiber.Ctx) error {
+// @Success  200  {object}  productSuggestionsResponse
+// @Router   /api/billing/product-suggestions [get]
+func (h *BillingHandler) ProductSuggestions(c *fiber.Ctx) error {
 	testMode, err := parseBillingMode(c.Query("mode"))
 	if err != nil {
 		return err
 	}
 	start := time.Now()
-	suggestions, err := h.client.SuggestVariantMappings(c.Context(), testMode)
+	suggestions, err := h.client.SuggestProductMappings(c.Context(), testMode)
 	logBilling(c, start, err)
 	if err != nil {
-		empty := variantSuggestionsResponse{Suggestions: []ogenbilling.VariantSuggestion{}}
+		empty := productSuggestionsResponse{Suggestions: []ogenbilling.ProductSuggestion{}}
 		if isBillingUnavailable(err) {
 			return c.JSON(empty)
 		}
@@ -437,7 +446,7 @@ func (h *BillingHandler) VariantSuggestions(c *fiber.Ctx) error {
 		}
 		return mapBillingError(err)
 	}
-	return c.JSON(variantSuggestionsResponse{Available: true, Readable: true, Suggestions: suggestions})
+	return c.JSON(productSuggestionsResponse{Available: true, Readable: true, Suggestions: suggestions})
 }
 
 // parseBillingMode reads the test/live switch. There is no default: the map of
@@ -486,8 +495,8 @@ func isBillingUnavailable(err error) bool {
 
 // mapBillingError translates client/gRPC errors to HTTP statuses so the UI can
 // show them inline. Ogen's message is passed through for the operator-facing
-// codes — notably FailedPrecondition ("still in test mode", "tier has no
-// one-month trial variant"), which the screens show as is.
+// codes — notably FailedPrecondition ("product has no fixed price in EUR",
+// "a product of the tier has no one-month trial"), which the screens show as is.
 func mapBillingError(err error) error {
 	if errors.Is(err, ogenbilling.ErrUnavailable) {
 		return fiber.NewError(fiber.StatusServiceUnavailable, "billing-admin service unavailable")

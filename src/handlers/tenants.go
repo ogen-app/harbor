@@ -96,7 +96,7 @@ type tenantRow struct {
 	Activity []int `json:"activity"`
 	// BillingStatus (CON-322/327) is Ogen's billing summary: '' when billing is
 	// off or the gRPC surface is unreachable; not_required; awaiting_checkout; or
-	// the Lemon Squeezy status of the current subscription.
+	// the Ogen status of the current subscription (whatever the provider).
 	BillingStatus string `json:"billingStatus"`
 	// Revenue and margin (CON-434) are month to date, from the Harbor ledger
 	// through the same fold as the Tenant P&L tab. RevenueMicros is net revenue,

@@ -3,6 +3,7 @@ package finance
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,10 @@ func SyncRevenueKey(testMode bool) string {
 // and refunds and chargebacks as negative revenue in the month they happen.
 // It is idempotent on Ogen's payment id, and test and live payments are kept
 // apart by their mode. The first pass backfills all history.
+//
+// A payment Ogen has not converted to USD yet (its ECB rate is not known) is
+// left out; Ogen lists it again once converted, and the overlap window picks it
+// up on a later pass.
 func (s *Service) SyncRevenue(ctx context.Context) error {
 	settings, err := s.payments.Settings(ctx)
 	if err != nil {
@@ -78,14 +83,19 @@ func (s *Service) SyncRevenue(ctx context.Context) error {
 }
 
 // PaymentEntries turns one payment into its ledger components. Amounts are
-// signed: revenue positive; tax, fee and refunds negative (deducted).
+// signed: revenue positive; tax, fee and refunds negative (deducted). It returns
+// nothing for a payment whose USD amounts are not known yet: the ledger's USD
+// column is required, and a guessed rate would be booked as fact.
 func PaymentEntries(p ogenbilling.Payment) []fin.LedgerEntry {
+	if p.TotalUSD == nil {
+		return nil
+	}
 	day := dateOnly(p.OccurredAt)
 	ref := "#" + p.ProviderID
 	base := fin.LedgerEntry{
 		Source:     fin.SourceBilling,
 		SourceRef:  p.ID,
-		VendorID:   fin.VendorLemonSqueezy,
+		VendorID:   paymentVendor(p.Provider),
 		Currency:   strings.ToUpper(p.Currency),
 		BookedDate: day,
 		TestMode:   p.TestMode,
@@ -93,18 +103,15 @@ func PaymentEntries(p ogenbilling.Payment) []fin.LedgerEntry {
 	if p.TenantID != "" {
 		base.TenantID = new(p.TenantID)
 	}
-	if base.Currency != "USD" && p.Total != 0 && p.TotalUSD != 0 {
-		// USD per unit of currency, from the provider's own conversion.
-		rate := float64(centsToMicros(p.TotalUSD)) / float64(minorToMicros(p.Currency, p.Total))
-		base.FxRate = &rate
-		base.FxDate = &day
-	}
-	entry := func(direction, desc string, sign, minor, usdCents int64) fin.LedgerEntry {
+	paymentFx(&base, p, day)
+	entry := func(direction, desc string, sign, minor int64, usdCents *int64) fin.LedgerEntry {
 		e := base
 		e.Direction = direction
 		e.Description = desc
 		e.AmountMicros = sign * minorToMicros(p.Currency, minor)
-		e.AmountUSDMicros = sign * centsToMicros(usdCents)
+		if usdCents != nil {
+			e.AmountUSDMicros = sign * centsToMicros(*usdCents)
+		}
 		return e
 	}
 
@@ -134,6 +141,40 @@ func PaymentEntries(p ogenbilling.Payment) []fin.LedgerEntry {
 		}
 	}
 	return out
+}
+
+// paymentVendor is the revenue vendor of a billing provider. An unknown
+// provider is booked under Polar, the running one.
+func paymentVendor(provider string) string {
+	if provider == fin.VendorLemonSqueezy {
+		return fin.VendorLemonSqueezy
+	}
+	return fin.VendorPolar
+}
+
+// paymentFx records the conversion on a non-USD payment. Ogen's own rate (Polar
+// payments, converted at the ECB reference rate) is used as is; for Lemon
+// Squeezy, which converted its own amounts, the rate is derived from them.
+func paymentFx(e *fin.LedgerEntry, p ogenbilling.Payment, day time.Time) {
+	if p.FxSource != "" {
+		e.FxSource = new(p.FxSource)
+	}
+	if e.Currency == "USD" {
+		return
+	}
+	if rate, err := strconv.ParseFloat(p.FxRate, 64); err == nil && rate > 0 {
+		e.FxRate = &rate
+		e.FxDate = &day
+		if d, err := time.Parse(time.DateOnly, p.FxDate); err == nil {
+			e.FxDate = &d
+		}
+		return
+	}
+	if p.Total != 0 && *p.TotalUSD != 0 {
+		rate := float64(centsToMicros(*p.TotalUSD)) / float64(minorToMicros(p.Currency, p.Total))
+		e.FxRate = &rate
+		e.FxDate = &day
+	}
 }
 
 func centsToMicros(c int64) int64 { return c * 10_000 }

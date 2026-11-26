@@ -505,6 +505,9 @@ function LedgerRowView({
   onOpen: () => void;
 }) {
   const foreign = row.currency && row.currency.toUpperCase() !== "USD";
+  // A Polar payment Ogen converted at the ECB reference rate of its day: the USD
+  // figure is an estimate, not what the provider paid out.
+  const ecb = row.fxSource === "ecb";
   return (
     <tr
       data-row-index={index}
@@ -548,7 +551,11 @@ function LedgerRowView({
       <td className="px-3">
         <TypePill direction={row.direction} />
       </td>
-      <td className="px-3 pr-6 text-right whitespace-nowrap tabular-nums">
+      <td
+        className="px-3 pr-6 text-right whitespace-nowrap tabular-nums"
+        title={ecb ? `Converted at the ECB reference rate for ${row.fxDate || dayLabel(row.bookedDate)}` : undefined}
+      >
+        {ecb && <span className="text-secondary-foreground">≈ </span>}
         {usd(cash(row.direction, row.amountMicros), "always")}
         {foreign && (
           <span className="block text-[11px] leading-3 text-secondary-foreground">

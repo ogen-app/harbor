@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { CatalogEntry } from "@/components/tiers-groups/types";
+import type { BillingSettings, BillingSettingsResponse } from "./types";
 
 // Shared presentation helpers for the billing surfaces (the /billing page, the
 // tenant Billing tab and the Tenants table column), so statuses, reasons and
-// dates read the same everywhere. Status strings are Lemon Squeezy's own
-// vocabulary, passed through unchanged by Ogen.
+// dates read the same everywhere. Status strings are Ogen's own subscription
+// statuses, whatever the provider; the provider's raw status is shown apart.
 
 type Tone = "good" | "warn" | "bad" | "neutral" | "info";
 
@@ -21,8 +22,8 @@ const TONE: Record<Tone, { dot: string; chip: string }> = {
 };
 
 // Every value a billing status can take: the tenant-list summary values
-// (complimentary, not_required, awaiting_checkout) plus Lemon Squeezy's
-// subscription statuses. complimentary is a tester's workspace (CON-333).
+// (complimentary, not_required, awaiting_checkout) plus Ogen's subscription
+// statuses. complimentary is a tester's workspace (CON-333).
 const BILLING_STATUS: Record<string, { tone: Tone; label: string }> = {
   complimentary: { tone: "good", label: "Complimentary" },
   not_required: { tone: "neutral", label: "Not required" },
@@ -61,7 +62,7 @@ const REASON: Record<string, { tone: Tone; label: string; hint: string }> = {
   past_due: {
     tone: "bad",
     label: "Past due",
-    hint: "A renewal payment failed; Lemon Squeezy is retrying.",
+    hint: "A renewal payment failed; Polar is retrying the card.",
   },
   unpaid: {
     tone: "bad",
@@ -71,7 +72,7 @@ const REASON: Record<string, { tone: Tone; label: string; hint: string }> = {
   paused: {
     tone: "warn",
     label: "Paused",
-    hint: "Payment collection is paused in Lemon Squeezy.",
+    hint: "Payment collection is paused at the payment provider.",
   },
   expired: {
     tone: "neutral",
@@ -86,7 +87,7 @@ const REASON: Record<string, { tone: Tone; label: string; hint: string }> = {
   duplicate: {
     tone: "warn",
     label: "Duplicate subscription",
-    hint: "The workspace has more than one live subscription; refund or cancel one in Lemon Squeezy.",
+    hint: "The workspace has more than one live subscription; refund or cancel one in Polar.",
   },
   unresolved_webhook: {
     tone: "bad",
@@ -101,7 +102,7 @@ const REASON: Record<string, { tone: Tone; label: string; hint: string }> = {
   unmapped_price: {
     tone: "warn",
     label: "Price not sellable",
-    hint: "No Lemon Squeezy variant sells this price, so the pricing page shows it as unavailable.",
+    hint: "No Polar product sells this price, or its product is archived, so the pricing page shows it as unavailable.",
   },
 };
 
@@ -146,12 +147,12 @@ export function ChangeStatusBadge({ status }: { status: string }) {
   return <Chip tone={CHANGE_TONE[status] ?? "neutral"} label={humanize(status)} />;
 }
 
-// ModeBadge marks Lemon Squeezy test-mode (sandbox) vs live data.
+// ModeBadge marks sandbox (test mode) vs production (live) data.
 export function ModeBadge({ testMode }: { testMode: boolean }) {
   return testMode ? (
-    <Chip tone="warn" label="Test mode" />
+    <Chip tone="warn" label="Sandbox" />
   ) : (
-    <Chip tone="good" label="Live" />
+    <Chip tone="good" label="Production" />
   );
 }
 
@@ -210,36 +211,83 @@ export function formatDateTime(iso: string | null | undefined): string {
 }
 
 // tierName resolves a tier id against the catalog, falling back to the raw id
-// (or a dash when the variant is unmapped).
+// (or a dash when the product is unmapped).
 export function tierName(tierId: string, tiers: CatalogEntry[]): string {
   if (!tierId) return "—";
   return tiers.find((t) => t.id === tierId)?.name ?? tierId;
 }
 
-// Lemon Squeezy is the merchant of record: refunds and cancellations happen in
-// its dashboard. These deep links land on the subscription / the list.
-export const LEMON_SQUEEZY_DASHBOARD = "https://app.lemonsqueezy.com/subscriptions";
+// Polar is the merchant of record (CON-523): refunds, cancellations and products
+// live in its dashboard, on sandbox.polar.sh in test mode and polar.sh in
+// production. PolarOrg is what a link needs from the billing settings.
+//
+// The dashboard paths below are unverified until the Polar spike (CON-531 A0)
+// confirms them; they are built here only, so a fix is one place.
+export type PolarOrg = Pick<BillingSettings, "organizationId" | "testMode">;
 
-export function lemonSqueezySubscriptionUrl(providerSubscriptionId: string): string {
-  return providerSubscriptionId
-    ? `${LEMON_SQUEEZY_DASHBOARD}/${encodeURIComponent(providerSubscriptionId)}`
-    : LEMON_SQUEEZY_DASHBOARD;
+export function polarDashboardUrl(org: PolarOrg | null, path = ""): string {
+  const host = org?.testMode === false ? "https://polar.sh" : "https://sandbox.polar.sh";
+  if (!org?.organizationId) return `${host}/dashboard`;
+  return `${host}/dashboard/${encodeURIComponent(org.organizationId)}${path}`;
 }
 
-// Products and variants are created in the Lemon Squeezy dashboard (its API
-// cannot create them), then mapped in Harbor.
-export const LEMON_SQUEEZY_PRODUCTS = "https://app.lemonsqueezy.com/products";
+export function polarSubscriptionsUrl(org: PolarOrg | null): string {
+  return polarDashboardUrl(org, "/sales/subscriptions");
+}
 
-// Variant-mapping checks (CON-404). The label is Harbor's; the explanation under
-// it is always Ogen's message. "suggested" is Harbor-side: an unmapped price
-// with a suggestion from SuggestVariantMappings.
+// Products are created in the Polar dashboard, then mapped in Harbor.
+export function polarProductsUrl(org: PolarOrg | null): string {
+  return polarDashboardUrl(org, "/products");
+}
+
+// Subscriptions from before the provider switch belong to Lemon Squeezy: they
+// are cancelled or refunded in its dashboard, so their link stays there.
+const LEGACY_LEMON_SQUEEZY_SUBSCRIPTIONS = "https://app.lemonsqueezy.com/subscriptions";
+
+// subscriptionUrl deep-links a subscription in its provider's dashboard, or
+// lands on the subscription list without one.
+export function subscriptionUrl(
+  s: { provider: string; providerSubscriptionId: string } | null,
+  org: PolarOrg | null,
+): string {
+  const id = s?.providerSubscriptionId ? `/${encodeURIComponent(s.providerSubscriptionId)}` : "";
+  if (s?.provider === "lemonsqueezy") return LEGACY_LEMON_SQUEEZY_SUBSCRIPTIONS + id;
+  return polarSubscriptionsUrl(org) + id;
+}
+
+// providerName is a subscription's provider as the operator reads it.
+export function providerName(provider: string): string {
+  if (provider === "polar") return "Polar";
+  if (provider === "lemonsqueezy") return "Lemon Squeezy";
+  return humanize(provider);
+}
+
+// useBillingSettings reads the billing settings once (null while loading or
+// when the billing-admin service is unavailable), for the dashboard links.
+export function useBillingSettings(): BillingSettings | null {
+  const [settings, setSettings] = useState<BillingSettings | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/billing/settings", { signal: controller.signal })
+      .then((r) => (r.ok ? (r.json() as Promise<BillingSettingsResponse>) : null))
+      .then((j) => setSettings(j?.available ? j.settings : null))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+  return settings;
+}
+
+// Product-mapping checks (CON-404, Polar since CON-523). The label is Harbor's;
+// the explanation under it is always Ogen's message. "suggested" is
+// Harbor-side: an unmapped price with a suggestion from SuggestProductMappings.
 const MAPPING_STATUS: Record<string, { tone: Tone; label: string }> = {
   ok: { tone: "good", label: "Matches" },
   suggested: { tone: "info", label: "Suggested" },
   unmapped: { tone: "warn", label: "Not mapped" },
-  variant_missing: { tone: "bad", label: "Variant gone" },
+  product_missing: { tone: "bad", label: "Product gone" },
+  product_archived: { tone: "bad", label: "Product archived" },
   price_mismatch: { tone: "bad", label: "Price differs" },
-  currency_mismatch: { tone: "bad", label: "Currency differs" },
+  currency_mismatch: { tone: "bad", label: "No price in currency" },
   interval_mismatch: { tone: "bad", label: "Interval differs" },
   mode_mismatch: { tone: "bad", label: "Wrong mode" },
   trial_missing: { tone: "warn", label: "No 1-month trial" },
@@ -261,6 +309,21 @@ export function formatMoney(minor: number, currency: string): string {
   }
 }
 
+// priceIn is a product's fixed price in one currency, if it has one.
+export function priceIn(
+  prices: { currency: string; amountMinor: number }[],
+  currency: string,
+): { currency: string; amountMinor: number } | undefined {
+  const cur = currency.toUpperCase();
+  return prices.find((p) => p.currency.toUpperCase() === cur);
+}
+
+// pricesLabel lists a product's prices, e.g. "€50.00 · $55.00".
+export function pricesLabel(prices: { currency: string; amountMinor: number }[]): string {
+  if (prices.length === 0) return "no fixed price";
+  return prices.map((p) => formatMoney(p.amountMinor, p.currency)).join(" · ");
+}
+
 // intervalLabel: month → Monthly, year → Yearly.
 export function intervalLabel(interval: string): string {
   if (interval === "month") return "Monthly";
@@ -268,7 +331,7 @@ export function intervalLabel(interval: string): string {
   return humanize(interval);
 }
 
-// trialLabel describes a variant's trial, e.g. "trial 1 month" or "no trial".
+// trialLabel describes a product's trial, e.g. "trial 1 month" or "no trial".
 export function trialLabel(v: { hasFreeTrial: boolean; trialInterval: string; trialIntervalCount: number }): string {
   if (!v.hasFreeTrial || !v.trialInterval) return "no trial";
   const n = v.trialIntervalCount || 1;

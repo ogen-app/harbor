@@ -16,25 +16,32 @@ import {
   Chip,
   ModeBadge,
   OutcomeBadge,
-  LEMON_SQUEEZY_DASHBOARD,
   errorText,
   formatDate,
   formatDateTime,
   humanize,
-  lemonSqueezySubscriptionUrl,
+  intervalLabel,
+  polarSubscriptionsUrl,
+  providerName,
+  subscriptionUrl,
   tierName,
+  useBillingSettings,
   useTierCatalog,
+  type PolarOrg,
 } from "./format";
 import { ReasonDialog, type ReasonRequest } from "./ReasonDialog";
 import type {
+  ProductMapping,
+  ProductMappingsResponse,
   Subscription,
   TenantBilling,
   TenantBillingResponse,
 } from "./types";
 
 // TenantBillingCard is the tenant detail page's Billing tab (CON-327): the
-// workspace's subscriptions (incl. test mode and the invalidated state), any
-// scheduled downgrade, the billing_required flag with the comp/exempt toggle,
+// workspace's subscriptions (incl. sandbox, the invalidated state, the
+// provider's raw status, a downgrade pending at Polar and a cancellation at the
+// period end), any scheduled downgrade, the billing_required flag with the comp/exempt toggle,
 // the owners' free-month eligibility and the last 20 webhook events. Dunning is
 // operator-decides — Ogen never changes the tier or status itself — so this is
 // read + the two billing actions (comp/exempt, resync); suspend and tier moves
@@ -50,6 +57,8 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
   );
   const [request, setRequest] = useState<ReasonRequest | null>(null);
   const tiers = useTierCatalog();
+  const settings = useBillingSettings();
+  const pendingProducts = usePendingProducts(data?.billing.subscriptions ?? []);
 
   const enc = encodeURIComponent(tenantId);
 
@@ -88,7 +97,7 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
       const n = j.corrected ?? 0;
       flash(
         n === 0
-          ? "Resynced: already in step with Lemon Squeezy."
+          ? "Resynced: already in step with the payment provider."
           : `Resynced: ${n} subscription${n === 1 ? "" : "s"} corrected.`,
       );
     } catch (e) {
@@ -103,7 +112,7 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
       title: required ? "Require billing" : "Comp / exempt this workspace",
       description: required
         ? "Puts the workspace back behind the billing gate. If it has no subscription, its members are asked to check out before they can keep using the app."
-        : "Lets the workspace use the app without checking out — for friends, internal workspaces and design partners. Existing subscriptions are not cancelled; do that in Lemon Squeezy.",
+        : "Lets the workspace use the app without checking out — for friends, internal workspaces and design partners. Existing subscriptions are not cancelled; do that in Polar.",
       confirmLabel: required ? "Require billing" : "Comp workspace",
       placeholder: required ? "e.g. design-partner period ended" : "e.g. design partner",
       run: async (reason) => {
@@ -158,8 +167,8 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
           <div className="min-w-0">
             <h2 className="text-sm font-medium text-foreground">Billing</h2>
             <p className="mt-1 max-w-xl text-xs text-tertiary-foreground">
-              Mirrored from Lemon Squeezy. Ogen never changes this workspace’s
-              tier or status on its own when a payment fails — you decide.
+              Mirrored from Polar. Ogen never changes this workspace’s tier or
+              status on its own when a payment fails — you decide.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -197,12 +206,12 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
           title="Subscriptions"
           aside={
             <a
-              href={LEMON_SQUEEZY_DASHBOARD}
+              href={polarSubscriptionsUrl(settings)}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1 text-xs text-tertiary-foreground hover:text-foreground"
             >
-              Refunds &amp; cancellations in Lemon Squeezy
+              Refunds &amp; cancellations in Polar
               <ArrowSquareOutIcon className="size-3.5" />
             </a>
           }
@@ -218,7 +227,13 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
         ) : (
           <div className="divide-y divide-border">
             {b.subscriptions.map((s) => (
-              <SubscriptionRow key={s.id} s={s} tiers={tiers} />
+              <SubscriptionRow
+                key={s.id}
+                s={s}
+                tiers={tiers}
+                org={settings}
+                pending={pendingProducts.get(s.pendingProductId)}
+              />
             ))}
           </div>
         )}
@@ -368,13 +383,74 @@ function GateSummary({ billing: b }: { billing: TenantBilling }) {
   );
 }
 
-function SubscriptionRow({ s, tiers }: { s: Subscription; tiers: CatalogEntry[] }) {
+// usePendingProducts resolves the products that subscriptions are moving to
+// at Polar (pendingProductId) to the tier they sell, from the product map of
+// each subscription's mode. Only fetched when a change is pending.
+function usePendingProducts(subs: Subscription[]): Map<string, ProductMapping> {
+  const [byProduct, setByProduct] = useState<Map<string, ProductMapping>>(new Map());
+  const modes = [
+    ...new Set(subs.filter((s) => s.pendingProductId).map((s) => (s.testMode ? "test" : "live"))),
+  ]
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (!modes) return;
+    const controller = new AbortController();
+    Promise.all(
+      modes.split(",").map((m) =>
+        fetch(`/api/billing/product-mappings?mode=${m}`, { signal: controller.signal })
+          .then((r) => (r.ok ? (r.json() as Promise<ProductMappingsResponse>) : null))
+          .catch(() => null),
+      ),
+    ).then((lists) => {
+      if (controller.signal.aborted) return;
+      const out = new Map<string, ProductMapping>();
+      for (const l of lists) {
+        for (const m of l?.mappings ?? []) {
+          if (m.productId && !out.has(m.productId)) out.set(m.productId, m);
+        }
+      }
+      setByProduct(out);
+    });
+    return () => controller.abort();
+  }, [modes]);
+  return byProduct;
+}
+
+function SubscriptionRow({
+  s,
+  tiers,
+  org,
+  pending,
+}: {
+  s: Subscription;
+  tiers: CatalogEntry[];
+  org: PolarOrg | null;
+  // The price row the pending product sells; undefined when nothing is
+  // pending or the product is not mapped.
+  pending: ProductMapping | undefined;
+}) {
   const invalidated = !!s.invalidatedAt;
   return (
     <div className={cn("px-6 py-4", invalidated && "opacity-70")}>
       <div className="flex flex-wrap items-center gap-2">
         <BillingStatusBadge status={s.status} />
+        {s.providerStatus && s.providerStatus !== s.status && (
+          <span
+            className="text-xs text-tertiary-foreground"
+            title={`${providerName(s.provider)} reports this subscription as “${s.providerStatus}”`}
+          >
+            {providerName(s.provider)}: {humanize(s.providerStatus)}
+          </span>
+        )}
         <ModeBadge testMode={s.testMode} />
+        {s.provider === "lemonsqueezy" && <Chip tone="neutral" label="Lemon Squeezy" />}
+        {s.cancelAtPeriodEnd && (
+          <Chip
+            tone="warn"
+            label={s.endsAt ? `Cancels ${formatDate(s.endsAt)}` : "Cancels at period end"}
+          />
+        )}
         {s.duplicate && <Chip tone="warn" label="Duplicate" />}
         {invalidated && (
           <Chip
@@ -387,7 +463,7 @@ function SubscriptionRow({ s, tiers }: { s: Subscription; tiers: CatalogEntry[] 
           <Chip tone="bad" label={`Teardown ${formatDate(s.teardownAt)}`} />
         )}
         <a
-          href={lemonSqueezySubscriptionUrl(s.providerSubscriptionId)}
+          href={subscriptionUrl(s, org)}
           target="_blank"
           rel="noreferrer"
           className="ml-auto inline-flex items-center gap-1 text-xs text-tertiary-foreground hover:text-foreground"
@@ -410,6 +486,22 @@ function SubscriptionRow({ s, tiers }: { s: Subscription; tiers: CatalogEntry[] 
             : "—"}
         </Fact>
       </dl>
+      {s.pendingProductId && (
+        <p className="mt-3 text-xs text-secondary-foreground">
+          <span className="text-tertiary-foreground">Pending change · </span>
+          {tierName(s.tierId, tiers)} →{" "}
+          {pending ? (
+            <>
+              {pending.tierName} v{pending.tierVersion}{" "}
+              {intervalLabel(pending.interval).toLowerCase()}
+            </>
+          ) : (
+            <span className="font-mono">{s.pendingProductId}</span>
+          )}
+          {s.pendingEffectiveAt && <> on {formatDate(s.pendingEffectiveAt)}</>}
+          <span className="text-tertiary-foreground"> · applied by Polar at the renewal</span>
+        </p>
+      )}
     </div>
   );
 }

@@ -47,8 +47,12 @@ const (
 	SourceReceiptExtraction = "receipt_extraction"
 )
 
-// VendorLemonSqueezy is the revenue vendor every payment is booked against.
-const VendorLemonSqueezy = "lemonsqueezy"
+// Revenue vendors: a payment is booked against its billing provider. Polar is
+// the merchant of record since CON-523; lemonsqueezy rows are history.
+const (
+	VendorLemonSqueezy = "lemonsqueezy"
+	VendorPolar        = "polar"
+)
 
 // MatchRules are case-insensitive substrings: Merchant against the printed
 // merchant name, Senders against the original sender's address.
@@ -174,19 +178,22 @@ type Extraction struct {
 type LedgerEntry struct {
 	bun.BaseModel `bun:"table:finance_ledger_entries,alias:l"`
 
-	ID                 string     `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
-	Direction          string     `bun:"direction,notnull"`
-	Source             string     `bun:"source,notnull"`
-	SourceRef          string     `bun:"source_ref,notnull"`
-	VendorID           string     `bun:"vendor_id,notnull"`
-	ReceiptID          *string    `bun:"receipt_id,type:uuid"`
-	EmailID            *string    `bun:"email_id,type:uuid"`
-	Description        string     `bun:"description,notnull"`
-	AmountMicros       int64      `bun:"amount_micros,notnull"`
-	Currency           string     `bun:"currency,notnull"`
-	AmountUSDMicros    int64      `bun:"amount_usd_micros,notnull"`
-	FxRate             *float64   `bun:"fx_rate"`
-	FxDate             *time.Time `bun:"fx_date,type:date"`
+	ID              string     `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
+	Direction       string     `bun:"direction,notnull"`
+	Source          string     `bun:"source,notnull"`
+	SourceRef       string     `bun:"source_ref,notnull"`
+	VendorID        string     `bun:"vendor_id,notnull"`
+	ReceiptID       *string    `bun:"receipt_id,type:uuid"`
+	EmailID         *string    `bun:"email_id,type:uuid"`
+	Description     string     `bun:"description,notnull"`
+	AmountMicros    int64      `bun:"amount_micros,notnull"`
+	Currency        string     `bun:"currency,notnull"`
+	AmountUSDMicros int64      `bun:"amount_usd_micros,notnull"`
+	FxRate          *float64   `bun:"fx_rate"`
+	FxDate          *time.Time `bun:"fx_date,type:date"`
+	// FxSource is where a payment's conversion came from (identity | ecb |
+	// polar); nil for every other entry and for Lemon Squeezy payments.
+	FxSource           *string    `bun:"fx_source"`
 	ServicePeriodStart *time.Time `bun:"service_period_start,type:date"`
 	ServicePeriodEnd   *time.Time `bun:"service_period_end,type:date"`
 	BookedDate         time.Time  `bun:"booked_date,type:date,notnull"`

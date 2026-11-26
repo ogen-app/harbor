@@ -3,19 +3,20 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Loader } from "@/components/ui/loader";
-import { Chip, ModeBadge, errorText, useTierCatalog } from "./format";
+import { Chip, ModeBadge, errorText, providerName, useTierCatalog } from "./format";
 import { AttentionTable } from "./AttentionTable";
 import { FreeTrialCard } from "./FreeTrialCard";
 import { CutoverCard } from "./CutoverCard";
 import type { BillingSettingsResponse } from "./types";
 
 // BillingOverview is the /billing page body (CON-327): the provider settings
-// strip (test/live mode, whether Lemon Squeezy secrets are configured), the
-// attention list, the free-month offer and the go-live cutover.
+// strip (sandbox/production, whether the Polar secrets are configured), the
+// attention list, the free-month offer and the cutovers (provider switch and
+// sandbox → production).
 export function BillingOverview({
   onOpenPrice,
 }: {
-  // Opens a price's variant-mapping drawer (unmapped_price attention rows).
+  // Opens a price's product-mapping drawer (unmapped_price attention rows).
   onOpenPrice: (priceId: string) => void;
 }) {
   const [settings, setSettings] = useState<BillingSettingsResponse | null>(null);
@@ -51,6 +52,7 @@ export function BillingOverview({
         tiers={tiers}
         trialTeardownLive={s?.trialTeardownLive ?? false}
         testMode={s?.testMode ?? true}
+        org={s}
         onOpenPrice={onOpenPrice}
       />
       <div className="grid gap-6 xl:grid-cols-2">
@@ -97,10 +99,13 @@ function SettingsStrip({
           <Chip tone="neutral" label="Billing off" />
         ) : (
           <span className="text-secondary-foreground">
-            Lemon Squeezy
-            {s.storeId && (
-              <span className="text-tertiary-foreground"> · store {s.storeId}</span>
-            )}
+            {providerName(s.provider)}
+            <span className="text-tertiary-foreground">
+              {" "}
+              · {s.testMode ? "sandbox" : "production"}
+              {s.organizationId && <> · org {s.organizationId}</>}
+              {s.apiVersion && <> · API {s.apiVersion}</>}
+            </span>
           </span>
         )}
       </Fact>

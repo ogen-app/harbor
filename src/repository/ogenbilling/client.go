@@ -11,8 +11,9 @@
 // by a client interceptor and is never logged.
 //
 // Ogen never changes a workspace's tier or status on its own when a payment
-// fails ("operator decides"); the DTOs here carry the provider's vocabulary
-// through unchanged so the UI shows exactly what Lemon Squeezy reported.
+// fails ("operator decides"). Statuses are Ogen's own subscription statuses,
+// whatever the provider; the provider's raw status rides along as
+// ProviderStatus so the UI shows exactly what Polar reported.
 package ogenbilling
 
 import (
@@ -37,42 +38,50 @@ var ErrUnavailable = errors.New("ogen billing-admin service not configured")
 const defaultTimeout = 10 * time.Second
 
 // Settings is the provider configuration the console needs to decide what it may
-// offer (the cutover is refused in test mode; configured=false means the Lemon
-// Squeezy API key or webhook secret is missing).
+// offer (the mode cutover is refused in test mode; configured=false means the
+// Polar access token or webhook secret is missing).
 type Settings struct {
-	Provider          string `json:"provider"` // none | lemonsqueezy
-	TestMode          bool   `json:"testMode"`
+	Provider          string `json:"provider"` // none | polar
+	TestMode          bool   `json:"testMode"` // Polar sandbox
 	Configured        bool   `json:"configured"`
-	StoreID           string `json:"storeId"`
+	OrganizationID    string `json:"organizationId"` // the organization of the running mode
+	APIVersion        string `json:"apiVersion"`     // the Polar API version requests are pinned to
 	TrialTeardownLive bool   `json:"trialTeardownLive"`
 }
 
 // Subscription mirrors one provider subscription. Optional instants are
 // pointers: nil means unset (e.g. FirstPaidAt nil = never paid).
 type Subscription struct {
-	ID                     string     `json:"id"`
-	Provider               string     `json:"provider"`
-	ProviderSubscriptionID string     `json:"providerSubscriptionId"`
-	ProviderCustomerID     string     `json:"providerCustomerId"`
-	ProviderVariantID      string     `json:"providerVariantId"`
-	TierVersionPriceID     string     `json:"tierVersionPriceId"` // '' when unmapped
-	TierID                 string     `json:"tierId"`             // '' when unmapped
-	TierVersionID          string     `json:"tierVersionId"`      // '' when unmapped
-	Status                 string     `json:"status"`             // Lemon Squeezy vocabulary
-	TestMode               bool       `json:"testMode"`
-	RenewsAt               *time.Time `json:"renewsAt"`
-	EndsAt                 *time.Time `json:"endsAt"`
-	TrialEndsAt            *time.Time `json:"trialEndsAt"`
-	FirstPaidAt            *time.Time `json:"firstPaidAt"`
-	CardBrand              string     `json:"cardBrand"`
-	CardLastFour           string     `json:"cardLastFour"`
-	InvalidatedAt          *time.Time `json:"invalidatedAt"`
-	InvalidatedReason      string     `json:"invalidatedReason"`
-	TeardownAt             *time.Time `json:"teardownAt"`
-	AccountID              string     `json:"accountId"`
-	Duplicate              bool       `json:"duplicate"`
-	CreatedAt              *time.Time `json:"createdAt"`
-	UpdatedAt              *time.Time `json:"updatedAt"`
+	ID                     string `json:"id"`
+	Provider               string `json:"provider"`
+	ProviderSubscriptionID string `json:"providerSubscriptionId"`
+	ProviderCustomerID     string `json:"providerCustomerId"`
+	ProviderProductID      string `json:"providerProductId"`
+	TierVersionPriceID     string `json:"tierVersionPriceId"` // '' when unmapped
+	TierID                 string `json:"tierId"`             // '' when unmapped
+	TierVersionID          string `json:"tierVersionId"`      // '' when unmapped
+	Status                 string `json:"status"`             // Ogen subscription status
+	ProviderStatus         string `json:"providerStatus"`     // the provider's raw status, for support
+	// PendingProductID is the product a scheduled change moves to at the
+	// provider at PendingEffectiveAt; '' when nothing is pending.
+	PendingProductID   string     `json:"pendingProductId"`
+	PendingEffectiveAt *time.Time `json:"pendingEffectiveAt"`
+	// CancelAtPeriodEnd: cancelled by the owner, live until EndsAt.
+	CancelAtPeriodEnd bool       `json:"cancelAtPeriodEnd"`
+	TestMode          bool       `json:"testMode"`
+	RenewsAt          *time.Time `json:"renewsAt"`
+	EndsAt            *time.Time `json:"endsAt"`
+	TrialEndsAt       *time.Time `json:"trialEndsAt"`
+	FirstPaidAt       *time.Time `json:"firstPaidAt"`
+	CardBrand         string     `json:"cardBrand"`
+	CardLastFour      string     `json:"cardLastFour"`
+	InvalidatedAt     *time.Time `json:"invalidatedAt"`
+	InvalidatedReason string     `json:"invalidatedReason"`
+	TeardownAt        *time.Time `json:"teardownAt"`
+	AccountID         string     `json:"accountId"`
+	Duplicate         bool       `json:"duplicate"`
+	CreatedAt         *time.Time `json:"createdAt"`
+	UpdatedAt         *time.Time `json:"updatedAt"`
 }
 
 // ScheduledChange is a downgrade that lands at the billing boundary.
@@ -133,33 +142,40 @@ type AttentionItem struct {
 	Since          *time.Time    `json:"since"`
 	TeardownStatus string        `json:"teardownStatus"` // '' | dry_run | enqueued
 	// TierVersionPriceID is set for unmapped_price: a sellable price with no
-	// variant in the current mode (TenantID and TenantName are '' then).
+	// product (or an archived one) in the current mode (TenantID and TenantName
+	// are '' then).
 	TierVersionPriceID string `json:"tierVersionPriceId"`
 }
 
-// ProviderVariant is one subscription variant of the Lemon Squeezy store
-// (CON-404). MappedPriceID is the price row it sells in its mode (” = none).
-type ProviderVariant struct {
-	ID                 string `json:"id"`
-	ProductID          string `json:"productId"`
-	ProductName        string `json:"productName"`
-	Name               string `json:"name"`
-	PriceMinor         int64  `json:"priceMinor"` // excluding tax
-	Currency           string `json:"currency"`
-	Interval           string `json:"interval"` // month | year
-	HasFreeTrial       bool   `json:"hasFreeTrial"`
-	TrialInterval      string `json:"trialInterval"` // day | week | month | year; '' without a trial
-	TrialIntervalCount int32  `json:"trialIntervalCount"`
-	Status             string `json:"status"` // the provider's variant status
-	TestMode           bool   `json:"testMode"`
-	MappedPriceID      string `json:"mappedPriceId"`
+// ProductPrice is a product's fixed price in one currency.
+type ProductPrice struct {
+	Currency    string `json:"currency"`    // ISO 4217
+	AmountMinor int64  `json:"amountMinor"` // excluding tax
 }
 
-// VariantMapping is one sellable price row, the variant that sells it in one
-// mode and Ogen's check of the pair. Status is ok | unmapped | variant_missing |
-// price_mismatch | currency_mismatch | interval_mismatch | mode_mismatch |
-// trial_missing | unchecked; Message explains every status but ok.
-type VariantMapping struct {
+// ProviderProduct is one recurring product of the Polar organization (CON-523).
+// A product bills one interval and may carry a fixed price in several
+// currencies, so it can sell one price row per currency: MappedPriceIDs.
+type ProviderProduct struct {
+	ID                 string         `json:"id"`
+	Name               string         `json:"name"`
+	Interval           string         `json:"interval"`      // month | year
+	IntervalCount      int32          `json:"intervalCount"` // billing periods per interval; 1 is the norm
+	Prices             []ProductPrice `json:"prices"`
+	HasFreeTrial       bool           `json:"hasFreeTrial"`
+	TrialInterval      string         `json:"trialInterval"` // day | week | month | year; '' without a trial
+	TrialIntervalCount int32          `json:"trialIntervalCount"`
+	Archived           bool           `json:"archived"` // an archived product cannot be bought
+	TestMode           bool           `json:"testMode"`
+	MappedPriceIDs     []string       `json:"mappedPriceIds"`
+}
+
+// ProductMapping is one sellable price row, the product that sells it in one
+// mode and Ogen's check of the pair. Status is ok | unmapped | product_missing |
+// product_archived | price_mismatch | currency_mismatch | interval_mismatch |
+// mode_mismatch | trial_missing | unchecked; Message explains every status but
+// ok. The row is sold at the product's price in Currency.
+type ProductMapping struct {
 	TierVersionPriceID string           `json:"tierVersionPriceId"`
 	TierID             string           `json:"tierId"`
 	TierName           string           `json:"tierName"`
@@ -170,26 +186,26 @@ type VariantMapping struct {
 	Currency           string           `json:"currency"`
 	CountryCode        string           `json:"countryCode"` // '' = the currency's default price
 	FreeTrialTier      bool             `json:"freeTrialTier"`
-	VariantID          string           `json:"variantId"` // '' when unmapped
-	Variant            *ProviderVariant `json:"variant"`   // nil when unmapped or unreadable
+	ProductID          string           `json:"productId"` // '' when unmapped
+	Product            *ProviderProduct `json:"product"`   // nil when unmapped or unreadable
 	Status             string           `json:"status"`
 	Message            string           `json:"message"`
 	UpdatedAt          *time.Time       `json:"updatedAt"`
 	UpdatedBy          string           `json:"updatedBy"`
 }
 
-// VariantMappingList is one mode's map. Checked is false when the statuses could
-// not come from the provider (that mode's API key is not set, or it is down).
-type VariantMappingList struct {
+// ProductMappingList is one mode's map. Checked is false when the statuses could
+// not come from the provider (that mode's access token is not set, or it is down).
+type ProductMappingList struct {
 	TestMode bool             `json:"testMode"`
 	Checked  bool             `json:"checked"`
-	Mappings []VariantMapping `json:"mappings"`
+	Mappings []ProductMapping `json:"mappings"`
 }
 
-// VariantSuggestion pairs an unmapped price row with the one variant matching it.
-type VariantSuggestion struct {
+// ProductSuggestion pairs an unmapped price row with the one product matching it.
+type ProductSuggestion struct {
 	TierVersionPriceID string          `json:"tierVersionPriceId"`
-	Variant            ProviderVariant `json:"variant"`
+	Product            ProviderProduct `json:"product"`
 }
 
 // AttentionPage is one page of the attention list. NextPageToken is "" on the
@@ -207,7 +223,17 @@ type FreeTrialTier struct {
 	EligibleTierIDs []string `json:"eligibleTierIds"`
 }
 
-// CutoverResult is the outcome of InvalidateTestSubscriptions (dry run or real).
+// Cutover scopes for InvalidateSubscriptions, as Harbor's REST API names them.
+const (
+	// ScopeProviderSwitch invalidates every subscription of a provider other
+	// than the running one (Lemon Squeezy → Polar). Allowed in either mode.
+	ScopeProviderSwitch = "provider_switch"
+	// ScopeModeCutover invalidates every test-mode subscription at the
+	// sandbox→production switch. Refused while Ogen runs in test mode.
+	ScopeModeCutover = "mode_cutover"
+)
+
+// CutoverResult is the outcome of InvalidateSubscriptions (dry run or real).
 type CutoverResult struct {
 	DryRun    bool     `json:"dryRun"`
 	Count     int32    `json:"count"`
@@ -264,7 +290,8 @@ func (c *Client) Settings(ctx context.Context) (Settings, error) {
 		Provider:          resp.GetProvider(),
 		TestMode:          resp.GetTestMode(),
 		Configured:        resp.GetConfigured(),
-		StoreID:           resp.GetStoreId(),
+		OrganizationID:    resp.GetOrganizationId(),
+		APIVersion:        resp.GetApiVersion(),
 		TrialTeardownLive: resp.GetTrialTeardownLive(),
 	}, nil
 }
@@ -372,7 +399,8 @@ func (c *Client) FreeTrialTier(ctx context.Context) (FreeTrialTier, error) {
 
 // SetFreeTrialTier marks exactly one tier as the free-month tier (replacing the
 // previous one), or turns the offer off with tierID "". FailedPrecondition when
-// the tier lacks a one-month trial variant; reason is required.
+// a mapped price of the tier is sold by a product without a one-month trial;
+// reason is required.
 func (c *Client) SetFreeTrialTier(ctx context.Context, tierID, reason string) (FreeTrialTier, error) {
 	if c == nil {
 		return FreeTrialTier{}, ErrUnavailable
@@ -387,17 +415,18 @@ func (c *Client) SetFreeTrialTier(ctx context.Context, tierID, reason string) (F
 	return freeTrialFromProto(resp.GetOffer()), nil
 }
 
-// InvalidateTestSubscriptions runs the sandbox→live cutover, or only lists the
-// affected workspaces when dryRun is set. FailedPrecondition while Ogen still
-// runs in test mode.
-func (c *Client) InvalidateTestSubscriptions(ctx context.Context, dryRun bool) (CutoverResult, error) {
+// InvalidateSubscriptions runs a cutover for scope (ScopeProviderSwitch or
+// ScopeModeCutover), or only lists the affected workspaces when dryRun is set.
+// InvalidArgument for any other scope; FailedPrecondition for a mode cutover
+// while Ogen still runs in test mode.
+func (c *Client) InvalidateSubscriptions(ctx context.Context, dryRun bool, scope string) (CutoverResult, error) {
 	if c == nil {
 		return CutoverResult{}, ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	resp, err := c.rpc.InvalidateTestSubscriptions(ctx, &billingv1.InvalidateTestSubscriptionsRequest{DryRun: dryRun})
+	resp, err := c.rpc.InvalidateSubscriptions(ctx, &billingv1.InvalidateSubscriptionsRequest{DryRun: dryRun, Scope: scopeToProto(scope)})
 	if err != nil {
 		return CutoverResult{}, err
 	}
@@ -408,44 +437,44 @@ func (c *Client) InvalidateTestSubscriptions(ctx context.Context, dryRun bool) (
 	return CutoverResult{DryRun: resp.GetDryRun(), Count: resp.GetCount(), TenantIDs: ids}, nil
 }
 
-// ProviderVariants lists the store's subscription variants in one mode, for the
-// mapping picker. FailedPrecondition, with a readable message, when that mode
-// cannot be read (its API key is not set).
-func (c *Client) ProviderVariants(ctx context.Context, testMode bool) ([]ProviderVariant, error) {
+// ProviderProducts lists the organization's recurring products in one mode, for
+// the mapping picker. FailedPrecondition, with a readable message, when that
+// mode cannot be read (its access token is not set).
+func (c *Client) ProviderProducts(ctx context.Context, testMode bool) ([]ProviderProduct, error) {
 	if c == nil {
 		return nil, ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	resp, err := c.rpc.ListProviderVariants(ctx, &billingv1.ListProviderVariantsRequest{TestMode: testMode})
+	resp, err := c.rpc.ListProviderProducts(ctx, &billingv1.ListProviderProductsRequest{TestMode: testMode})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ProviderVariant, 0, len(resp.GetVariants()))
-	for _, v := range resp.GetVariants() {
-		out = append(out, variantFromProto(v))
+	out := make([]ProviderProduct, 0, len(resp.GetProducts()))
+	for _, p := range resp.GetProducts() {
+		out = append(out, productFromProto(p))
 	}
 	return out, nil
 }
 
-// VariantMappings lists every sellable price row of one mode with its variant
+// ProductMappings lists every sellable price row of one mode with its product
 // and the check result.
-func (c *Client) VariantMappings(ctx context.Context, testMode bool) (VariantMappingList, error) {
+func (c *Client) ProductMappings(ctx context.Context, testMode bool) (ProductMappingList, error) {
 	if c == nil {
-		return VariantMappingList{}, ErrUnavailable
+		return ProductMappingList{}, ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	resp, err := c.rpc.ListVariantMappings(ctx, &billingv1.ListVariantMappingsRequest{TestMode: testMode})
+	resp, err := c.rpc.ListProductMappings(ctx, &billingv1.ListProductMappingsRequest{TestMode: testMode})
 	if err != nil {
-		return VariantMappingList{}, err
+		return ProductMappingList{}, err
 	}
-	out := VariantMappingList{
+	out := ProductMappingList{
 		TestMode: resp.GetTestMode(),
 		Checked:  resp.GetChecked(),
-		Mappings: make([]VariantMapping, 0, len(resp.GetMappings())),
+		Mappings: make([]ProductMapping, 0, len(resp.GetMappings())),
 	}
 	for _, m := range resp.GetMappings() {
 		out.Mappings = append(out.Mappings, mappingFromProto(m))
@@ -453,45 +482,45 @@ func (c *Client) VariantMappings(ctx context.Context, testMode bool) (VariantMap
 	return out, nil
 }
 
-// SetVariantMapping maps a price row to a variant in one mode, or unmaps it with
-// variantID "". FailedPrecondition, with Ogen's readable message, when the
-// variant does not match the price or already sells another one; reason is
-// required.
-func (c *Client) SetVariantMapping(ctx context.Context, priceID string, testMode bool, variantID, reason string) (VariantMapping, error) {
+// SetProductMapping maps a price row to a product in one mode, or unmaps it with
+// productID "". FailedPrecondition, with Ogen's readable message, when the
+// product does not match the price or already sells another one in that
+// currency; reason is required.
+func (c *Client) SetProductMapping(ctx context.Context, priceID string, testMode bool, productID, reason string) (ProductMapping, error) {
 	if c == nil {
-		return VariantMapping{}, ErrUnavailable
+		return ProductMapping{}, ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	resp, err := c.rpc.SetVariantMapping(ctx, &billingv1.SetVariantMappingRequest{
+	resp, err := c.rpc.SetProductMapping(ctx, &billingv1.SetProductMappingRequest{
 		TierVersionPriceId: priceID,
 		TestMode:           testMode,
-		VariantId:          variantID,
+		ProductId:          productID,
 		Reason:             reason,
 	})
 	if err != nil {
-		return VariantMapping{}, err
+		return ProductMapping{}, err
 	}
 	return mappingFromProto(resp.GetMapping()), nil
 }
 
-// SuggestVariantMappings proposes a variant for every unmapped price row that
-// exactly one free variant matches. Nothing is saved.
-func (c *Client) SuggestVariantMappings(ctx context.Context, testMode bool) ([]VariantSuggestion, error) {
+// SuggestProductMappings proposes a product for every unmapped price row that
+// exactly one free product matches. Nothing is saved.
+func (c *Client) SuggestProductMappings(ctx context.Context, testMode bool) ([]ProductSuggestion, error) {
 	if c == nil {
 		return nil, ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	resp, err := c.rpc.SuggestVariantMappings(ctx, &billingv1.SuggestVariantMappingsRequest{TestMode: testMode})
+	resp, err := c.rpc.SuggestProductMappings(ctx, &billingv1.SuggestProductMappingsRequest{TestMode: testMode})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]VariantSuggestion, 0, len(resp.GetSuggestions()))
+	out := make([]ProductSuggestion, 0, len(resp.GetSuggestions()))
 	for _, s := range resp.GetSuggestions() {
-		out = append(out, VariantSuggestion{TierVersionPriceID: s.GetTierVersionPriceId(), Variant: variantFromProto(s.GetVariant())})
+		out = append(out, ProductSuggestion{TierVersionPriceID: s.GetTierVersionPriceId(), Product: productFromProto(s.GetProduct())})
 	}
 	return out, nil
 }
@@ -499,8 +528,11 @@ func (c *Client) SuggestVariantMappings(ctx context.Context, testMode bool) ([]V
 // Payment is one money movement at the provider (CON-415), for the finance
 // ledger's revenue sync (CON-420). Amounts are in minor units of Currency and
 // positive for every kind; Kind (order | subscription_invoice | refund |
-// chargeback) gives the direction. The *USD fields are US cents converted by
-// the provider at payment time. Fee is estimated by Ogen while FeeIsEstimated.
+// chargeback) gives the direction. The *USD fields are US cents: converted by
+// Lemon Squeezy itself, or by Ogen at the ECB reference rate of the payment's
+// day (FxSource "ecb") for a Polar payment in another currency. They are nil
+// while that rate is not known yet, so a caller can tell "not converted" from
+// 0. Fee is estimated by Ogen while FeeIsEstimated.
 type Payment struct {
 	ID                string
 	Provider          string
@@ -508,24 +540,31 @@ type Payment struct {
 	Kind              string
 	TenantID          string
 	TierID            string
-	ProviderVariantID string
+	ProviderProductID string
 	Currency          string
 	Subtotal          int64
 	Discount          int64
 	Tax               int64
 	Total             int64
 	Refunded          int64
-	SubtotalUSD       int64
-	DiscountUSD       int64
-	TaxUSD            int64
-	TotalUSD          int64
-	RefundedUSD       int64
+	SubtotalUSD       *int64
+	DiscountUSD       *int64
+	TaxUSD            *int64
+	TotalUSD          *int64
+	RefundedUSD       *int64
 	Fee               int64
-	FeeUSD            int64
+	FeeUSD            *int64
 	FeeIsEstimated    bool
 	Status            string
 	OccurredAt        time.Time
 	TestMode          bool
+	// FxRate is the USD per unit of Currency the *USD amounts were converted at,
+	// as a decimal string ("1" for USD); '' when not converted yet or converted
+	// by the provider (Lemon Squeezy). FxSource is identity | ecb | polar and
+	// FxDate the rate's day (YYYY-MM-DD), both '' with FxRate.
+	FxRate   string
+	FxSource string
+	FxDate   string
 }
 
 // PaymentPage is one keyset page; NextPageToken is ” on the last page.
@@ -563,24 +602,27 @@ func (c *Client) ListPayments(ctx context.Context, from, to time.Time, testMode 
 			Kind:              p.GetKind(),
 			TenantID:          p.GetTenantId(),
 			TierID:            p.GetTierId(),
-			ProviderVariantID: p.GetProviderVariantId(),
+			ProviderProductID: p.GetProviderProductId(),
 			Currency:          p.GetCurrency(),
 			Subtotal:          p.GetSubtotal(),
 			Discount:          p.GetDiscount(),
 			Tax:               p.GetTax(),
 			Total:             p.GetTotal(),
 			Refunded:          p.GetRefunded(),
-			SubtotalUSD:       p.GetSubtotalUsd(),
-			DiscountUSD:       p.GetDiscountUsd(),
-			TaxUSD:            p.GetTaxUsd(),
-			TotalUSD:          p.GetTotalUsd(),
-			RefundedUSD:       p.GetRefundedUsd(),
+			SubtotalUSD:       p.SubtotalUsd,
+			DiscountUSD:       p.DiscountUsd,
+			TaxUSD:            p.TaxUsd,
+			TotalUSD:          p.TotalUsd,
+			RefundedUSD:       p.RefundedUsd,
 			Fee:               p.GetFee(),
-			FeeUSD:            p.GetFeeUsd(),
+			FeeUSD:            p.FeeUsd,
 			FeeIsEstimated:    p.GetFeeIsEstimated(),
 			Status:            p.GetStatus(),
 			OccurredAt:        p.GetOccurredAt().AsTime(),
 			TestMode:          p.GetTestMode(),
+			FxRate:            p.GetFxRate(),
+			FxSource:          p.GetFxSource(),
+			FxDate:            p.GetFxDate(),
 		})
 	}
 	return out, nil
@@ -588,26 +630,32 @@ func (c *Client) ListPayments(ctx context.Context, from, to time.Time, testMode 
 
 // ── proto → DTO ────────────────────────────────────────────────────────────────
 
-func variantFromProto(v *billingv1.ProviderVariant) ProviderVariant {
-	return ProviderVariant{
-		ID:                 v.GetId(),
-		ProductID:          v.GetProductId(),
-		ProductName:        v.GetProductName(),
-		Name:               v.GetName(),
-		PriceMinor:         v.GetPriceMinor(),
-		Currency:           v.GetCurrency(),
-		Interval:           v.GetInterval(),
-		HasFreeTrial:       v.GetHasFreeTrial(),
-		TrialInterval:      v.GetTrialInterval(),
-		TrialIntervalCount: v.GetTrialIntervalCount(),
-		Status:             v.GetStatus(),
-		TestMode:           v.GetTestMode(),
-		MappedPriceID:      v.GetMappedPriceId(),
+func productFromProto(p *billingv1.ProviderProduct) ProviderProduct {
+	prices := make([]ProductPrice, 0, len(p.GetPrices()))
+	for _, pr := range p.GetPrices() {
+		prices = append(prices, ProductPrice{Currency: pr.GetCurrency(), AmountMinor: pr.GetAmountMinor()})
+	}
+	mapped := p.GetMappedPriceIds()
+	if mapped == nil {
+		mapped = []string{}
+	}
+	return ProviderProduct{
+		ID:                 p.GetId(),
+		Name:               p.GetName(),
+		Interval:           p.GetInterval(),
+		IntervalCount:      p.GetIntervalCount(),
+		Prices:             prices,
+		HasFreeTrial:       p.GetHasFreeTrial(),
+		TrialInterval:      p.GetTrialInterval(),
+		TrialIntervalCount: p.GetTrialIntervalCount(),
+		Archived:           p.GetArchived(),
+		TestMode:           p.GetTestMode(),
+		MappedPriceIDs:     mapped,
 	}
 }
 
-func mappingFromProto(m *billingv1.VariantMapping) VariantMapping {
-	out := VariantMapping{
+func mappingFromProto(m *billingv1.ProductMapping) ProductMapping {
+	out := ProductMapping{
 		TierVersionPriceID: m.GetTierVersionPriceId(),
 		TierID:             m.GetTierId(),
 		TierName:           m.GetTierName(),
@@ -618,14 +666,14 @@ func mappingFromProto(m *billingv1.VariantMapping) VariantMapping {
 		Currency:           m.GetCurrency(),
 		CountryCode:        m.GetCountryCode(),
 		FreeTrialTier:      m.GetFreeTrialTier(),
-		VariantID:          m.GetVariantId(),
+		ProductID:          m.GetProductId(),
 		Status:             m.GetStatus(),
 		Message:            m.GetMessage(),
 		UpdatedAt:          timePtr(m.GetUpdatedAt()),
 		UpdatedBy:          m.GetUpdatedBy(),
 	}
-	if v := m.GetVariant(); v != nil {
-		out.Variant = new(variantFromProto(v))
+	if p := m.GetProduct(); p != nil {
+		out.Product = new(productFromProto(p))
 	}
 	return out
 }
@@ -636,11 +684,15 @@ func subscriptionFromProto(s *billingv1.Subscription) Subscription {
 		Provider:               s.GetProvider(),
 		ProviderSubscriptionID: s.GetProviderSubscriptionId(),
 		ProviderCustomerID:     s.GetProviderCustomerId(),
-		ProviderVariantID:      s.GetProviderVariantId(),
+		ProviderProductID:      s.GetProviderProductId(),
 		TierVersionPriceID:     s.GetTierVersionPriceId(),
 		TierID:                 s.GetTierId(),
 		TierVersionID:          s.GetTierVersionId(),
 		Status:                 s.GetStatus(),
+		ProviderStatus:         s.GetProviderStatus(),
+		PendingProductID:       s.GetPendingProductId(),
+		PendingEffectiveAt:     timePtr(s.GetPendingEffectiveAt()),
+		CancelAtPeriodEnd:      s.GetCancelAtPeriodEnd(),
 		TestMode:               s.GetTestMode(),
 		RenewsAt:               timePtr(s.GetRenewsAt()),
 		EndsAt:                 timePtr(s.GetEndsAt()),
@@ -739,6 +791,19 @@ func freeTrialFromProto(f *billingv1.FreeTrialTier) FreeTrialTier {
 		TierName:        f.GetTierName(),
 		TrialDays:       f.GetTrialDays(),
 		EligibleTierIDs: ids,
+	}
+}
+
+// scopeToProto maps a REST cutover scope to the proto enum; anything else is
+// UNSPECIFIED, which Ogen refuses with InvalidArgument.
+func scopeToProto(scope string) billingv1.InvalidationScope {
+	switch scope {
+	case ScopeProviderSwitch:
+		return billingv1.InvalidationScope_INVALIDATION_SCOPE_PROVIDER_SWITCH
+	case ScopeModeCutover:
+		return billingv1.InvalidationScope_INVALIDATION_SCOPE_MODE_CUTOVER
+	default:
+		return billingv1.InvalidationScope_INVALIDATION_SCOPE_UNSPECIFIED
 	}
 }
 

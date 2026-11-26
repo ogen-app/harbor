@@ -6,17 +6,35 @@ import { ArrowSquareOutIcon, RocketLaunchIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { CUTOVER_RUNBOOK_URL, errorText } from "./format";
-import type { BillingSettings, CutoverResult } from "./types";
+import type { BillingSettings, CutoverResult, CutoverScope } from "./types";
 
-// The phrase the operator types to confirm the irreversible run.
-const CONFIRM_PHRASE = "invalidate test subscriptions";
+// The two cutovers InvalidateSubscriptions runs (CON-523). Each re-gates the
+// workspaces it selects (complimentary ones excepted), cancels their open
+// scheduled changes and asks their owners to check out again.
+const SCOPES: Record<
+  CutoverScope,
+  { label: string; hint: string; none: string; phrase: string }
+> = {
+  provider_switch: {
+    label: "Provider switch (Lemon Squeezy → Polar)",
+    hint: "Invalidates every subscription of a provider other than Polar. Run it once, right after Ogen starts billing with Polar; allowed in sandbox and production.",
+    none: "No subscriptions of another provider left — nothing to invalidate.",
+    phrase: "invalidate other provider subscriptions",
+  },
+  mode_cutover: {
+    label: "Mode cutover (sandbox → production)",
+    hint: "Invalidates every sandbox subscription. Run it once, right after switching Ogen from Polar sandbox to production.",
+    none: "No sandbox subscriptions left — nothing to invalidate.",
+    phrase: "invalidate sandbox subscriptions",
+  },
+};
 
-// CutoverCard drives the sandbox→live cutover (InvalidateTestSubscriptions):
-// a dry run first lists the affected workspaces, then a typed confirmation runs
-// it for real — invalidating every test-mode subscription, re-gating those
-// workspaces and asking their owners to check out again. Ogen refuses while it
-// still runs in test mode, so the actions are disabled until it reports live.
+// CutoverCard drives the cutovers: pick the scope, a dry run first lists the
+// affected workspaces, then a typed confirmation runs it for real. Ogen refuses
+// the mode cutover while it runs in sandbox, so that scope is disabled until
+// it reports production.
 export function CutoverCard({
   settings,
   enabled,
@@ -24,6 +42,7 @@ export function CutoverCard({
   settings: BillingSettings | null;
   enabled: boolean;
 }) {
+  const [scope, setScope] = useState<CutoverScope>("provider_switch");
   const [dryRun, setDryRun] = useState<CutoverResult | null>(null);
   const [result, setResult] = useState<CutoverResult | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -32,7 +51,18 @@ export function CutoverCard({
   const [phrase, setPhrase] = useState("");
 
   const inTestMode = settings?.testMode ?? true;
-  const disabled = !enabled || inTestMode;
+  const scopeAllowed = (s: CutoverScope) => s !== "mode_cutover" || !inTestMode;
+  const disabled = !enabled || !scopeAllowed(scope);
+  const current = SCOPES[scope];
+
+  const pick = (s: CutoverScope) => {
+    if (s === scope || !scopeAllowed(s)) return;
+    setScope(s);
+    setDryRun(null);
+    setResult(null);
+    setPhrase("");
+    setError(null);
+  };
 
   const run = async (dry: boolean) => {
     setBusy(dry ? "dry" : "real");
@@ -41,7 +71,7 @@ export function CutoverCard({
       const res = await fetch("/api/billing/cutover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dryRun: dry }),
+        body: JSON.stringify({ dryRun: dry, scope }),
       });
       if (!res.ok) throw new Error(await errorText(res));
       const out = (await res.json()) as CutoverResult;
@@ -81,13 +111,12 @@ export function CutoverCard({
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
             <RocketLaunchIcon className="size-4" />
-            Go-live cutover
+            Cutover
           </h2>
           <p className="mt-1 max-w-xl text-xs text-tertiary-foreground">
-            Invalidates every test-mode subscription, puts those workspaces back
-            behind the checkout gate and asks their owners to check out again
-            with a real card. Run it once, right after switching Ogen to live
-            mode. Follow the{" "}
+            Invalidates subscriptions that can no longer bill, puts those
+            workspaces back behind the checkout gate and asks their owners to
+            check out again. Follow the{" "}
             <a
               href={CUTOVER_RUNBOOK_URL}
               target="_blank"
@@ -97,7 +126,9 @@ export function CutoverCard({
               cutover runbook
               <ArrowSquareOutIcon className="size-3" />
             </a>
-            ; step 4 is rotating the Lemon Squeezy API key and webhook secret in{" "}
+            ; it includes setting <span className="font-mono">polar_access_token</span>{" "}
+            and <span className="font-mono">polar_webhook_secret</span> for the new
+            mode in{" "}
             <Link href="/secrets" className="underline underline-offset-2 hover:text-foreground">
               Secrets
             </Link>
@@ -107,16 +138,43 @@ export function CutoverCard({
       </div>
 
       <div className="space-y-4 px-6 py-4">
-        {!enabled ? (
-          <p className="text-sm text-tertiary-foreground">
-            Billing is off or unreachable.
-          </p>
-        ) : inTestMode ? (
-          <p className="text-sm text-amber-700">
-            Ogen is still in Lemon Squeezy test mode. Switch it to live mode
-            first — the cutover is refused until then.
-          </p>
-        ) : null}
+        <div className="grid gap-2" role="radiogroup" aria-label="Cutover scope">
+          {(Object.keys(SCOPES) as CutoverScope[]).map((s) => {
+            const selected = s === scope;
+            const allowed = scopeAllowed(s);
+            return (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                aria-disabled={!allowed}
+                disabled={!enabled || busy !== null}
+                onClick={() => pick(s)}
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left transition-colors",
+                  selected
+                    ? "border-foreground bg-secondary"
+                    : "border-border hover:bg-secondary/60",
+                  !allowed && "cursor-not-allowed opacity-60 hover:bg-transparent",
+                )}
+              >
+                <span className="block text-sm font-medium text-foreground">
+                  {SCOPES[s].label}
+                </span>
+                <span className="mt-0.5 block text-xs text-tertiary-foreground">
+                  {allowed
+                    ? SCOPES[s].hint
+                    : "Ogen is still in Polar sandbox. Switch it to production first — the mode cutover is refused until then."}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {!enabled && (
+          <p className="text-sm text-tertiary-foreground">Billing is off or unreachable.</p>
+        )}
 
         <div className="flex flex-wrap items-center gap-3">
           <Button
@@ -130,7 +188,7 @@ export function CutoverCard({
           {dryRun && (
             <span className="text-sm text-secondary-foreground">
               {dryRun.count === 0
-                ? "No test-mode subscriptions left — nothing to invalidate."
+                ? current.none
                 : `${dryRun.count} workspace${dryRun.count === 1 ? "" : "s"} would be re-gated.`}
             </span>
           )}
@@ -158,11 +216,11 @@ export function CutoverCard({
               className="grid max-w-md gap-1.5"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (phrase.trim() === CONFIRM_PHRASE) run(false);
+                if (phrase.trim() === current.phrase) run(false);
               }}
             >
               <Label htmlFor="cutover-confirm">
-                Type <span className="font-mono">{CONFIRM_PHRASE}</span> to run it
+                Type <span className="font-mono">{current.phrase}</span> to run it
                 for real
               </Label>
               <div className="flex items-center gap-2">
@@ -177,7 +235,7 @@ export function CutoverCard({
                   type="submit"
                   size="sm"
                   variant="destructiveInverted"
-                  disabled={disabled || busy !== null || phrase.trim() !== CONFIRM_PHRASE}
+                  disabled={disabled || busy !== null || phrase.trim() !== current.phrase}
                 >
                   {busy === "real" ? "Running…" : "2. Run cutover"}
                 </Button>

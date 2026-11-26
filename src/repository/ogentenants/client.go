@@ -266,7 +266,7 @@ const billingStatusPageSize = 500
 // BillingStatuses returns each tenant's billing_status summary keyed by tenant
 // id, paging through ListTenants. The summary is computed by Ogen (it depends on
 // Ogen's billing configuration, which Harbor can't see from the DB): ” when
-// billing is off, not_required, awaiting_checkout, or the Lemon Squeezy status of
+// billing is off, not_required, awaiting_checkout, or the Ogen status of
 // the current subscription.
 func (c *Client) BillingStatuses(ctx context.Context) (map[string]string, error) {
 	if c == nil {

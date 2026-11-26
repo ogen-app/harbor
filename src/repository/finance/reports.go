@@ -207,6 +207,8 @@ type LedgerGroup struct {
 	OrigMicros     int64     `bun:"orig_micros"`
 	Currency       string    `bun:"currency"`
 	FxRate         *float64  `bun:"fx_rate"`
+	FxSource       string    `bun:"fx_source"`
+	FxDate         string    `bun:"fx_date"`
 	Entries        int       `bun:"entries"`
 	Models         int       `bun:"models"`
 	Tenants        int       `bun:"tenants"`
@@ -248,6 +250,8 @@ func (r *Repository) LedgerPage(ctx context.Context, f LedgerFilter, cursor *Led
 		ColumnExpr("sum(f.amount_micros) AS orig_micros").
 		ColumnExpr("min(f.currency) AS currency").
 		ColumnExpr("max(f.fx_rate)::float8 AS fx_rate").
+		ColumnExpr("coalesce(max(f.fx_source), '') AS fx_source").
+		ColumnExpr("coalesce(to_char(max(f.fx_date), 'YYYY-MM-DD'), '') AS fx_date").
 		ColumnExpr("count(*) AS entries").
 		ColumnExpr("count(DISTINCT f.model) AS models").
 		ColumnExpr("count(DISTINCT f.tenant_id) AS tenants").

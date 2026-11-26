@@ -9,7 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/loader";
-import type { VariantMappingsResponse } from "@/components/billing/types";
+import type { ProductMappingsResponse } from "@/components/billing/types";
 import { cn } from "@/lib/utils";
 import {
   describe,
@@ -28,22 +28,22 @@ async function errorText(res: Response): Promise<string> {
   return j?.error || `Request failed (${res.status})`;
 }
 
-// mappingState asks the CON-407 variant map whether this version's prices can
+// mappingState asks the CON-407 product map whether this version's prices can
 // be sold in the mode Ogen runs in. null = billing off or unknown.
 async function mappingState(versionId: string): Promise<string | null> {
   try {
     const s = await fetch("/api/billing/settings").then((r) => (r.ok ? r.json() : null));
     if (!s?.available || !s.settings?.provider || s.settings.provider === "none") return null;
     const mode = s.settings.testMode ? "test" : "live";
-    const j = (await fetch(`/api/billing/variant-mappings?mode=${mode}`).then((r) =>
+    const j = (await fetch(`/api/billing/product-mappings?mode=${mode}`).then((r) =>
       r.ok ? r.json() : null,
-    )) as VariantMappingsResponse | null;
+    )) as ProductMappingsResponse | null;
     const rows = (j?.mappings ?? []).filter((m) => m.tierVersionId === versionId);
     if (rows.length === 0) return null;
     const bad = rows.filter((m) => m.status !== "ok").length;
     return bad === 0
-      ? "Lemon Squeezy variant mapped"
-      : `${plural(bad, "price")} not mapped in Lemon Squeezy yet`;
+      ? "Polar product mapped"
+      : `${plural(bad, "price")} not mapped to a Polar product yet`;
   } catch {
     return null;
   }

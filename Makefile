@@ -74,11 +74,14 @@ tidy:
 # (ReceiptService.ProcessReceipt) plus billing.v1 ListPayments (CON-415, for
 # the Profit & loss page, CON-420) land in v1.23.0; vendorcost.v1
 # (VendorCostService, CON-435 — the AI credits tab) in v1.24.0; platforms.v1
-# Platform.post_type_canvases (the canvas editor, CON-355) in v1.26.0. To try an
+# Platform.post_type_canvases (the canvas editor, CON-355) in v1.26.0; billing.v1
+# for Polar (product mapping, InvalidateSubscriptions with a scope, the pending
+# change, payment FX and optional USD amounts) in v1.27.0.
+# To try an
 # untagged contract, generate from a local checkout:
 # `make proto PROTO_SRC=../proto/proto`.
 PROTO_MODULE  := buf.build/ogen-app/proto
-PROTO_VERSION := v1.26.0
+PROTO_VERSION := v1.27.0
 PROTO_SRC     ?= $(PROTO_MODULE):$(PROTO_VERSION)
 PROTO_FILES   := tenants/v1/tenants.proto secrets/v1/secrets.proto \
 	platforms/v1/platforms.proto plans/v1/plans.proto email/v1/email.proto \

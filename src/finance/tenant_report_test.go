@@ -17,15 +17,15 @@ func TestTenantMargins(t *testing.T) {
 	oct := func(d int) time.Time { return time.Date(2026, 10, d, 9, 0, 0, 0, time.UTC) }
 	h.payments.payments = []ogenbilling.Payment{
 		// t1: $24 with $4 tax and a $1.70 fee → net $18.30.
-		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 2400, TotalUSD: 2400, Tax: 400, TaxUSD: 400, Fee: 170, FeeUSD: 170, OccurredAt: oct(3), TenantID: "t1"},
+		{ID: "p1", ProviderID: "LS-1", Kind: "subscription_invoice", Currency: "USD", Total: 2400, TotalUSD: new(int64(2400)), Tax: 400, TaxUSD: new(int64(400)), Fee: 170, FeeUSD: new(int64(170)), OccurredAt: oct(3), TenantID: "t1"},
 		// t2: $10 with a $0.80 fee → net $9.20, but $12 of AI: a loss.
-		{ID: "p2", ProviderID: "LS-2", Kind: "subscription_invoice", Currency: "USD", Total: 1000, TotalUSD: 1000, Fee: 80, FeeUSD: 80, OccurredAt: oct(4), TenantID: "t2"},
+		{ID: "p2", ProviderID: "LS-2", Kind: "subscription_invoice", Currency: "USD", Total: 1000, TotalUSD: new(int64(1000)), Fee: 80, FeeUSD: new(int64(80)), OccurredAt: oct(4), TenantID: "t2"},
 		// t5: paid and fully refunded → net $0, so no margin.
-		{ID: "p5", ProviderID: "LS-5", Kind: "order", Currency: "USD", Total: 500, TotalUSD: 500, OccurredAt: oct(5), TenantID: "t5"},
-		{ID: "p5r", ProviderID: "LS-5", Kind: "refund", Currency: "USD", Total: 500, TotalUSD: 500, OccurredAt: oct(6), TenantID: "t5"},
+		{ID: "p5", ProviderID: "LS-5", Kind: "order", Currency: "USD", Total: 500, TotalUSD: new(int64(500)), OccurredAt: oct(5), TenantID: "t5"},
+		{ID: "p5r", ProviderID: "LS-5", Kind: "refund", Currency: "USD", Total: 500, TotalUSD: new(int64(500)), OccurredAt: oct(6), TenantID: "t5"},
 		// Test mode never mixes with live, and September is outside the month.
-		{ID: "p4", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: 99900, OccurredAt: oct(5), TenantID: "t1", TestMode: true},
-		{ID: "p6", ProviderID: "LS-6", Kind: "order", Currency: "USD", Total: 7000, TotalUSD: 7000, OccurredAt: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC), TenantID: "t1"},
+		{ID: "p4", ProviderID: "LS-T", Kind: "order", Currency: "USD", Total: 99900, TotalUSD: new(int64(99900)), OccurredAt: oct(5), TenantID: "t1", TestMode: true},
+		{ID: "p6", ProviderID: "LS-6", Kind: "order", Currency: "USD", Total: 7000, TotalUSD: new(int64(7000)), OccurredAt: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC), TenantID: "t1"},
 	}
 	if err := h.svc.SyncRevenue(ctx); err != nil {
 		t.Fatal(err)

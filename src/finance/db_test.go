@@ -97,7 +97,7 @@ func (f *fakePayments) Settings(context.Context) (ogenbilling.Settings, error) {
 	if f.err != nil {
 		return ogenbilling.Settings{}, f.err
 	}
-	return ogenbilling.Settings{Provider: "lemonsqueezy", TestMode: f.testMode, Configured: true}, nil
+	return ogenbilling.Settings{Provider: "polar", TestMode: f.testMode, Configured: true}, nil
 }
 
 func (f *fakePayments) ListPayments(_ context.Context, _, _ time.Time, testMode bool, _ int32, _ string) (ogenbilling.PaymentPage, error) {
