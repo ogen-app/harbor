@@ -544,53 +544,60 @@ function PlatformForm({
                   : null;
                 return (
                   <div key={i} className="grid gap-1">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        aria-label={`Post type ${i + 1} slug`}
-                        value={row.slug}
-                        onChange={(e) => setPostType(i, { slug: e.target.value })}
-                        placeholder="slug"
-                        className="font-mono"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <Input
-                        aria-label={`Post type ${i + 1} label`}
-                        value={row.label}
-                        onChange={(e) => setPostType(i, { label: e.target.value })}
-                        placeholder="Label"
-                        autoComplete="off"
-                      />
-                      <span className="flex shrink-0 items-center gap-2 text-xs text-secondary-foreground">
-                        <Switch
-                          checked={row.publishable}
-                          onChange={(v) => setPostType(i, { publishable: v })}
-                          label={`Publishable — post type ${i + 1}`}
+                    {/* Two groups so a narrow drawer wraps the canvas and the
+                        remove button under the slug/label/publishable line
+                        instead of squeezing the text inputs. */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex min-w-0 flex-1 basis-64 items-center gap-2">
+                        <Input
+                          aria-label={`Post type ${i + 1} slug`}
+                          value={row.slug}
+                          onChange={(e) => setPostType(i, { slug: e.target.value })}
+                          placeholder="slug"
+                          className="font-mono"
+                          autoComplete="off"
+                          spellCheck={false}
                         />
-                        Publishable
-                      </span>
-                      <div className="flex w-[17.5rem] shrink-0 justify-end">
-                        {takesArtwork ? (
-                          <CanvasField
-                            slug={slug}
-                            value={row.canvas}
-                            onChange={(canvas) => setPostType(i, { canvas })}
-                            invalid={issue?.level === "error"}
+                        <Input
+                          aria-label={`Post type ${i + 1} label`}
+                          value={row.label}
+                          onChange={(e) => setPostType(i, { label: e.target.value })}
+                          placeholder="Label"
+                          autoComplete="off"
+                        />
+                        <span className="flex shrink-0 items-center gap-2 text-xs text-secondary-foreground">
+                          <Switch
+                            checked={row.publishable}
+                            onChange={(v) => setPostType(i, { publishable: v })}
+                            label={`Publishable — post type ${i + 1}`}
                           />
-                        ) : (
-                          <span className="w-full pl-2 text-xs text-tertiary-foreground">
-                            {slug ? "No artwork" : "Canvas after a slug is set"}
-                          </span>
-                        )}
+                          Publishable
+                        </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => removePostType(i)}
-                        aria-label={`Remove post type ${i + 1}`}
-                        className="shrink-0 rounded-xs p-1.5 text-tertiary-foreground transition-colors hover:bg-secondary hover:text-destructive"
-                      >
-                        <TrashIcon className="size-4" />
-                      </button>
+                      <div className="ml-auto flex min-w-0 max-w-full items-center gap-2">
+                        <div className="flex w-[17.5rem] min-w-0 max-w-full justify-end">
+                          {takesArtwork ? (
+                            <CanvasField
+                              slug={slug}
+                              value={row.canvas}
+                              onChange={(canvas) => setPostType(i, { canvas })}
+                              invalid={issue?.level === "error"}
+                            />
+                          ) : (
+                            <span className="w-full pl-2 text-xs text-tertiary-foreground">
+                              {slug ? "No artwork" : "Canvas after a slug is set"}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removePostType(i)}
+                          aria-label={`Remove post type ${i + 1}`}
+                          className="shrink-0 rounded-xs p-1.5 text-tertiary-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                        >
+                          <TrashIcon className="size-4" />
+                        </button>
+                      </div>
                     </div>
                     {issue && (
                       <p

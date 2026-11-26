@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import {
   CANVAS_PRESETS,
   ratioLabel,
+  toCanvas,
   type CanvasDraft,
 } from "./canvas";
 
@@ -65,22 +66,23 @@ export function CanvasField({
   onChange: (next: CanvasDraft) => void;
   invalid?: boolean;
 }) {
-  const w = Number(value.width);
-  const h = Number(value.height);
-  const ratio = ratioLabel(w, h);
-  const digits = (s: string) => s.replace(/\D/g, "").slice(0, 5);
+  // The shape and ratio show only for a valid size; the text stays as typed so
+  // checkCanvas can report a bad one instead of it being rewritten.
+  const canvas = toCanvas(value);
+  const ratio = canvas ? ratioLabel(canvas.width, canvas.height) : null;
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
-      <CanvasShape width={ratio ? w : 0} height={ratio ? h : 0} size={22} />
+    <div className="flex min-w-0 items-center gap-1.5">
+      <CanvasShape width={canvas?.width ?? 0} height={canvas?.height ?? 0} size={22} />
       <Input
         aria-label={`${slug} canvas width`}
         aria-invalid={invalid || undefined}
         inputMode="numeric"
         placeholder="W"
         value={value.width}
-        onChange={(e) => onChange({ ...value, width: digits(e.target.value) })}
-        className="w-[4.5rem] px-2 text-right tabular-nums"
+        onChange={(e) => onChange({ ...value, width: e.target.value })}
+        maxLength={6}
+        className="w-[4.5rem] min-w-[3.25rem] shrink px-2 text-right tabular-nums"
         autoComplete="off"
       />
       <span className="text-xs text-tertiary-foreground">×</span>
@@ -90,8 +92,9 @@ export function CanvasField({
         inputMode="numeric"
         placeholder="H"
         value={value.height}
-        onChange={(e) => onChange({ ...value, height: digits(e.target.value) })}
-        className="w-[4.5rem] px-2 text-right tabular-nums"
+        onChange={(e) => onChange({ ...value, height: e.target.value })}
+        maxLength={6}
+        className="w-[4.5rem] min-w-[3.25rem] shrink px-2 text-right tabular-nums"
         autoComplete="off"
       />
       <span
