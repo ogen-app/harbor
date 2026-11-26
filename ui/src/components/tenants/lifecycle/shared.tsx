@@ -50,7 +50,11 @@ export const STAGES: { key: Progress; label: string; sub: string }[] = [
     { key: "regular", label: "Regular", sub: "posted in 3+ weeks" },
 ];
 
-export const stageLabel = (p: Progress) => STAGES.find((s) => s.key === p)?.label ?? p;
+// Invited is the step before Signed up: an open tester invite, not a tenant yet.
+export const INVITED = { key: "invited", label: "Invited", sub: "invite not redeemed" } as const;
+
+export const stageLabel = (p: Progress | "invited") =>
+    p === "invited" ? INVITED.label : (STAGES.find((s) => s.key === p)?.label ?? p);
 
 export const HEALTH_LABEL: Record<Health, string> = {
     active: "Active",
