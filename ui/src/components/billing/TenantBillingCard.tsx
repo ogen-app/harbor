@@ -112,7 +112,7 @@ export function TenantBillingCard({ tenantId }: { tenantId: string }) {
       title: required ? "Require billing" : "Comp / exempt this workspace",
       description: required
         ? "Puts the workspace back behind the billing gate. If it has no subscription, its members are asked to check out before they can keep using the app."
-        : "Lets the workspace use the app without checking out — for friends, internal workspaces and design partners. Existing subscriptions are not cancelled; do that in Polar.",
+        : "Lets the workspace use the app without checking out — for friends, internal workspaces and design partners. Existing subscriptions are not cancelled; do that at their payment provider (Polar, or Lemon Squeezy for older ones).",
       confirmLabel: required ? "Require billing" : "Comp workspace",
       placeholder: required ? "e.g. design-partner period ended" : "e.g. design partner",
       run: async (reason) => {
@@ -391,7 +391,7 @@ function usePendingProducts(subs: Subscription[]): Map<string, ProductMapping> {
   const modes = [
     ...new Set(subs.filter((s) => s.pendingProductId).map((s) => (s.testMode ? "test" : "live"))),
   ]
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .join(",");
   useEffect(() => {
     if (!modes) return;
@@ -402,16 +402,18 @@ function usePendingProducts(subs: Subscription[]): Map<string, ProductMapping> {
           .then((r) => (r.ok ? (r.json() as Promise<ProductMappingsResponse>) : null))
           .catch(() => null),
       ),
-    ).then((lists) => {
-      if (controller.signal.aborted) return;
-      const out = new Map<string, ProductMapping>();
-      for (const l of lists) {
-        for (const m of l?.mappings ?? []) {
-          if (m.productId && !out.has(m.productId)) out.set(m.productId, m);
+    )
+      .then((lists) => {
+        if (controller.signal.aborted) return;
+        const out = new Map<string, ProductMapping>();
+        for (const l of lists) {
+          for (const m of l?.mappings ?? []) {
+            if (m.productId && !out.has(m.productId)) out.set(m.productId, m);
+          }
         }
-      }
-      setByProduct(out);
-    });
+        setByProduct(out);
+      })
+      .catch(() => {});
     return () => controller.abort();
   }, [modes]);
   return byProduct;

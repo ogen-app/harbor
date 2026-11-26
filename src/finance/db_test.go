@@ -91,6 +91,7 @@ type fakePayments struct {
 	testMode bool
 	payments []ogenbilling.Payment
 	err      error
+	froms    []time.Time
 }
 
 func (f *fakePayments) Settings(context.Context) (ogenbilling.Settings, error) {
@@ -100,15 +101,19 @@ func (f *fakePayments) Settings(context.Context) (ogenbilling.Settings, error) {
 	return ogenbilling.Settings{Provider: "polar", TestMode: f.testMode, Configured: true}, nil
 }
 
-func (f *fakePayments) ListPayments(_ context.Context, _, _ time.Time, testMode bool, _ int32, _ string) (ogenbilling.PaymentPage, error) {
+// ListPayments honours [from, to) like Ogen, so a test sees what a sync's
+// window leaves out. froms records each call's lower bound.
+func (f *fakePayments) ListPayments(_ context.Context, from, to time.Time, testMode bool, _ int32, _ string) (ogenbilling.PaymentPage, error) {
+	f.froms = append(f.froms, from)
 	if f.err != nil {
 		return ogenbilling.PaymentPage{}, f.err
 	}
 	var out ogenbilling.PaymentPage
 	for _, p := range f.payments {
-		if p.TestMode == testMode {
-			out.Payments = append(out.Payments, p)
+		if p.TestMode != testMode || (!from.IsZero() && p.OccurredAt.Before(from)) || (!to.IsZero() && !p.OccurredAt.Before(to)) {
+			continue
 		}
+		out.Payments = append(out.Payments, p)
 	}
 	return out, nil
 }

@@ -47,8 +47,7 @@ export interface MappingFocus {
   priceId?: string;
 }
 
-// ProductMappingTab is Billing → Product mapping (CON-407 §A, Polar since
-// CON-523): every sellable tier price and the Polar product that sells it, in
+// ProductMappingTab is Billing → Product mapping: every sellable tier price and the Polar product that sells it, in
 // sandbox or production, with Ogen's check of each pair. A product carries a
 // fixed price per currency; each row shows the one in its own currency. Unmapped prices with a suggestion can be
 // accepted together; every problem row has one action, which opens the map
@@ -339,7 +338,7 @@ export function ProductMappingTab({
             className="flex gap-3 border-b border-border bg-secondary/40 px-6 py-4"
             onSubmit={(e) => {
               e.preventDefault();
-              acceptAll();
+              void acceptAll();
             }}
           >
             <ListChecksIcon className="mt-0.5 size-5 shrink-0 text-tertiary-foreground" />

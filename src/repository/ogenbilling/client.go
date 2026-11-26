@@ -153,7 +153,7 @@ type ProductPrice struct {
 	AmountMinor int64  `json:"amountMinor"` // excluding tax
 }
 
-// ProviderProduct is one recurring product of the Polar organization (CON-523).
+// ProviderProduct is one recurring product of the Polar organization.
 // A product bills one interval and may carry a fixed price in several
 // currencies, so it can sell one price row per currency: MappedPriceIDs.
 type ProviderProduct struct {

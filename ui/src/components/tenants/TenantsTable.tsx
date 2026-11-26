@@ -1528,7 +1528,7 @@ export function TenantsTable() {
               sort={sort}
               onSort={onSort}
               isNew={shownNewColumns.includes("revenue")}
-              info="Net revenue for the month to date: Polar payments less tax, fees and refunds, from the Profit & loss ledger."
+              info="Net revenue for the month to date: Polar (and earlier Lemon Squeezy) payments less tax, fees and refunds, from the Profit & loss ledger."
             />
           );
         case "margin":

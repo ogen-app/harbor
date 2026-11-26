@@ -251,7 +251,7 @@ func TestNilClientUnavailable(t *testing.T) {
 	}
 }
 
-// productServer answers the product-mapping RPCs (CON-404, renamed in CON-523)
+// productServer answers the product-mapping RPCs
 // and records the modes and the write it was sent.
 type productServer struct {
 	billingv1.UnimplementedBillingAdminServiceServer

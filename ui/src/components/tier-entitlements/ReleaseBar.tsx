@@ -28,7 +28,7 @@ async function errorText(res: Response): Promise<string> {
   return j?.error || `Request failed (${res.status})`;
 }
 
-// mappingState asks the CON-407 product map whether this version's prices can
+// mappingState asks the product map whether this version's prices can
 // be sold in the mode Ogen runs in. null = billing off or unknown.
 async function mappingState(versionId: string): Promise<string | null> {
   try {

@@ -1,3 +1,4 @@
+ALTER TABLE finance_sync_state DROP COLUMN IF EXISTS pending_from;
 ALTER TABLE finance_ledger_entries DROP COLUMN IF EXISTS fx_source;
 
 -- The vendor is only removed while nothing is booked against it.

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { CUTOVER_RUNBOOK_URL, errorText } from "./format";
 import type { BillingSettings, CutoverResult, CutoverScope } from "./types";
 
-// The two cutovers InvalidateSubscriptions runs (CON-523). Each re-gates the
+// The two cutovers InvalidateSubscriptions runs. Each re-gates the
 // workspaces it selects (complimentary ones excepted), cancels their open
 // scheduled changes and asks their owners to check out again.
 const SCOPES: Record<
@@ -216,7 +216,7 @@ export function CutoverCard({
               className="grid max-w-md gap-1.5"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (phrase.trim() === current.phrase) run(false);
+                if (phrase.trim() === current.phrase) void run(false);
               }}
             >
               <Label htmlFor="cutover-confirm">

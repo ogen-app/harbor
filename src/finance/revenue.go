@@ -33,8 +33,8 @@ func SyncRevenueKey(testMode bool) string {
 // apart by their mode. The first pass backfills all history.
 //
 // A payment Ogen has not converted to USD yet (its ECB rate is not known) is
-// left out; Ogen lists it again once converted, and the overlap window picks it
-// up on a later pass.
+// left out, and the oldest one is kept as the sync's pending_from: later passes
+// read back to it, however far behind the overlap window, until it converts.
 func (s *Service) SyncRevenue(ctx context.Context) error {
 	settings, err := s.payments.Settings(ctx)
 	if err != nil {
@@ -50,9 +50,13 @@ func (s *Service) SyncRevenue(ctx context.Context) error {
 	var from time.Time
 	if state.LastSuccessAt != nil {
 		from = state.LastSuccessAt.Add(-revenueOverlap)
+		if state.PendingFrom != nil && state.PendingFrom.Before(from) {
+			from = *state.PendingFrom
+		}
 	}
 
 	var entries []fin.LedgerEntry
+	var pendingFrom *time.Time
 	token := ""
 	for {
 		page, err := s.payments.ListPayments(ctx, from, time.Time{}, settings.TestMode, paymentPage, token)
@@ -61,6 +65,12 @@ func (s *Service) SyncRevenue(ctx context.Context) error {
 			return fmt.Errorf("list payments: %w", err)
 		}
 		for _, p := range page.Payments {
+			if p.TotalUSD == nil {
+				if pendingFrom == nil || p.OccurredAt.Before(*pendingFrom) {
+					pendingFrom = new(p.OccurredAt)
+				}
+				continue
+			}
 			entries = append(entries, PaymentEntries(p)...)
 		}
 		if page.NextPageToken == "" {
@@ -74,7 +84,10 @@ func (s *Service) SyncRevenue(ctx context.Context) error {
 		if err := tx.UpsertPaymentEntries(ctx, entries); err != nil {
 			return fmt.Errorf("upsert payments: %w", err)
 		}
-		return tx.SyncSucceeded(ctx, key, &today)
+		if err := tx.SyncSucceeded(ctx, key, &today); err != nil {
+			return err
+		}
+		return tx.SetSyncPendingFrom(ctx, key, pendingFrom)
 	})
 	if err != nil {
 		_ = s.repo.SyncFailed(ctx, key, err.Error())

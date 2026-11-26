@@ -8,12 +8,12 @@ import {
   type MappingFocus,
 } from "@/components/billing/ProductMappingTab";
 
-// Billing is the operator's oversight of Polar billing (CON-322/327, Polar since
-// CON-523): which workspaces need a decision (Ogen never changes a tier or
+// Billing is the operator's oversight of Polar billing: which workspaces need a
+// decision (Ogen never changes a tier or
 // status on its own), the free-month offer, and the cutovers (provider switch,
 // sandbox → production). Per-workspace detail lives in the tenant page's
 // Billing tab. The second tab maps each sellable tier price to the Polar
-// product that sells it (CON-404/407).
+// product that sells it.
 //
 // Deep links: ?tab=mapping opens the map, &version=<tier version id> filters it
 // to one version (after a publish), &price=<price id> opens that price's drawer.

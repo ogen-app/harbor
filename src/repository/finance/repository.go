@@ -386,10 +386,6 @@ func (r *Repository) UpsertAIEntries(ctx context.Context, entries []LedgerEntry)
 			On("CONFLICT (source, booked_date, vendor_id, COALESCE(model, ''), COALESCE(tenant_id, '')) WHERE source = 'token_pipeline' DO UPDATE").
 			Set("amount_micros = EXCLUDED.amount_micros").
 			Set("amount_usd_micros = EXCLUDED.amount_usd_micros").
-			Set("fx_rate = EXCLUDED.fx_rate").
-			Set("fx_date = EXCLUDED.fx_date").
-			Set("fx_source = EXCLUDED.fx_source").
-			Set("vendor_id = EXCLUDED.vendor_id").
 			Set("description = EXCLUDED.description").
 			Set("voided_at = NULL").
 			Set("updated_at = now()").
@@ -423,6 +419,10 @@ func (r *Repository) UpsertPaymentEntries(ctx context.Context, entries []LedgerE
 			Set("amount_micros = EXCLUDED.amount_micros").
 			Set("currency = EXCLUDED.currency").
 			Set("amount_usd_micros = EXCLUDED.amount_usd_micros").
+			Set("fx_rate = EXCLUDED.fx_rate").
+			Set("fx_date = EXCLUDED.fx_date").
+			Set("fx_source = EXCLUDED.fx_source").
+			Set("vendor_id = EXCLUDED.vendor_id").
 			Set("description = EXCLUDED.description").
 			Set("booked_date = EXCLUDED.booked_date").
 			Set("tenant_id = EXCLUDED.tenant_id").
@@ -505,6 +505,14 @@ func (r *Repository) SyncSucceeded(ctx context.Context, key string, through *tim
 			last_attempt_at = now(), last_success_at = now(), last_error = '',
 			through_date = COALESCE(EXCLUDED.through_date, finance_sync_state.through_date),
 			updated_at = now()`, key, through).Exec(ctx)
+	return err
+}
+
+// SetSyncPendingFrom records the oldest item a pass left for later (nil clears
+// it). Call it after SyncSucceeded, which creates the row.
+func (r *Repository) SetSyncPendingFrom(ctx context.Context, key string, pendingFrom *time.Time) error {
+	_, err := r.idb.NewRaw(`UPDATE finance_sync_state SET pending_from = ?, updated_at = now() WHERE key = ?`,
+		pendingFrom, key).Exec(ctx)
 	return err
 }
 

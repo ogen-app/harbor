@@ -89,6 +89,24 @@ func TestRevenueSyncPolar(t *testing.T) {
 	if n, _ := ledgerSum(t, h.db, "source = 'billing_v1' AND vendor_id = 'lemonsqueezy' AND fx_source IS NULL"); n != 1 {
 		t.Fatalf("lemon squeezy payment: %d entries", n)
 	}
+	// The second pass read back to the waiting payment, far behind its overlap
+	// window (the sync's last success is now, the payment is weeks old).
+	if got := h.payments.froms[1]; !got.Equal(waiting.OccurredAt) {
+		t.Errorf("second sync read from %v, want the pending payment's %v", got, waiting.OccurredAt)
+	}
+	state, err := fin.New(h.db).GetSync(ctx, SyncRevenueKey(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.PendingFrom != nil {
+		t.Errorf("pending_from = %v after the conversion, want cleared", state.PendingFrom)
+	}
+	if err := h.svc.SyncRevenue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.payments.froms[2]; !got.After(waiting.OccurredAt) {
+		t.Errorf("third sync read from %v, want the plain overlap window once nothing waits", got)
+	}
 
 	m, err := h.svc.Monthly(ctx, monthStart(2026, 10), monthStart(2026, 10))
 	if err != nil {
@@ -132,5 +150,38 @@ func TestRevenueSyncPolarOnly(t *testing.T) {
 	}
 	if rowByKey(m.Rows, "revenue_gross_lemonsqueezy") != nil || rowByKey(m.Rows, "revenue_gross") == nil {
 		t.Errorf("gross rows = %+v", m.Rows)
+	}
+}
+
+// A payment listed again with a corrected conversion replaces its rate, date
+// and source, not only its amounts.
+func TestUpsertPaymentEntriesFx(t *testing.T) {
+	h := newHarness(t)
+	ctx := t.Context()
+	repo := fin.New(h.db)
+	p := ogenbilling.Payment{
+		ID: "pp1", Provider: "polar", ProviderID: "ord_1", Kind: "order", Currency: "EUR", Total: 5000,
+		TotalUSD: new(int64(5400)), FxRate: "1.08", FxSource: "ecb", FxDate: "2026-10-10",
+		OccurredAt: time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC),
+	}
+	if err := repo.UpsertPaymentEntries(ctx, PaymentEntries(p)); err != nil {
+		t.Fatal(err)
+	}
+	p.TotalUSD, p.FxRate, p.FxDate = new(int64(5450)), "1.09", "2026-10-11"
+	if err := repo.UpsertPaymentEntries(ctx, PaymentEntries(p)); err != nil {
+		t.Fatal(err)
+	}
+	var row struct {
+		Rate   float64 `bun:"rate"`
+		Date   string  `bun:"day"`
+		Source string  `bun:"src"`
+		USD    int64   `bun:"usd"`
+	}
+	if err := h.db.NewRaw(`SELECT fx_rate::float8 AS rate, to_char(fx_date, 'YYYY-MM-DD') AS day, fx_source AS src, amount_usd_micros AS usd
+		FROM finance_ledger_entries WHERE source_ref = 'pp1' AND direction = 'revenue'`).Scan(ctx, &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.Rate != 1.09 || row.Date != "2026-10-11" || row.Source != "ecb" || row.USD != 54_500_000 {
+		t.Errorf("after the corrected conversion: %+v", row)
 	}
 }
