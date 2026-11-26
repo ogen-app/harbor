@@ -1,4 +1,4 @@
--- Tenant lifecycle snapshots (CON-437). Once a day Harbor records every
+-- Tenant lifecycle snapshots. Once a day Harbor records every
 -- tenant's lifecycle stage, so the Lifecycle tab can mark what moved since the
 -- previous snapshot and draw each tenant's health over time. The stage itself
 -- is computed from Ogen's database and the analytics pipeline; Ogen keeps no

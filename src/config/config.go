@@ -71,7 +71,7 @@ type Config struct {
 	PnLJobs bool `envconfig:"PNL_JOBS" default:"true"`
 
 	// LifecycleJobs records the daily tenant lifecycle snapshots behind the
-	// Lifecycle tab's movement feed and health history (CON-437). Advisory-locked
+	// Lifecycle tab's movement feed and health history. Advisory-locked
 	// like the finance jobs.
 	LifecycleJobs bool `envconfig:"LIFECYCLE_JOBS" default:"true"`
 

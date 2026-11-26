@@ -1,4 +1,4 @@
-// Package lifecycle places every tenant on the Lifecycle tab (CON-437). It has
+// Package lifecycle places every tenant on the Lifecycle tab. It has
 // two axes: progress, the furthest onboarding milestone a tenant has reached,
 // which never goes back; and health, recomputed from its last activity. On top
 // of them it decides whether the tenant is stuck in its stage and why.
@@ -61,6 +61,9 @@ const (
 	Cooling Health = "cooling"
 	Quiet   Health = "quiet"
 	Churned Health = "churned"
+	// Unknown only appears in a tenant's health band, for days without a
+	// snapshot.
+	Unknown Health = "unknown"
 )
 
 const (
@@ -125,6 +128,10 @@ type Input struct {
 	Tier    string
 	Groups  []ogen.Group
 	Billing string
+	// Hold is the previous snapshot's state, set while the AI usage read is
+	// failing. Without AI facts the tenant would fall back from Generating and
+	// read as idle, so it keeps at least the stage and the health it had.
+	Hold *Previous
 }
 
 // Milestones are the times a tenant reached each stage. A later stage reached
@@ -189,8 +196,9 @@ type Tenant struct {
 
 // Previous is a tenant's state in the previous snapshot.
 type Previous struct {
-	Progress Progress
-	Health   Health
+	Progress       Progress
+	Health         Health
+	EnteredStageAt time.Time
 }
 
 // Evaluate places one tenant. prev is its state in the previous snapshot, nil
@@ -221,6 +229,9 @@ func Evaluate(now time.Time, in Input, limits map[Progress]time.Duration, prev *
 			t.EnteredStageAt = *at
 		}
 	}
+	if h := in.Hold; h != nil && h.Progress.Rank() > t.Progress.Rank() {
+		t.Progress, t.EnteredStageAt = h.Progress, h.EnteredStageAt
+	}
 	t.DaysInStage = wholeDays(now.Sub(t.EnteredStageAt))
 
 	t.LastActivityAt = s.LastActivityAt
@@ -244,6 +255,9 @@ func Evaluate(now time.Time, in Input, limits map[Progress]time.Duration, prev *
 		t.Health = Cooling
 	default:
 		t.Health = Active
+	}
+	if h := in.Hold; h != nil && t.Health != Churned && h.Health != Churned && healthRank(h.Health) < healthRank(t.Health) {
+		t.Health = h.Health
 	}
 
 	if limit, ok := limits[t.Progress]; ok && t.Health != Churned && now.Sub(t.EnteredStageAt) > limit {
@@ -296,6 +310,8 @@ func movedText(t Tenant, prev *Previous) string {
 		return "Moved from " + prev.Progress.Label()
 	case t.Health == Quiet:
 		return "Went quiet"
+	case t.Health == Cooling && prev.Health == Quiet:
+		return "Active again after going quiet"
 	case t.Health == Cooling:
 		return "Started cooling"
 	default:

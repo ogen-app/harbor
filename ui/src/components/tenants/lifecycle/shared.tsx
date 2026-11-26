@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 // Types and small pieces shared by the Lifecycle tab and the tenant's Lifecycle
-// card (CON-437). The shapes mirror src/stats/lifecycle.
+// card. The shapes mirror src/stats/lifecycle.
 
 export type Progress = "signed_up" | "connected" | "generating" | "first_post" | "regular";
 export type Health = "active" | "cooling" | "quiet" | "churned";

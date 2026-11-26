@@ -31,7 +31,7 @@ import {
     type Reason,
 } from "./shared";
 
-// The Lifecycle tab on /tenants (CON-437): every live tenant on its furthest
+// The Lifecycle tab on /tenants: every live tenant on its furthest
 // onboarding stage, coloured by health, stuck ones first. The funnel strip
 // counts who has reached each stage; the board shows where each tenant is now.
 
@@ -137,7 +137,8 @@ function FilterMenu({
 // ── funnel strip ────────────────────────────────────────────────────────────
 
 function FunnelStrip({ funnel }: { funnel: FunnelStep[] }) {
-    const top = Math.max(1, funnel[0]?.reached ?? 0);
+    // Organic signups can outnumber invites, so scale to the largest step.
+    const top = Math.max(1, ...funnel.map((f) => f.reached));
     return (
         <div className="px-6 py-4">
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
@@ -429,35 +430,75 @@ function ChurnedLane({ tenants }: { tenants: LifecycleTenant[] }) {
     );
 }
 
+// CohortPanel shows a cohort panel's loading, unavailable and stale states:
+// after a failed refresh the last report stays, marked as not current.
+function CohortPanel({
+    report,
+    error,
+    children,
+}: {
+    report: CohortResponse["report"] | null;
+    error: string | null;
+    children: (r: NonNullable<CohortResponse["report"]>) => React.ReactNode;
+}) {
+    if (!report) {
+        return error ? (
+            <p className="py-6 text-[13px] text-secondary-foreground">Cohorts unavailable: {error}</p>
+        ) : (
+            <Loader className="size-4" />
+        );
+    }
+    return (
+        <>
+            {error && <p className="text-xs text-destructive">Refresh failed; showing the last loaded cohorts.</p>}
+            {children(report)}
+        </>
+    );
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 
 export function LifecycleView() {
     const [data, setData] = useState<Board | null>(null);
     const [cohorts, setCohorts] = useState<CohortResponse["report"] | null>(null);
+    // The cohort panels load on their own; a failure there leaves the board.
+    const [cohortError, setCohortError] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [view, setView] = useState<View>("board");
     const [filters, setFilters] = useState<Filters>({ tier: "all", group: "all", health: "all", stuckOnly: false, stage: null });
 
-    const load = useCallback(async () => {
-        setRefreshing(true);
+    const loadBoard = useCallback(async () => {
         try {
-            const [b, c] = await Promise.all([fetch("/api/tenants/lifecycle"), fetch("/api/tenants/lifecycle/cohorts")]);
-            if (!b.ok) throw new Error(`request failed (${b.status})`);
-            const j = (await b.json()) as BoardResponse;
+            const r = await fetch("/api/tenants/lifecycle");
+            if (!r.ok) throw new Error(`request failed (${r.status})`);
+            const j = (await r.json()) as BoardResponse;
             if (!j.board) throw new Error(j.error || "Ogen database not reachable");
             setData(j.board);
             setError(null);
-            if (c.ok) {
-                const cj = (await c.json()) as CohortResponse;
-                if (cj.report) setCohorts(cj.report);
-            }
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : "Failed to load");
-        } finally {
-            setRefreshing(false);
         }
     }, []);
+
+    const loadCohorts = useCallback(async () => {
+        try {
+            const r = await fetch("/api/tenants/lifecycle/cohorts");
+            if (!r.ok) throw new Error(`request failed (${r.status})`);
+            const j = (await r.json()) as CohortResponse;
+            if (!j.report) throw new Error("Ogen database not reachable");
+            setCohorts(j.report);
+            setCohortError(null);
+        } catch (e: unknown) {
+            setCohortError(e instanceof Error ? e.message : "Failed to load");
+        }
+    }, []);
+
+    const load = useCallback(async () => {
+        setRefreshing(true);
+        await Promise.allSettled([loadBoard(), loadCohorts()]);
+        setRefreshing(false);
+    }, [loadBoard, loadCohorts]);
 
     useEffect(() => {
         // load() flips `refreshing` before the async fetch — intentional.
@@ -467,7 +508,10 @@ export function LifecycleView() {
         return () => clearInterval(id);
     }, [load]);
 
-    const tiers = useMemo(() => [...new Set((data?.tenants ?? []).map((t) => t.tier).filter(Boolean))].sort(), [data]);
+    const tiers = useMemo(
+        () => [...new Set((data?.tenants ?? []).map((t) => t.tier).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+        [data],
+    );
     const groups = useMemo(() => {
         const m = new Map<string, string>();
         for (const t of data?.tenants ?? []) for (const g of t.groups) m.set(g.id, g.name);
@@ -661,14 +705,18 @@ export function LifecycleView() {
                         <h3 className="text-[13px] font-semibold text-foreground">Median days to first post</h3>
                         <p className="text-xs text-secondary-foreground">by signup week</p>
                     </div>
-                    {cohorts ? <MedianDaysChart cohorts={cohorts.cohorts} /> : <Loader className="size-4" />}
+                    <CohortPanel report={cohorts} error={cohortError}>
+                        {(r) => <MedianDaysChart cohorts={r.cohorts} />}
+                    </CohortPanel>
                 </div>
                 <div className="space-y-3 px-6 py-4">
                     <div>
                         <h3 className="text-[13px] font-semibold text-foreground">Signup cohorts</h3>
                         <p className="text-xs text-secondary-foreground">share that reached each stage</p>
                     </div>
-                    {cohorts ? <CohortGrid cohorts={cohorts.cohorts} stages={cohorts.stages} /> : <Loader className="size-4" />}
+                    <CohortPanel report={cohorts} error={cohortError}>
+                        {(r) => <CohortGrid cohorts={r.cohorts} stages={r.stages} />}
+                    </CohortPanel>
                 </div>
             </div>
         </div>

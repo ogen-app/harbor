@@ -8,7 +8,7 @@ import (
 	"github.com/ogen-app/harbor/src/stats/lifecycle"
 )
 
-// LifecycleHandler serves the Lifecycle tab on /tenants (CON-437) and the
+// LifecycleHandler serves the Lifecycle tab on /tenants and the
 // Lifecycle card on a tenant. Like the overview, an unavailable Ogen DB is a
 // soft state ({available: false}), not an error.
 type LifecycleHandler struct{ svc *lifecycle.Service }

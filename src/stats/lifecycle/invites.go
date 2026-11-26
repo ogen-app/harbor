@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogeninvites"
 )
 
-// Invited is the step before Signed up: a tester invite (CON-334) that hasn't
+// Invited is the step before Signed up: a tester invite that hasn't
 // been redeemed. Invites aren't tenants, so they never get a progress stage or
 // a snapshot; the board lists the open ones in their own column.
 const Invited Progress = "invited"
@@ -37,7 +38,7 @@ const (
 // invitePages caps the paging through ListTenantInvites.
 const (
 	invitePageSize = 200
-	invitePages    = 10
+	invitePages    = 50
 )
 
 // InviteChip is one open invite on the board's Invited column.
@@ -64,11 +65,15 @@ func (s *Service) invites(ctx context.Context) ([]ogeninvites.Invite, error) {
 		}
 		all = append(all, page.Invites...)
 		if token = page.NextPageToken; token == "" {
-			break
+			return all, nil
 		}
 	}
-	return all, nil
+	// Pages run newest first, so a capped read would drop the oldest invites
+	// and understate the totals; report it as unavailable instead.
+	return nil, errInvitesTruncated
 }
+
+var errInvitesTruncated = errors.New("more invites than the board reads")
 
 // InviteFunnel is the Invited step: every invite that wasn't revoked, the share
 // redeemed, and the median days from creation to redemption. The invited

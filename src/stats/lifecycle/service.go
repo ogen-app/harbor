@@ -17,6 +17,10 @@ import (
 // it there are no tenants to place.
 var ErrUnavailable = errors.New("ogen database not configured")
 
+// ErrAIUnavailable is returned by Snapshot when the AI usage read failed, so
+// the day isn't recorded from partial facts.
+var ErrAIUnavailable = errors.New("ai usage unavailable; snapshot skipped")
+
 // SignalSource reads the per-tenant lifecycle signals (the Ogen DB).
 type SignalSource interface {
 	Available() bool
@@ -92,6 +96,9 @@ type evaluation struct {
 	prev    map[string]Previous
 	hasPrev bool
 	sources Sources
+	// aiFailed is set when analytics is configured but the AI read failed, as
+	// opposed to analytics not being configured at all.
+	aiFailed bool
 }
 
 func logFail(section string, err error) {
@@ -115,6 +122,7 @@ func (s *Service) evaluate(ctx context.Context) (evaluation, error) {
 		spans, err = s.ai.AISpans(ctx)
 		logFail("ai", err)
 		e.sources.AI = err == nil
+		e.aiFailed = err != nil
 	}
 	tiers, err := s.classes.TenantTiers(ctx)
 	logFail("tiers", err)
@@ -135,7 +143,7 @@ func (s *Service) evaluate(ctx context.Context) (evaluation, error) {
 	e.hasPrev = ok
 	e.prev = make(map[string]Previous, len(rows))
 	for _, r := range rows {
-		e.prev[r.TenantID] = Previous{Progress: Progress(r.Progress), Health: Health(r.Health)}
+		e.prev[r.TenantID] = Previous{Progress: Progress(r.Progress), Health: Health(r.Health), EnteredStageAt: r.EnteredStageAt}
 	}
 	if ok {
 		e.sources.PreviousSnapshot = day.Format(time.DateOnly)
@@ -152,6 +160,9 @@ func (s *Service) evaluate(ctx context.Context) (evaluation, error) {
 		var prev *Previous
 		if p, ok := e.prev[sig.ID]; ok {
 			prev = &p
+			if e.aiFailed {
+				in.Hold = prev
+			}
 		}
 		t := Evaluate(e.now, in, s.limits, prev, e.hasPrev)
 		if t.Health == Churned && t.ChurnedAt == nil {
@@ -271,18 +282,29 @@ func (s *Service) Tenant(ctx context.Context, id string) (TenantLifecycle, error
 	return out, nil
 }
 
+// healthBand folds the snapshot days into spans. Days without a snapshot (the
+// job was off) become an unknown span rather than stretching their
+// neighbours.
 func healthBand(rows []harbor.StageSnapshot) []HealthSpan {
 	out := []HealthSpan{}
+	var last time.Time
 	for _, r := range rows {
-		d, h := r.SnapshotDate.Format(time.DateOnly), Health(r.Health)
-		if n := len(out); n > 0 && out[n-1].Health == h {
-			out[n-1].To = d
-			continue
+		day, h := truncDay(r.SnapshotDate), Health(r.Health)
+		if n := len(out); n > 0 {
+			if gap := day.Sub(last); gap > 24*time.Hour {
+				out = append(out, HealthSpan{From: dateOf(last.AddDate(0, 0, 1)), To: dateOf(day.AddDate(0, 0, -1)), Health: Unknown})
+			} else if out[n-1].Health == h {
+				out[n-1].To, last = dateOf(day), day
+				continue
+			}
 		}
-		out = append(out, HealthSpan{From: d, To: d, Health: h})
+		out = append(out, HealthSpan{From: dateOf(day), To: dateOf(day), Health: h})
+		last = day
 	}
 	return out
 }
+
+func dateOf(t time.Time) string { return t.Format(time.DateOnly) }
 
 // Snapshot records today's stage for every tenant. Rerunning it the same day
 // overwrites that day's rows, so the job can tick more often than daily.
@@ -293,6 +315,11 @@ func (s *Service) Snapshot(ctx context.Context) error {
 	e, err := s.evaluate(ctx)
 	if err != nil {
 		return err
+	}
+	// A run without the AI facts would store held or understated stages as the
+	// day's record; skip it and let the next tick write the day.
+	if e.aiFailed {
+		return ErrAIUnavailable
 	}
 	today := truncDay(e.now)
 	rows := make([]harbor.StageSnapshot, 0, len(e.tenants))

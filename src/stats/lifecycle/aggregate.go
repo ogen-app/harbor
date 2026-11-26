@@ -117,16 +117,16 @@ func Cohorts(now time.Time, ts []Tenant, limits map[Progress]time.Duration) []Co
 	first := thisWeek.AddDate(0, 0, -7*(cohortWeeks-1))
 	later := Stages[1:]
 
-	// Cumulative stuck limits: the age by which a cohort should have reached a
-	// stage. Regular needs its weeks on top of the First post limit.
+	// The age by which a cohort should have reached a stage: the limits of the
+	// stages it has to leave first. Regular can't come sooner than its weeks.
 	due := make([]time.Duration, len(later))
-	var sum time.Duration
+	sum := limits[SignedUp]
 	for i, p := range later {
-		sum += limits[p]
 		due[i] = sum
 		if p == Regular {
 			due[i] = max(sum, (regularWeeks-1)*7*day)
 		}
+		sum += limits[p]
 	}
 
 	out := make([]Cohort, cohortWeeks)
@@ -198,8 +198,9 @@ func Movement(ts []Tenant, prev map[string]Previous, hasPrevSnapshot bool) []Mov
 		if p.Progress == t.Progress && p.Health == t.Health {
 			continue
 		}
+		// Churning outweighs any progress made before it.
 		dir := "down"
-		if t.Progress.Rank() > p.Progress.Rank() || healthRank(t.Health) < healthRank(p.Health) {
+		if t.Health != Churned && (t.Progress.Rank() > p.Progress.Rank() || healthRank(t.Health) < healthRank(p.Health)) {
 			dir = "up"
 		}
 		out = append(out, Move{TenantID: t.ID, Name: t.Name, FromProgress: p.Progress, ToProgress: t.Progress, FromHealth: p.Health, ToHealth: t.Health, Direction: dir})
@@ -224,5 +225,6 @@ func median(xs []float64) *float64 {
 }
 
 func truncDay(t time.Time) time.Time {
+	t = t.UTC()
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
