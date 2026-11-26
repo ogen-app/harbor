@@ -1,0 +1,309 @@
+package lifecycle
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"slices"
+	"time"
+
+	"github.com/ogen-app/harbor/src/repository/analytics"
+	"github.com/ogen-app/harbor/src/repository/harbor"
+	"github.com/ogen-app/harbor/src/repository/ogen"
+)
+
+// ErrUnavailable is returned when the Ogen database isn't configured: without
+// it there are no tenants to place.
+var ErrUnavailable = errors.New("ogen database not configured")
+
+// SignalSource reads the per-tenant lifecycle signals (the Ogen DB).
+type SignalSource interface {
+	Available() bool
+	Signals(ctx context.Context) ([]ogen.LifecycleSignal, error)
+}
+
+// AISource reads per-tenant AI usage spans (the analytics DB).
+type AISource interface {
+	Available() bool
+	AISpans(ctx context.Context) (map[string]analytics.UsageSpan, error)
+}
+
+// Classification reads tier and group assignments (the Ogen DB).
+type Classification interface {
+	TenantTiers(ctx context.Context) (map[string]ogen.Tier, error)
+	TenantGroups(ctx context.Context) (map[string][]ogen.Group, error)
+}
+
+// BillingSource reads Ogen's per-tenant billing summary over gRPC.
+type BillingSource interface {
+	BillingStatuses(ctx context.Context) (map[string]string, error)
+}
+
+// Store keeps the daily snapshots (Harbor's DB).
+type Store interface {
+	UpsertDay(ctx context.Context, rows []harbor.StageSnapshot) error
+	LatestBefore(ctx context.Context, date time.Time) (time.Time, []harbor.StageSnapshot, bool, error)
+	History(ctx context.Context, tenantID string) ([]harbor.StageSnapshot, error)
+	ChurnedSince(ctx context.Context) (map[string]time.Time, error)
+}
+
+// Service places tenants on the Lifecycle tab and records the daily snapshots.
+type Service struct {
+	signals SignalSource
+	ai      AISource
+	classes Classification
+	billing BillingSource
+	store   Store
+	limits  map[Progress]time.Duration
+	now     func() time.Time
+}
+
+// billingTimeout bounds the billing summary call; the board renders without it.
+const billingTimeout = 3 * time.Second
+
+// churnedWindow is how far back the Churned lane looks.
+const churnedWindow = 90 * day
+
+// NewService wires the sources. billing may be nil (gRPC unconfigured): no
+// tenant counts as paying then.
+func NewService(signals SignalSource, ai AISource, classes Classification, billing BillingSource, store Store) *Service {
+	return &Service{
+		signals: signals, ai: ai, classes: classes, billing: billing, store: store,
+		limits: DefaultLimits, now: func() time.Time { return time.Now().UTC() },
+	}
+}
+
+// Sources reports which optional sources the evaluation could read.
+type Sources struct {
+	AI      bool `json:"ai"`
+	Billing bool `json:"billing"`
+	// PreviousSnapshot is the day the board compares against, "" before the
+	// first snapshot.
+	PreviousSnapshot string `json:"previousSnapshot"`
+}
+
+type evaluation struct {
+	now     time.Time
+	tenants []Tenant
+	prev    map[string]Previous
+	hasPrev bool
+	sources Sources
+}
+
+func logFail(section string, err error) {
+	if err != nil {
+		slog.Debug("lifecycle source failed", "component", "lifecycle", "section", section, "err", err)
+	}
+}
+
+func (s *Service) evaluate(ctx context.Context) (evaluation, error) {
+	e := evaluation{now: s.now()}
+	if !s.signals.Available() {
+		return e, ErrUnavailable
+	}
+	signals, err := s.signals.Signals(ctx)
+	if err != nil {
+		return e, err
+	}
+
+	var spans map[string]analytics.UsageSpan
+	if s.ai.Available() {
+		spans, err = s.ai.AISpans(ctx)
+		logFail("ai", err)
+		e.sources.AI = err == nil
+	}
+	tiers, err := s.classes.TenantTiers(ctx)
+	logFail("tiers", err)
+	groups, err := s.classes.TenantGroups(ctx)
+	logFail("groups", err)
+	var billing map[string]string
+	if s.billing != nil {
+		bctx, cancel := context.WithTimeout(ctx, billingTimeout)
+		billing, err = s.billing.BillingStatuses(bctx)
+		cancel()
+		logFail("billing", err)
+		e.sources.Billing = err == nil
+	}
+
+	today := truncDay(e.now)
+	day, rows, ok, err := s.store.LatestBefore(ctx, today)
+	logFail("snapshot.previous", err)
+	e.hasPrev = ok
+	e.prev = make(map[string]Previous, len(rows))
+	for _, r := range rows {
+		e.prev[r.TenantID] = Previous{Progress: Progress(r.Progress), Health: Health(r.Health)}
+	}
+	if ok {
+		e.sources.PreviousSnapshot = day.Format(time.DateOnly)
+	}
+	churnedSince, err := s.store.ChurnedSince(ctx)
+	logFail("snapshot.churned", err)
+
+	e.tenants = make([]Tenant, 0, len(signals))
+	for _, sig := range signals {
+		in := Input{Signal: sig, Tier: tiers[sig.ID].Name, Groups: groups[sig.ID], Billing: billing[sig.ID]}
+		if span, ok := spans[sig.ID]; ok {
+			in.AI = &span
+		}
+		var prev *Previous
+		if p, ok := e.prev[sig.ID]; ok {
+			prev = &p
+		}
+		t := Evaluate(e.now, in, s.limits, prev, e.hasPrev)
+		if t.Health == Churned && t.ChurnedAt == nil {
+			if since, ok := churnedSince[t.ID]; ok {
+				t.ChurnedAt = &since
+			}
+		}
+		e.tenants = append(e.tenants, t)
+	}
+	return e, nil
+}
+
+// Board is the Lifecycle tab: the funnel strip, live tenants for the board,
+// the Churned lane, the activation footer and the movement feed.
+type Board struct {
+	CheckedAt  time.Time        `json:"checkedAt"`
+	Sources    Sources          `json:"sources"`
+	Limits     map[Progress]int `json:"limits"`
+	Funnel     []FunnelStep     `json:"funnel"`
+	Tenants    []Tenant         `json:"tenants"`
+	Churned    []Tenant         `json:"churned"`
+	Activation Activation       `json:"activation"`
+	Movement   []Move           `json:"movement"`
+}
+
+func (s *Service) Board(ctx context.Context) (Board, error) {
+	e, err := s.evaluate(ctx)
+	if err != nil {
+		return Board{}, err
+	}
+	b := Board{
+		CheckedAt: e.now, Sources: e.sources, Limits: limitDays(s.limits),
+		Funnel: Funnel(e.tenants), Activation: ActivationOf(e.now, e.tenants),
+		Movement: Movement(e.tenants, e.prev, e.hasPrev),
+		Tenants:  []Tenant{}, Churned: []Tenant{},
+	}
+	for _, t := range e.tenants {
+		switch {
+		case t.Health != Churned:
+			b.Tenants = append(b.Tenants, t)
+		case t.ChurnedAt == nil || e.now.Sub(*t.ChurnedAt) <= churnedWindow:
+			b.Churned = append(b.Churned, t)
+		}
+	}
+	SortBoard(b.Tenants)
+	slices.SortStableFunc(b.Churned, func(a, b Tenant) int { return compareTimeDesc(a.ChurnedAt, b.ChurnedAt) })
+	return b, nil
+}
+
+// CohortReport is the cohort grid and the time-to-first-post chart.
+type CohortReport struct {
+	CheckedAt time.Time  `json:"checkedAt"`
+	Stages    []Progress `json:"stages"`
+	Cohorts   []Cohort   `json:"cohorts"`
+}
+
+func (s *Service) Cohorts(ctx context.Context) (CohortReport, error) {
+	e, err := s.evaluate(ctx)
+	if err != nil {
+		return CohortReport{}, err
+	}
+	return CohortReport{CheckedAt: e.now, Stages: Stages[1:], Cohorts: Cohorts(e.now, e.tenants, s.limits)}, nil
+}
+
+// HealthSpan is a run of consecutive snapshot days with the same health.
+type HealthSpan struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Health Health `json:"health"`
+}
+
+// TenantLifecycle is one tenant's Lifecycle card.
+type TenantLifecycle struct {
+	CheckedAt time.Time        `json:"checkedAt"`
+	Tenant    Tenant           `json:"tenant"`
+	Limits    map[Progress]int `json:"limits"`
+	// HealthBand covers the snapshot days, oldest first; empty before the
+	// first snapshot.
+	HealthBand []HealthSpan `json:"healthBand"`
+}
+
+// ErrNotFound is returned for an unknown tenant.
+var ErrNotFound = errors.New("tenant not found")
+
+func (s *Service) Tenant(ctx context.Context, id string) (TenantLifecycle, error) {
+	e, err := s.evaluate(ctx)
+	if err != nil {
+		return TenantLifecycle{}, err
+	}
+	i := slices.IndexFunc(e.tenants, func(t Tenant) bool { return t.ID == id })
+	if i < 0 {
+		return TenantLifecycle{}, ErrNotFound
+	}
+	out := TenantLifecycle{CheckedAt: e.now, Tenant: e.tenants[i], Limits: limitDays(s.limits), HealthBand: []HealthSpan{}}
+	history, err := s.store.History(ctx, id)
+	logFail("snapshot.history", err)
+	out.HealthBand = healthBand(history)
+	return out, nil
+}
+
+func healthBand(rows []harbor.StageSnapshot) []HealthSpan {
+	out := []HealthSpan{}
+	for _, r := range rows {
+		d, h := r.SnapshotDate.Format(time.DateOnly), Health(r.Health)
+		if n := len(out); n > 0 && out[n-1].Health == h {
+			out[n-1].To = d
+			continue
+		}
+		out = append(out, HealthSpan{From: d, To: d, Health: h})
+	}
+	return out
+}
+
+// Snapshot records today's stage for every tenant. Rerunning it the same day
+// overwrites that day's rows, so the job can tick more often than daily.
+func (s *Service) Snapshot(ctx context.Context) error {
+	if !s.signals.Available() {
+		return nil
+	}
+	e, err := s.evaluate(ctx)
+	if err != nil {
+		return err
+	}
+	today := truncDay(e.now)
+	rows := make([]harbor.StageSnapshot, 0, len(e.tenants))
+	for _, t := range e.tenants {
+		reasons, err := json.Marshal(t.Reasons)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, harbor.StageSnapshot{
+			SnapshotDate: today, TenantID: t.ID, Progress: string(t.Progress), Health: string(t.Health),
+			EnteredStageAt: t.EnteredStageAt, Stuck: t.Stuck, Reasons: reasons,
+		})
+	}
+	return s.store.UpsertDay(ctx, rows)
+}
+
+func limitDays(limits map[Progress]time.Duration) map[Progress]int {
+	out := make(map[Progress]int, len(limits))
+	for p, d := range limits {
+		out[p] = int(d / day)
+	}
+	return out
+}
+
+// compareTimeDesc orders newest first, unknown times last.
+func compareTimeDesc(a, b *time.Time) int {
+	switch {
+	case a == nil && b == nil:
+		return 0
+	case a == nil:
+		return 1
+	case b == nil:
+		return -1
+	}
+	return b.Compare(*a)
+}

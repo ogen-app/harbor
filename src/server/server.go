@@ -30,6 +30,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogenplatforms"
 	"github.com/ogen-app/harbor/src/repository/ogensecrets"
 	"github.com/ogen-app/harbor/src/repository/ogentenants"
+	"github.com/ogen-app/harbor/src/stats/lifecycle"
 )
 
 // New builds the Fiber application. uiFS is the embedded Next.js static export
@@ -37,7 +38,7 @@ import (
 // Harbor runs as a single binary. ogenDB and analyticsDB are pools to Ogen's
 // (external) control-plane and analytics databases — either may be nil when
 // Ogen is unreachable; they are held for forthcoming Ogen-backed handlers.
-func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, platformsAdminClient *ogenplatforms.Client, plansAdminClient *ogenplans.Client, emailClient *ogenemail.Client, announcementsClient *ogenannouncements.Client, modelConfigClient *ogenmodelconfig.Client, billingClient *ogenbilling.Client, invitesClient *ogeninvites.Client, financeSvc *finance.Service, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
+func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogensecrets.Client, tenantsAdminClient *ogentenants.Client, platformsAdminClient *ogenplatforms.Client, plansAdminClient *ogenplans.Client, emailClient *ogenemail.Client, announcementsClient *ogenannouncements.Client, modelConfigClient *ogenmodelconfig.Client, billingClient *ogenbilling.Client, invitesClient *ogeninvites.Client, financeSvc *finance.Service, lifecycleSvc *lifecycle.Service, cfg *config.Config, uiFS fs.FS) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: defaultErrorHandler,
 	})
@@ -105,6 +106,8 @@ func New(_ context.Context, db, ogenDB, analyticsDB *bun.DB, secretsClient *ogen
 		cfg.GoogleClientID, cfg.SessionCookieName,
 	).Register(app, requireAuth)
 	handlers.NewStatusHandler(ogenDB, analyticsDB).Register(app, requireAuth)
+	// Before the tenants handler, whose /api/tenants/:id would claim /lifecycle.
+	handlers.NewLifecycleHandler(lifecycleSvc).Register(app, requireAuth)
 	handlers.NewTenantsHandler(tenantRepo, spendRepo, activityRepo, tenantsAdminClient, financeSvc).Register(app, requireAuth)
 	handlers.NewAnalyticsHandler(spendRepo).Register(app, requireAuth)
 	handlers.NewEmailTemplatesHandler(emailTemplateRepo).Register(app, requireAuth)

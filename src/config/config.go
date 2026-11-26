@@ -70,6 +70,11 @@ type Config struct {
 	// so it is safe on every replica; turn it off only to keep a replica idle.
 	PnLJobs bool `envconfig:"PNL_JOBS" default:"true"`
 
+	// LifecycleJobs records the daily tenant lifecycle snapshots behind the
+	// Lifecycle tab's movement feed and health history (CON-437). Advisory-locked
+	// like the finance jobs.
+	LifecycleJobs bool `envconfig:"LIFECYCLE_JOBS" default:"true"`
+
 	// CORS allowlist for a decoupled UI origin. Empty (the default) disables
 	// the CORS middleware entirely — the production build serves the UI from
 	// the same origin as the API (single binary, embedded export), and

@@ -41,6 +41,7 @@ import (
 	"github.com/ogen-app/harbor/src/repository/ogentenants"
 	"github.com/ogen-app/harbor/src/repository/ogenvendorcost"
 	"github.com/ogen-app/harbor/src/server"
+	"github.com/ogen-app/harbor/src/stats/lifecycle"
 	"github.com/ogen-app/harbor/src/ui"
 )
 
@@ -257,10 +258,21 @@ func main() {
 		slog.Info("ogen vendor cost client configured", logging.AttrComponent, "boot", "addr", cfg.OgenGRPCAddr)
 	}
 
+	// The Lifecycle tab on /tenants (CON-437): tenants placed by stage from the
+	// Ogen and analytics DBs, with daily snapshots in Harbor's own database.
+	lifecycleSvc := lifecycle.NewService(
+		ogen.NewLifecycleRepository(ogenDB),
+		analytics.NewUsageSpanRepository(analyticsDB),
+		ogen.NewTenantRepository(ogenDB),
+		tenantsAdminClient,
+		harbor.NewLifecycleRepository(db),
+	)
+
+	// Each job runs under a Postgres advisory lock, so several replicas never
+	// run the same job at once.
+	var bgJobs []jobs.Job
 	if cfg.PnLJobs {
-		// Harbor's first background work. Each job runs under a Postgres advisory
-		// lock, so several replicas never run the same job at once.
-		runner := jobs.NewRunner(db,
+		bgJobs = append(bgJobs,
 			jobs.Job{Name: "pnl.receipts", Interval: 10 * time.Second, Run: financeSvc.ProcessDueEmails},
 			jobs.Job{Name: "pnl.ai_usage", Interval: 10 * time.Minute, Run: financeSvc.MaterialiseAIUsage},
 			jobs.Job{Name: "pnl.revenue", Interval: 15 * time.Minute, Run: financeSvc.SyncRevenue},
@@ -268,8 +280,15 @@ func main() {
 			jobs.Job{Name: "pnl.allocations", Interval: time.Minute, Run: financeSvc.AllocateShared},
 			jobs.Job{Name: "pnl.vendor_costs", Interval: 24 * time.Hour, Run: financeSvc.FetchVendorCharges},
 		)
-		runner.Start(context.Background())
-		slog.Info("finance jobs started", logging.AttrComponent, "boot")
+	}
+	if cfg.LifecycleJobs {
+		// Hourly, so the first tick of each UTC day records that day; later
+		// ticks the same day overwrite it with fresher data.
+		bgJobs = append(bgJobs, jobs.Job{Name: "lifecycle.snapshot", Interval: time.Hour, Run: lifecycleSvc.Snapshot})
+	}
+	if len(bgJobs) > 0 {
+		jobs.NewRunner(db, bgJobs...).Start(context.Background())
+		slog.Info("background jobs started", logging.AttrComponent, "boot", "jobs", len(bgJobs))
 	}
 
 	uiFS, err := ui.Dist()
@@ -277,7 +296,7 @@ func main() {
 		fatal("load embedded ui", err)
 	}
 
-	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, billingClient, invitesClient, financeSvc, cfg, uiFS)
+	app, err := server.New(context.Background(), db, ogenDB, analyticsDB, secretsClient, tenantsAdminClient, platformsAdminClient, plansAdminClient, emailClient, announcementsClient, modelConfigClient, billingClient, invitesClient, financeSvc, lifecycleSvc, cfg, uiFS)
 	if err != nil {
 		fatal("init server", err)
 	}

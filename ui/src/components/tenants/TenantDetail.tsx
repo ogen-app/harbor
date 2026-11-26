@@ -48,6 +48,7 @@ import { EmailsCard } from "@/components/tenants/EmailsCard";
 import { AccessCard } from "@/components/tenants/AccessCard";
 import { TenantBillingCard } from "@/components/billing/TenantBillingCard";
 import { TenantPnlTab } from "./TenantPnlTab";
+import { TenantLifecycleCard } from "./lifecycle/TenantLifecycleCard";
 import { BillingStatusBadge } from "@/components/billing/format";
 
 interface DetailResponse {
@@ -755,6 +756,8 @@ export function TenantDetail() {
             <AccessCard tenant={t} onChanged={refreshTenant} />
 
             <ProfileCard tenant={t} />
+
+            <TenantLifecycleCard tenantId={t.id} />
 
             {/* Users and Zernio side by side on large screens (equal height,
                 matched to the taller card via the grid's default stretch); a
